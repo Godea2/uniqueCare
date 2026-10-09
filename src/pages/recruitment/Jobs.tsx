@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, Chip, Loading, ErrorState, EmptyState, fmtDate } from "@/components/common";
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Briefcase, Plus, Globe, Copy, Check, QrCode, ExternalLink, RefreshCw, Trash2, BarChart3, Link2, FileText } from "lucide-react";
 import { toast } from "sonner";
 import QRCode from "qrcode";
@@ -262,25 +263,68 @@ function QrMenu({ url, name, small }: { url: string; name: string; small?: boole
 
 type Req = { key: string; label: string; weight: number; type: string; required: boolean };
 
+const EMPTY_JOB = {
+  title: "", location: "Birmingham", postcode: "", salaryText: "",
+  employmentType: "full_time" as const, descriptionMd: "", screeningThreshold: 85, closesAt: "",
+};
+
+const STARTER_REQUIREMENTS: Req[] = [
+  { key: "right_to_work", label: "Right to work in the UK", weight: 20, type: "hard", required: true },
+  { key: "experience", label: "Care experience (paid or voluntary)", weight: 25, type: "scored", required: false },
+  { key: "values", label: "Person-centred values and communication", weight: 20, type: "scored", required: false },
+];
+
+function Field({
+  label, htmlFor, hint, children, className,
+}: {
+  label: string;
+  htmlFor?: string;
+  hint?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className ? `flex flex-col gap-1.5 ${className}` : "flex flex-col gap-1.5"}>
+      <Label htmlFor={htmlFor}>{label}</Label>
+      {children}
+      {hint ? <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}
+
+function FormSection({ title, lede, children }: { title: string; lede?: string; children: ReactNode }) {
+  return (
+    <section className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-[--brand-900]">{title}</h3>
+        {lede ? <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{lede}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 function CreateJobDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const utils = trpc.useUtils();
-  const [f, setF] = useState({
-    title: "", location: "Birmingham", postcode: "", salaryText: "",
-    employmentType: "full_time" as const, descriptionMd: "", screeningThreshold: 85, closesAt: "",
-  });
-  const [reqs, setReqs] = useState<Req[]>([
-    { key: "right_to_work", label: "Right to work in the UK", weight: 20, type: "hard", required: true },
-    { key: "experience", label: "Care experience (paid or voluntary)", weight: 25, type: "scored", required: false },
-    { key: "values", label: "Person-centred values & communication", weight: 20, type: "scored", required: false },
-  ]);
+  const [f, setF] = useState(EMPTY_JOB);
+  const [reqs, setReqs] = useState<Req[]>(STARTER_REQUIREMENTS);
+  const reset = () => {
+    setF(EMPTY_JOB);
+    setReqs(STARTER_REQUIREMENTS);
+  };
   const create = trpc.hr.createJob.useMutation({
-    onSuccess: () => { utils.hr.jobs.invalidate(); toast.success("Job created as draft"); onClose(); },
+    onSuccess: () => {
+      utils.hr.jobs.invalidate();
+      toast.success("Draft saved. Publish it when you are ready to share the link.");
+      reset();
+      onClose();
+    },
     onError: (e) => toast.error(e.message),
   });
   const suggest = trpc.hr.extractRequirementsFromJD.useMutation({
     onSuccess: (r) => {
       setReqs(r.requirements.map((x) => ({ key: x.key, label: x.label, weight: x.weight, type: x.type, required: x.required })));
-      toast.success("Requirements suggested — review and edit before publishing");
+      toast.success("Suggestions added. Read them before you publish.");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -288,112 +332,151 @@ function CreateJobDialog({ open, onClose }: { open: boolean; onClose: () => void
   const set = (k: string, v: unknown) => setF((s) => ({ ...s, [k]: v }));
   const setReq = (i: number, k: keyof Req, v: unknown) =>
     setReqs((rs) => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  const ready = f.title.trim().length >= 3 && f.descriptionMd.trim().length >= 10;
+  const reviewTop = f.screeningThreshold - 1;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>New job posting</DialogTitle></DialogHeader>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
-            <Label htmlFor="j-title">Job title</Label>
-            <Input id="j-title" value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="Domiciliary Care Worker" />
-          </div>
-          <div>
-            <Label htmlFor="j-loc">Location</Label>
-            <Input id="j-loc" value={f.location} onChange={(e) => set("location", e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="j-pc">Postcode area</Label>
-            <Input id="j-pc" value={f.postcode} onChange={(e) => set("postcode", e.target.value)} placeholder="B23" />
-          </div>
-          <div>
-            <Label htmlFor="j-sal">Salary text</Label>
-            <Input id="j-sal" value={f.salaryText} onChange={(e) => set("salaryText", e.target.value)} placeholder="£12.85–£13.40 per hour" />
-          </div>
-          <div>
-            <Label>Employment type</Label>
-            <Select value={f.employmentType} onValueChange={(v) => set("employmentType", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="full_time">Full time</SelectItem>
-                <SelectItem value="part_time">Part time</SelectItem>
-                <SelectItem value="zero_hours">Zero hours</SelectItem>
-                <SelectItem value="bank">Bank</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="j-th">Auto-shortlist threshold ({f.screeningThreshold})</Label>
-            <input id="j-th" type="range" min={60} max={100} value={f.screeningThreshold}
-              onChange={(e) => set("screeningThreshold", Number(e.target.value))}
-              className="w-full accent-[--brand-600]" aria-describedby="j-th-hint" />
-            <p id="j-th-hint" className="text-[11px] text-muted-foreground">Scores at or above this are shortlisted automatically. 60–84 goes to human review. Below 60 is never auto-rejected.</p>
-          </div>
-          <div>
-            <Label htmlFor="j-close">Closing date</Label>
-            <Input id="j-close" type="date" value={f.closesAt} onChange={(e) => set("closesAt", e.target.value)} />
-          </div>
-          <div className="col-span-2">
-            <Label htmlFor="j-desc">Job description</Label>
-            <Textarea id="j-desc" rows={5} value={f.descriptionMd} onChange={(e) => set("descriptionMd", e.target.value)}
-              placeholder="About the role, what a typical day looks like, what we offer…" />
-          </div>
-        </div>
+      <DialogContent className="flex max-h-[min(92vh,880px)] w-[calc(100%-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-5 pr-14 text-left" style={{ borderColor: "var(--card-line)" }}>
+          <DialogTitle className="text-xl text-[--brand-900]">New job</DialogTitle>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            This saves as a draft. Nothing is public until you publish it.
+          </p>
+        </DialogHeader>
 
-        <div className="mt-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="uc-label">Screening requirements</p>
-            <div className="flex gap-2">
+        <div className="min-h-0 flex-1 space-y-8 overflow-y-auto px-6 py-6">
+          <FormSection title="The role">
+            <Field label="Job title" htmlFor="j-title">
+              <Input id="j-title" value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="Domiciliary Care Worker" />
+            </Field>
+            <Field label="What the work involves" htmlFor="j-desc" hint="A few sentences is enough to start. You can refine it before publishing.">
+              <Textarea id="j-desc" rows={5} value={f.descriptionMd} onChange={(e) => set("descriptionMd", e.target.value)}
+                placeholder="A typical day, who they will support, and what you offer in return." />
+            </Field>
+          </FormSection>
+
+          <FormSection title="Where, when, and pay">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Location" htmlFor="j-loc">
+                <Input id="j-loc" value={f.location} onChange={(e) => set("location", e.target.value)} />
+              </Field>
+              <Field label="Postcode area" htmlFor="j-pc" hint="Shown to applicants. Example: B23">
+                <Input id="j-pc" value={f.postcode} onChange={(e) => set("postcode", e.target.value)} placeholder="B23" />
+              </Field>
+              <Field label="Hours" htmlFor="j-type">
+                <Select value={f.employmentType} onValueChange={(v) => set("employmentType", v)}>
+                  <SelectTrigger id="j-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="full_time">Full time</SelectItem>
+                    <SelectItem value="part_time">Part time</SelectItem>
+                    <SelectItem value="zero_hours">Zero hours</SelectItem>
+                    <SelectItem value="bank">Bank</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Closing date" htmlFor="j-close" hint="Leave blank to keep applications open.">
+                <Input id="j-close" type="date" value={f.closesAt} onChange={(e) => set("closesAt", e.target.value)} />
+              </Field>
+            </div>
+            <Field label="Pay, as applicants should read it" htmlFor="j-sal" hint="This exact wording appears on the careers page.">
+              <Input id="j-sal" value={f.salaryText} onChange={(e) => set("salaryText", e.target.value)} placeholder="£12.85–£13.40 per hour" />
+            </Field>
+          </FormSection>
+
+          <FormSection
+            title="Who gets through automatically"
+            lede="A score at or above the line moves them forward. Everyone else waits for a person. Nobody is rejected by the score alone."
+          >
+            <Field label={`Shortlist from ${f.screeningThreshold}`} htmlFor="j-th">
+              <input id="j-th" type="range" min={60} max={100} value={f.screeningThreshold}
+                onChange={(e) => set("screeningThreshold", Number(e.target.value))}
+                className="mt-1 h-2 w-full cursor-pointer accent-[--brand-600]" />
+            </Field>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="rounded-2xl px-3 py-3" style={{ background: "var(--tint-green)" }}>
+                <p className="text-sm font-semibold text-[--brand-900]">{f.screeningThreshold} and above</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">Shortlisted, and the pre-interview form is sent.</p>
+              </div>
+              <div className="rounded-2xl px-3 py-3" style={{ background: "var(--tint-amber)" }}>
+                <p className="text-sm font-semibold text-[--brand-900]">{reviewTop >= 60 ? `60 to ${reviewTop}` : "No middle band"}</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                  {reviewTop >= 60 ? "Held for someone on the team to read." : "60 and above is shortlisted."}
+                </p>
+              </div>
+              <div className="rounded-2xl px-3 py-3" style={{ background: "var(--tint-slate)" }}>
+                <p className="text-sm font-semibold text-[--brand-900]">Under 60</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">Stays in Applied until a person decides.</p>
+              </div>
+            </div>
+          </FormSection>
+
+          <FormSection
+            title="What to look for"
+            lede="A draft can be saved without these. It cannot go live without them. If a must-have is missing, the score is capped at 50 and cannot shortlist."
+          >
+            <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline"
-                disabled={f.descriptionMd.length < 10 || suggest.isPending}
+                disabled={f.descriptionMd.trim().length < 10 || suggest.isPending}
                 onClick={() => suggest.mutate({ title: f.title || "Care role", descriptionMd: f.descriptionMd })}>
-                {suggest.isPending ? "Thinking…" : "Suggest from job description"}
+                {suggest.isPending ? "Reading the description…" : "Suggest from the description"}
               </Button>
               <Button size="sm" variant="outline" onClick={() => setReqs((rs) => [...rs, { key: `req_${rs.length + 1}`, label: "", weight: 10, type: "scored", required: false }])}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add one
               </Button>
             </div>
-          </div>
-          <div className="space-y-2">
-            {reqs.map((r, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <Input value={r.label} placeholder="Requirement" className="flex-1"
-                  onChange={(e) => setReq(i, "label", e.target.value)} aria-label={`Requirement ${i + 1}`} />
-                <Input type="number" min={1} max={40} value={r.weight} className="w-20"
-                  onChange={(e) => setReq(i, "weight", Number(e.target.value))} aria-label="Weight" />
-                <label className="flex items-center gap-1.5 text-xs whitespace-nowrap">
-                  <input type="checkbox" checked={r.required} onChange={(e) => setReq(i, "required", e.target.checked)}
-                    className="accent-[--brand-600]" />
-                  Hard required
-                </label>
-                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="Remove requirement"
-                  onClick={() => setReqs((rs) => rs.filter((_, j) => j !== i))}>
-                  <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                </Button>
-              </div>
-            ))}
-          </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            A job cannot go Live without requirements. Missing a hard-required item caps the AI score at 50 — it can never auto-shortlist.
-          </p>
+            {f.descriptionMd.trim().length < 10 && (
+              <p className="text-xs text-muted-foreground">Write the description first if you want suggestions.</p>
+            )}
+            <ul className="space-y-3">
+              {reqs.map((r, i) => (
+                <li key={r.key} className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--card-line)" }}>
+                  <div className="flex items-start gap-2">
+                    <Input value={r.label} placeholder="What should we look for?"
+                      onChange={(e) => setReq(i, "label", e.target.value)} aria-label={`Requirement ${i + 1}`} />
+                    <Button size="sm" variant="ghost" className="h-9 w-9 shrink-0" aria-label={`Remove requirement ${i + 1}`}
+                      onClick={() => setReqs((rs) => rs.filter((_, j) => j !== i))}>
+                      <Trash2 className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+                    <label className="flex items-center gap-2 text-sm text-slate-600">
+                      Weight
+                      <Input type="number" min={1} max={40} value={r.weight} className="h-8 w-16"
+                        onChange={(e) => setReq(i, "weight", Number(e.target.value))} aria-label={`Weight for requirement ${i + 1}`} />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <Checkbox checked={r.required} onCheckedChange={(v) => setReq(i, "required", v === true)} />
+                      Must have
+                    </label>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </FormSection>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button
-            disabled={create.isPending || f.title.length < 3 || f.descriptionMd.length < 10}
-            onClick={() => create.mutate({
-              title: f.title, location: f.location, postcode: f.postcode || undefined,
-              salaryText: f.salaryText || undefined, employmentType: f.employmentType,
-              descriptionMd: f.descriptionMd, screeningThreshold: f.screeningThreshold,
-              closesAt: f.closesAt || undefined,
-              requirements: reqs.filter((r) => r.label.trim()).map((r, i) => ({
-                key: r.key || `req_${i}`, label: r.label, weight: r.weight, type: r.type, required: r.required,
-              })),
-            })}
-          >
-            {create.isPending ? "Creating…" : "Create draft"}
-          </Button>
+        <DialogFooter className="shrink-0 gap-3 border-t bg-white px-6 py-4 sm:items-center sm:justify-between" style={{ borderColor: "var(--card-line)" }}>
+          <p className="text-xs text-muted-foreground sm:mr-auto">
+            {ready ? "Ready to save as a draft." : "Add a title and a short description to continue."}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button
+              disabled={create.isPending || !ready}
+              onClick={() => create.mutate({
+                title: f.title.trim(), location: f.location, postcode: f.postcode || undefined,
+                salaryText: f.salaryText || undefined, employmentType: f.employmentType,
+                descriptionMd: f.descriptionMd, screeningThreshold: f.screeningThreshold,
+                closesAt: f.closesAt || undefined,
+                requirements: reqs.filter((r) => r.label.trim()).map((r, i) => ({
+                  key: r.key || `req_${i}`, label: r.label, weight: r.weight, type: r.required ? "hard" : "scored", required: r.required,
+                })),
+              })}
+            >
+              {create.isPending ? "Saving…" : "Save draft"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
