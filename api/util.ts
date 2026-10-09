@@ -8,6 +8,15 @@ export type StaffCtx = {
   user: User;
 };
 
+const SUPER_ADMIN_EMAILS = new Set([
+  "kaytoba49@gmail.com",
+  "info@northsnow.co.uk",
+]);
+
+function isNamedSuperAdmin(email: string | null | undefined): boolean {
+  return !!email && SUPER_ADMIN_EMAILS.has(email.trim().toLowerCase());
+}
+
 /** Resolve the signed-in user's staff profile; auto-create on first login. */
 export async function getStaff(ctx: TrpcContext): Promise<StaffCtx> {
   if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
@@ -15,14 +24,14 @@ export async function getStaff(ctx: TrpcContext): Promise<StaffCtx> {
   if (existing) return { staff: existing, user: ctx.user };
   const name = ctx.user.name ?? ctx.user.email ?? "Staff";
   const managers = await db.from("staffProfiles").eq("role", "super_admin").isNull("deletedAt").count();
-  const isFirstManager = managers === 0;
+  const isManager = isNamedSuperAdmin(ctx.user.email) || managers === 0;
   const [created] = await db.from("staffProfiles").insert<StaffProfile>({
     userId: ctx.user.id,
     fullName: name,
     email: ctx.user.email,
-    role: isFirstManager ? "super_admin" : "care_worker",
-    jobTitle: isFirstManager ? "Registered Manager" : "Care Worker",
-    status: isFirstManager ? "active" : "onboarding",
+    role: isManager ? "super_admin" : "care_worker",
+    jobTitle: isManager ? "Registered Manager" : "Care Worker",
+    status: isManager ? "active" : "onboarding",
     contractedHours: "37.5",
     avatarColor: "#0A2E5C",
   });
