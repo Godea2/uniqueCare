@@ -1,3 +1,5 @@
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
@@ -35,7 +37,12 @@ app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
 export default app;
 
-if (env.isProduction) {
+const entryPath = process.argv[1];
+const startedDirectly =
+  entryPath != null &&
+  import.meta.url === pathToFileURL(path.resolve(entryPath)).href;
+
+if (env.isProduction && !process.env.VERCEL && startedDirectly) {
   const { serve } = await import("@hono/node-server");
   const { serveStaticFiles } = await import("./lib/vite");
   serveStaticFiles(app);
