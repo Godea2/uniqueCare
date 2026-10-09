@@ -1,0 +1,12 @@
+import { getDb } from "./api/queries/connection";
+import { isNotNull } from "drizzle-orm";
+import { staffProfiles, applications, candidates, jobPostings } from "./db/schema";
+import { eq } from "drizzle-orm";
+const db = getDb();
+const linked = await db.select({ id: staffProfiles.id, name: staffProfiles.fullName, role: staffProfiles.role, userId: staffProfiles.userId }).from(staffProfiles).where(isNotNull(staffProfiles.userId));
+console.log("linked profiles:", JSON.stringify(linked));
+const app14 = await db.query.applications.findFirst({ where: eq(applications.id, 14) });
+const cand = app14 && await db.query.candidates.findFirst({ where: eq(candidates.id, app14.candidateId) });
+const job = app14 && await db.query.jobPostings.findFirst({ where: eq(jobPostings.id, app14.jobPostingId) });
+console.log("portal sample:", JSON.stringify({ name: cand && `${cand.firstName} ${cand.lastName}`, stage: app14?.stage, job: job?.title }));
+process.exit(0);

@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Unique Care UK brand palette — blue extracted from logo (#0586BF) */
+    --brand-900: #082f52; /* deep navy: sidebar, headings */
+    --brand-700: #0575a8; /* hover / active / links (AA on white) */
+    --brand-600: #0586bf; /* PRIMARY — exact logo blue */
+    --brand-500: #2ba0d4; /* focus rings */
+    --brand-400: #6fc2e4;
+    --brand-100: #dcf0f9; /* tinted backgrounds, selected rows */
+    --brand-50: #f2fafd; /* page background */
+    --white: #ffffff;
+    --ink-900: #0f172a;
+    --ink-500: #64748b;
+    --line: #dce9f2;
+
+    /* Hostinger-style chrome */
+    --topbar: #1d1e2c;      /* dark navy full-width bar */
+    --app-bg: #f4f6fa;      /* pale panel background */
+    --card-line: #e7e9f2;   /* card borders on panel bg */
+
+    /* status colours, used only for meaning */
+    --success: #15803d;
+    --warning: #b45309;
+    --danger: #b91c1c;
+    --info: #1565c0;
+
+    /* shadcn token mapping */
+    --background: 225 27% 97%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 199 94% 34%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 199 71% 92%;
+    --secondary-foreground: 208 82% 18%;
+    --muted: 204 46% 94%;
+    --muted-foreground: 215 16% 40%;
+    --accent: 199 71% 92%;
+    --accent-foreground: 208 82% 18%;
+    --destructive: 0 72% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 204 46% 91%;
+    --input: 204 46% 85%;
+    --ring: 198 95% 38%;
+    --radius: 0.75rem;
+    --sidebar-background: 208 82% 18%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 198 95% 38%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 208 60% 24%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 208 55% 26%;
+    --sidebar-ring: 197 68% 66%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px;
+  }
+  h1, h2, h3, h4 {
+    color: var(--brand-900);
+    font-weight: 600;
+  }
+  ::selection {
+    background: var(--brand-100);
+  }
+}
+
+@layer components {
+  /* UniqueCare design system primitives */
+  .uc-card {
+    background: var(--white);
+    border: 1px solid var(--card-line);
+    border-radius: 16px;
+    box-shadow: 0 1px 2px rgb(21 23 44 / 0.04), 0 2px 8px rgb(21 23 44 / 0.03);
+  }
+  .uc-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-500);
+  }
+  .uc-focus:focus-visible {
+    outline: 2px solid var(--brand-500);
+    outline-offset: 2px;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
