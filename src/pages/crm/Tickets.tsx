@@ -53,7 +53,7 @@ export default function Tickets() {
       </div>
 
       {q.isLoading ? <Loading rows={6} /> : q.error ? <ErrorState message={q.error.message} onRetry={() => q.refetch()} /> : (
-        <div className="uc-card overflow-x-auto">
+        <div className="uc-card overflow-x-auto" data-tour="ticket-list">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground" style={{ borderColor: "var(--line)" }}>

@@ -17,11 +17,11 @@ export function PageHeader({
 }: { title: string; subtitle?: string; actions?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
-      <div>
+      <div data-tour="page-header">
         <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
         {subtitle && <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
+      {actions && <div className="flex items-center gap-2 flex-wrap" data-tour="page-actions">{actions}</div>}
     </div>
   );
 }
@@ -41,17 +41,22 @@ export function StatCard({
   return (
     <button
       onClick={onClick}
+      data-tour="stat-card"
       className={cn(
-        "uc-card p-4 text-left w-full transition-shadow hover:shadow-md uc-focus",
+        `uc-stat uc-stat-${tone} p-5 text-left w-full uc-focus`,
         onClick ? "cursor-pointer" : "cursor-default",
       )}
     >
-      <div className="flex items-center justify-between">
-        <span className="uc-label">{label}</span>
-        <Icon className="h-4 w-4 text-[--brand-600]" aria-hidden />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className="uc-label">{label}</span>
+          <div className={cn("text-3xl font-bold mt-2 tracking-tight", tones[tone])}>{value}</div>
+          {hint && <div className="text-xs text-muted-foreground mt-1.5">{hint}</div>}
+        </div>
+        <span className={`uc-icon-chip uc-icon-chip-${tone} h-12 w-12 shrink-0`} aria-hidden>
+          <Icon className="h-5 w-5" strokeWidth={2} />
+        </span>
       </div>
-      <div className={cn("text-2xl font-bold mt-1.5", tones[tone])}>{value}</div>
-      {hint && <div className="text-xs text-muted-foreground mt-1">{hint}</div>}
     </button>
   );
 }
@@ -181,7 +186,7 @@ export function Loading({ rows = 4 }: { rows?: number }) {
   return (
     <div className="space-y-3" aria-label="Loading">
       {Array.from({ length: rows }).map((_, i) => (
-        <Skeleton key={i} className="h-14 w-full rounded-xl" />
+        <Skeleton key={i} className="uc-shimmer h-14 w-full rounded-xl" />
       ))}
     </div>
   );

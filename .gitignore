@@ -18,6 +18,9 @@ api/boot.mjs
 .env.*
 !.env.example
 
+# Reference UI draft. The live app is the repo root.
+new_ui_update/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

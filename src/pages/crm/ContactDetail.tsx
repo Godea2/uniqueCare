@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowLeft, PhoneCall, Sparkles, Mail, Phone, MessageSquare, FileText, StickyNote } from "lucide-react";
+import { ArrowLeft, PhoneCall, Mail, Phone, MessageSquare, FileText, StickyNote } from "lucide-react";
 import { toast } from "sonner";
 
 const TYPE_ICONS: Record<string, React.ElementType> = {
@@ -42,7 +42,7 @@ export default function ContactDetail() {
         actions={
           <>
             <Button variant="outline" size="sm" disabled={summarise.isPending} onClick={() => summarise.mutate({ contactId })}>
-              <Sparkles className="h-3.5 w-3.5 mr-1" /> {summarise.isPending ? "Summarising…" : "AI summary"}
+              {summarise.isPending ? "Summarising…" : "AI summary"}
             </Button>
             <Button size="sm" onClick={() => setLogOpen(true)}>Log interaction</Button>
           </>

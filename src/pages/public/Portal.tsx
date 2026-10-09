@@ -125,7 +125,7 @@ export default function Portal() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[--brand-50]">
+    <div className="min-h-screen bg-[--app-bg]">
       <header className="bg-white border-b" style={{ borderColor: "var(--line)" }}>
         <div className="mx-auto max-w-2xl px-4 py-4">
           <img src="/logo.png" alt="Unique Care UK" className="h-9 w-auto" />

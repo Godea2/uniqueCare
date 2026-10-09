@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import {
-  GripVertical, Plus, Trash2, Copy, Lock, Undo2, Redo2, Eye, Pencil, Sparkles,
+  GripVertical, Plus, Trash2, Copy, Lock, Undo2, Redo2, Eye, Pencil,
   ChevronDown, ChevronUp, Smartphone, Monitor, Check, X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -160,7 +160,7 @@ export function FormBuilder({ title, schema: initial, backLabel, onBack, onSave,
         </Button>
         {onSuggest && (
           <Button size="sm" variant="outline" onClick={runSuggest} disabled={suggesting}>
-            <Sparkles className="h-4 w-4 mr-1" /> {suggesting ? "Thinking…" : "Suggest questions from the job description"}
+            {suggesting ? "Thinking…" : "Suggest questions from the job description"}
           </Button>
         )}
         {extraActions}
@@ -200,7 +200,7 @@ export function FormBuilder({ title, schema: initial, backLabel, onBack, onSave,
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
           {/* canvas */}
-          <div>
+          <div data-tour="form-canvas">
             {/* branding */}
             <div className="uc-card p-4 mb-4">
               <p className="uc-label mb-2">Branding & messages</p>

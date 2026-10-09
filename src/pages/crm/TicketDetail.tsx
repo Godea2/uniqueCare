@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowLeft, Sparkles, Eye, ArrowUpRight } from "lucide-react";
+import { ArrowLeft, Eye, ArrowUpRight } from "lucide-react";
 import { toast } from "sonner";
 
 const STATUSES = ["new", "open", "in_progress", "waiting_on_customer", "waiting_on_internal", "escalated", "resolved", "closed", "reopened"];
@@ -247,7 +247,7 @@ function Comments({ ticketId, comments, allStaff, onDone }: {
       <div className="flex items-center justify-between mb-3">
         <h2 className="uc-label">Conversation</h2>
         <Button size="sm" variant="outline" disabled={draft.isPending} onClick={() => draft.mutate({ ticketId })}>
-          <Sparkles className="h-3.5 w-3.5 mr-1" /> {draft.isPending ? "Drafting…" : "Draft reply with AI"}
+          {draft.isPending ? "Drafting…" : "Draft reply with AI"}
         </Button>
       </div>
       {draft.error && <div className="mb-3"><AiError error={draft.error} onRetry={() => draft.mutate({ ticketId })} /></div>}

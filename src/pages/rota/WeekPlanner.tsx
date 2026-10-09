@@ -5,7 +5,7 @@ import { PageHeader, Chip, Loading, ErrorState, EmptyState, fmtTime, StatCard } 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { CalendarRange, Download, Lock, Sparkles, CalendarPlus, Percent, Route, HeartHandshake } from "lucide-react";
+import { CalendarRange, Download, Lock, CalendarPlus, Percent, Route, HeartHandshake } from "lucide-react";
 import { toast } from "sonner";
 
 function mondayOf(d: Date) {
@@ -66,7 +66,7 @@ export default function WeekPlanner() {
           <div className="flex items-center gap-2 flex-wrap">
             <Input type="date" value={genDate} onChange={(e) => setGenDate(mondayOf(new Date(e.target.value)))} className="w-40" aria-label="Week starting (Monday)" />
             <Button variant="outline" disabled={generate.isPending} onClick={() => generate.mutate({ weekStartDate: genDate })}>
-              <Sparkles className="h-4 w-4 mr-1.5" /> {generate.isPending ? "Generating…" : "Generate week"}
+              {generate.isPending ? "Generating…" : "Generate week"}
             </Button>
             {week?.status === "draft" && (
               <Button disabled={publish.isPending} onClick={() => publish.mutate({ weekId: Number(week.id) })}>
@@ -125,12 +125,14 @@ export default function WeekPlanner() {
               {unassignedCount} visit{unassignedCount === 1 ? "" : "s"} still need{unassignedCount === 1 ? "s" : ""} a worker — click a visit to assign manually. The engine only assigns within hard constraints (skills, availability, gender preference, no overlaps, hours caps).
             </p>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-7 gap-2" data-tour="rota-grid">
             {[0, 1, 2, 3, 4, 5, 6].map((dow) => (
-              <div key={dow} className="min-h-40">
-                <p className="uc-label mb-1.5">
-                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][dow]}{" "}
-                  {week && new Date(new Date(week.weekStartDate + "T00:00").getTime() + dow * 864e5).toLocaleDateString("en-GB", { day: "numeric" })}
+              <div key={dow} className="min-h-40 uc-kanban-col" style={{ background: dow % 2 === 0 ? "#e8f3fb" : "#eef1f9" }}>
+                <p className="mb-2 flex items-center justify-between px-1 pt-0.5 text-[13px] font-semibold text-[#2f7fc4]">
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][dow]}
+                  <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-white px-1.5 text-[11px] font-bold text-[#2f7fc4] shadow-sm">
+                    {week ? new Date(new Date(week.weekStartDate + "T00:00").getTime() + dow * 864e5).toLocaleDateString("en-GB", { day: "numeric" }) : ""}
+                  </span>
                 </p>
                 <div className="space-y-1.5">
                   {byDay[dow].map((v) => {
@@ -140,7 +142,7 @@ export default function WeekPlanner() {
                       <button
                         key={v.id}
                         onClick={() => setAssignVisit(Number(v.id))}
-                        className={`uc-focus w-full rounded-lg border p-2 text-left text-xs transition-shadow hover:shadow-sm ${open ? "border-red-300 bg-red-50/60" : "bg-white"}`}
+                        className={`uc-focus w-full rounded-xl border p-2.5 text-left text-xs shadow-sm transition-shadow hover:shadow-md ${open ? "border-red-300 bg-red-50/60" : "bg-white"}`}
                         style={{ borderColor: open ? undefined : "var(--line)" }}
                       >
                         <span className="block font-semibold text-[--brand-900]">

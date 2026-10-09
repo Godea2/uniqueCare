@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Star, Plus, Sparkles } from "lucide-react";
+import { Star, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 type AiDraft = { summary: string; strengths: string; development: string; objectives: string[]; evidenceNoteIds: number[] };
@@ -165,7 +165,7 @@ function AppraisalDialog({ id, onClose, isManager, myStaffId }: {
             <p className="mb-2">Generate an AI draft from supervision notes, completed training and rota reliability. Evidence is linked so you can check every claim.</p>
             {draft.error && <div className="mb-2"><AiError error={draft.error} onRetry={() => draft.mutate({ appraisalId: id })} /></div>}
             <Button disabled={draft.isPending} onClick={() => draft.mutate({ appraisalId: id })}>
-              <Sparkles className="h-4 w-4 mr-1.5" /> {draft.isPending ? "Drafting…" : "Draft with AI"}
+              {draft.isPending ? "Drafting…" : "Draft with AI"}
             </Button>
           </div>
         )}

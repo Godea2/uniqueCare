@@ -71,6 +71,7 @@ export default function InspectionPack() {
 
       <section className="uc-card p-6 print:break-inside-avoid">
         <h2 className="uc-label mb-3">Approved plans ({approvedPlans.length})</h2>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b text-left text-xs text-muted-foreground" style={{ borderColor: "var(--line)" }}>
@@ -93,6 +94,7 @@ export default function InspectionPack() {
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       <section className="uc-card p-6 print:break-inside-avoid">

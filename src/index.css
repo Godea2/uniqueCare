@@ -5,7 +5,7 @@
 @layer base {
   :root {
     /* Unique Care UK brand palette — blue extracted from logo (#0586BF) */
-    --brand-900: #082f52; /* deep navy: sidebar, headings */
+    --brand-900: #082f52; /* deep navy: headings */
     --brand-700: #0575a8; /* hover / active / links (AA on white) */
     --brand-600: #0586bf; /* PRIMARY — exact logo blue */
     --brand-500: #2ba0d4; /* focus rings */
@@ -15,18 +15,54 @@
     --white: #ffffff;
     --ink-900: #0f172a;
     --ink-500: #64748b;
-    --line: #dce9f2;
+    --line: #e3e9f2;
 
-    /* Hostinger-style chrome */
-    --topbar: #1d1e2c;      /* dark navy full-width bar */
-    --app-bg: #f4f6fa;      /* pale panel background */
+    /* Reference-style chrome — app floats as one big rounded panel */
+    --frame-bg: #dcdff0;    /* lavender-grey backdrop around the frame */
+    --app-bg: #eef1f9;      /* soft periwinkle panel background */
     --card-line: #e7e9f2;   /* card borders on panel bg */
+    --topbar: #ffffff;      /* white content header (reference style) */
+
+    /* Pastel tint palette (reference-style metric tiles & board columns) */
+    --tint-blue: #e8f3fb;
+    --tint-green: #e7f7ee;
+    --tint-amber: #fdf2df;
+    --tint-red: #fdecec;
+    --tint-violet: #efebfd;
+    --tint-pink: #fdeef5;
+    --tint-teal: #e6f7f6;
+    --tint-slate: #edf0f6;
 
     /* status colours, used only for meaning */
     --success: #15803d;
     --warning: #b45309;
     --danger: #b91c1c;
     --info: #1565c0;
+
+    /* ── Elevation system (layered, low-saturation shadows) ── */
+    --elev-1: 0 1px 2px rgb(15 18 35 / 0.05), 0 1px 3px rgb(15 18 35 / 0.04);
+    --elev-2: 0 1px 2px rgb(15 18 35 / 0.05), 0 4px 12px rgb(15 18 35 / 0.06);
+    --elev-3: 0 2px 4px rgb(15 18 35 / 0.05), 0 10px 24px rgb(15 18 35 / 0.09);
+    --elev-4: 0 4px 8px rgb(15 18 35 / 0.06), 0 18px 44px rgb(15 18 35 / 0.13);
+    --elev-brand: 0 1px 2px rgb(5 134 191 / 0.35), 0 6px 16px rgb(5 134 191 / 0.28);
+    --elev-frame: 0 24px 64px -24px rgb(15 18 35 / 0.35), 0 4px 16px rgb(15 18 35 / 0.08);
+    --inner-hi: inset 0 1px 0 rgb(255 255 255 / 0.65);
+
+    /* Brand gradients */
+    --brand-gradient: linear-gradient(135deg, #2ba0d4 0%, #0586bf 48%, #0575a8 100%);
+    --brand-gradient-soft: linear-gradient(135deg, #f2fafd 0%, #dcf0f9 100%);
+    /* Solid, saturated deep-blue rail (references use flat deep violet — brand-translated) */
+    --sidebar-gradient: linear-gradient(180deg, #0d5d8c 0%, #084a70 58%, #06405f 100%);
+    /* Bright solid-feel hero (references use vivid solid colour cards) */
+    --hero-gradient: linear-gradient(115deg, #17a0dd 0%, #0586bf 52%, #0473a9 100%);
+
+    /* Motion */
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --dur-fast: 120ms;
+    --dur-med: 200ms;
+
+    /* Focus glow */
+    --focus-glow: 0 0 0 4px rgb(43 160 212 / 0.18);
 
     /* shadcn token mapping */
     --background: 225 27% 97%;
@@ -64,28 +100,161 @@
   * {
     @apply border-border;
   }
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     font-size: 15px;
+    font-feature-settings: "cv11", "ss01";
   }
   h1, h2, h3, h4 {
     color: var(--brand-900);
     font-weight: 600;
+    letter-spacing: -0.01em;
   }
   ::selection {
     background: var(--brand-100);
   }
+
+  /* Slim, brand-tinted scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #c3cede transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: #c3cede;
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: #9fb2c8;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* Inputs get a soft brand glow on focus (supplements shadcn ring) */
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [role="combobox"]:focus-visible {
+    box-shadow: var(--focus-glow);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 @layer components {
-  /* UniqueCare design system primitives */
+  /* ── UniqueCare design system primitives ── */
+
+  /* Floating rounded app frame (reference: whole app in one rounded panel) */
+  .uc-frame {
+    border-radius: 28px;
+    overflow: hidden;
+    box-shadow: var(--elev-frame);
+    outline: 1px solid rgb(15 18 35 / 0.05);
+  }
+
+  /* Card: crisp border, layered elevation, hairline top highlight for depth */
   .uc-card {
+    position: relative;
     background: var(--white);
     border: 1px solid var(--card-line);
-    border-radius: 16px;
-    box-shadow: 0 1px 2px rgb(21 23 44 / 0.04), 0 2px 8px rgb(21 23 44 / 0.03);
+    border-radius: 22px;
+    box-shadow: var(--inner-hi), var(--elev-1);
+    transition: box-shadow var(--dur-med) var(--ease-out),
+      transform var(--dur-med) var(--ease-out),
+      border-color var(--dur-med) var(--ease-out);
   }
+
+  /* Pastel metric tile — solid circular icon chip, tinted body */
+  .uc-stat {
+    border-radius: 22px;
+    border: 1px solid transparent;
+    box-shadow: var(--inner-hi), var(--elev-1);
+    transition: box-shadow var(--dur-med) var(--ease-out),
+      transform var(--dur-med) var(--ease-out);
+  }
+  .uc-stat:hover {
+    box-shadow: var(--inner-hi), var(--elev-3);
+    transform: translateY(-2px);
+  }
+  .uc-stat:active {
+    transform: translateY(0);
+    box-shadow: var(--inner-hi), var(--elev-1);
+  }
+
+  /* Solid circular icon chip (white glyph on brand/status colour) */
+  .uc-icon-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    color: #fff;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3), 0 4px 10px rgb(15 18 35 / 0.18);
+  }
+
+  /* Vivid hero card — welcome / key callouts, with soft decorative circles */
+  .uc-hero {
+    position: relative;
+    overflow: hidden;
+    background-image: var(--hero-gradient);
+    border-radius: 24px;
+    box-shadow: var(--elev-3), inset 0 1px 0 rgb(255 255 255 / 0.25);
+    color: #fff;
+  }
+  .uc-hero::before {
+    content: "";
+    position: absolute;
+    right: -70px;
+    top: -90px;
+    width: 260px;
+    height: 260px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.1);
+    pointer-events: none;
+  }
+  .uc-hero::after {
+    content: "";
+    position: absolute;
+    right: 90px;
+    bottom: -120px;
+    width: 220px;
+    height: 220px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.07);
+    pointer-events: none;
+  }
+  .uc-hero h1, .uc-hero h2, .uc-hero h3, .uc-hero p {
+    color: #fff;
+  }
+
+  /* Liftable card — used for interactive tiles */
+  .uc-card-lift {
+    box-shadow: var(--inner-hi), var(--elev-1);
+  }
+  .uc-card-lift:hover {
+    box-shadow: var(--inner-hi), var(--elev-3);
+    transform: translateY(-2px);
+    border-color: #d8dceb;
+  }
+  .uc-card-lift:active {
+    transform: translateY(0);
+    box-shadow: var(--inner-hi), var(--elev-1);
+  }
+
   .uc-label {
     font-size: 11px;
     font-weight: 600;
@@ -93,14 +262,295 @@
     text-transform: uppercase;
     color: var(--ink-500);
   }
+
   .uc-focus:focus-visible {
     outline: 2px solid var(--brand-500);
     outline-offset: 2px;
+    box-shadow: var(--focus-glow);
   }
+
+  /* Primary button: brand gradient with real depth */
+  .uc-btn-primary {
+    background-image: var(--brand-gradient);
+    box-shadow: var(--elev-brand), inset 0 1px 0 rgb(255 255 255 / 0.22);
+    text-shadow: 0 1px 1px rgb(8 47 82 / 0.25);
+    transition: box-shadow var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out),
+      filter var(--dur-fast) var(--ease-out);
+  }
+  .uc-btn-primary:hover {
+    filter: brightness(1.06);
+    box-shadow: 0 2px 4px rgb(5 134 191 / 0.35), 0 10px 22px rgb(5 134 191 / 0.32),
+      inset 0 1px 0 rgb(255 255 255 / 0.22);
+    transform: translateY(-1px);
+  }
+  .uc-btn-primary:active {
+    transform: translateY(0.5px);
+    filter: brightness(0.97);
+    box-shadow: 0 1px 2px rgb(5 134 191 / 0.3), inset 0 1px 2px rgb(8 47 82 / 0.25);
+  }
+
+  /* Icon tile — soft 3D badge used in stat cards / headers */
+  .uc-icon-tile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: var(--brand-gradient-soft);
+    border: 1px solid var(--brand-100);
+    box-shadow: var(--inner-hi), 0 1px 2px rgb(5 134 191 / 0.08);
+    color: var(--brand-700);
+  }
+
+  /* White content header (reference style — light, over content column only) */
+  .uc-topbar {
+    background: var(--topbar);
+    box-shadow: 0 1px 0 var(--card-line);
+  }
+
+  /* Grey pill controls inside the white header */
+  .uc-topbar-pill {
+    background: #f1f3f9;
+    border: 1px solid transparent;
+    color: #3c4763;
+    transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  }
+  .uc-topbar-pill:hover {
+    background: #e8ecf6;
+    border-color: #dfe3f0;
+  }
+  .uc-topbar-circle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #f1f3f9;
+    border: 1px solid transparent;
+    color: #4a5468;
+    transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  }
+  .uc-topbar-circle:hover {
+    background: #e8ecf6;
+    border-color: #dfe3f0;
+  }
+
+  /* ── Solid deep-blue sidebar (reference: flat coloured rail, pill nav) ── */
+  .uc-sidebar {
+    background-image: var(--sidebar-gradient);
+  }
+  .uc-side-group {
+    color: rgb(255 255 255 / 0.45);
+  }
+  .uc-side-group:hover {
+    color: rgb(255 255 255 / 0.85);
+  }
+  .uc-side-link {
+    color: rgb(255 255 255 / 0.78);
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
+  }
+  .uc-side-link:hover {
+    background: rgb(255 255 255 / 0.1);
+    color: #fff;
+    transform: translateX(2px);
+  }
+  .uc-side-link .lucide {
+    color: rgb(255 255 255 / 0.6);
+  }
+  .uc-side-link:hover .lucide {
+    color: #fff;
+  }
+
+  /* Active pill — white card on the colour rail, brand edge glow */
+  .uc-nav-active {
+    position: relative;
+    background: #fff;
+    color: var(--brand-900);
+    box-shadow: var(--elev-2), 0 0 0 1px rgb(255 255 255 / 0.1);
+  }
+  .uc-nav-active .lucide {
+    color: var(--brand-600) !important;
+  }
+  .uc-nav-active::before {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 18px;
+    border-radius: 999px;
+    background: var(--brand-gradient);
+    box-shadow: 0 0 8px rgb(5 134 191 / 0.45);
+  }
+
+  /* Profile card at the foot of the sidebar */
+  .uc-side-profile {
+    background: rgb(255 255 255 / 0.08);
+    outline: 1px solid rgb(255 255 255 / 0.1);
+    border-radius: 18px;
+  }
+
+  /* Pastel board column (pipeline / planner) */
+  .uc-kanban-col {
+    border-radius: 22px;
+    padding: 12px;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.6);
+  }
+  .uc-kanban-card {
+    border-radius: 16px;
+  }
+
+  /* Page entrance — subtle rise */
+  .uc-page-enter {
+    animation: uc-fade-up 0.35s var(--ease-out) both;
+  }
+
+  /* Shimmer for loading skeletons */
+  .uc-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .uc-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(100deg, transparent 20%, rgb(255 255 255 / 0.65) 50%, transparent 80%);
+    animation: uc-shimmer 1.6s linear infinite;
+  }
+}
+
+/* Tone variants — built with dynamic suffixes in JS, so they must live
+   OUTSIDE @layer (Tailwind tree-shakes unreferenced @layer classes). */
+.uc-stat-default { background: var(--tint-blue); border-color: #d3e7f5; }
+.uc-stat-good { background: var(--tint-green); border-color: #cfeadb; }
+.uc-stat-warn { background: var(--tint-amber); border-color: #f3e0bc; }
+.uc-stat-bad { background: var(--tint-red); border-color: #f5d3d3; }
+.uc-icon-chip-default { background: var(--brand-gradient); }
+.uc-icon-chip-good { background: linear-gradient(135deg, #34a853, #15803d); }
+.uc-icon-chip-warn { background: linear-gradient(135deg, #e8a33d, #b45309); }
+.uc-icon-chip-bad { background: linear-gradient(135deg, #e05a5a, #b91c1c); }
+
+@keyframes uc-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes uc-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+/* ── driver.js guided tour — UniqueCare theme ── */
+.driver-popover.uc-tour {
+  border-radius: 18px;
+  border: 1px solid var(--card-line);
+  box-shadow: var(--elev-4);
+  padding: 4px;
+  max-width: 340px;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+.driver-popover.uc-tour .driver-popover-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--brand-900);
+  letter-spacing: -0.01em;
+}
+.driver-popover.uc-tour .driver-popover-description {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #475569;
+}
+.driver-popover.uc-tour .driver-popover-progress-text {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--brand-600);
+  text-transform: uppercase;
+}
+.driver-popover.uc-tour .driver-popover-next-btn,
+.driver-popover.uc-tour .driver-popover-prev-btn {
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 16px;
+  text-shadow: none;
+}
+.driver-popover.uc-tour .driver-popover-next-btn {
+  background: var(--brand-gradient);
+  color: #fff;
+  border: none;
+  box-shadow: var(--elev-brand), inset 0 1px 0 rgb(255 255 255 / 0.22);
+}
+.driver-popover.uc-tour .driver-popover-next-btn:hover {
+  filter: brightness(1.06);
+}
+.driver-popover.uc-tour .driver-popover-prev-btn {
+  background: #fff;
+  color: var(--brand-700);
+  border: 1px solid var(--brand-100);
+}
+.driver-popover.uc-tour .driver-popover-prev-btn:hover {
+  background: var(--brand-50);
+}
+.driver-popover.uc-tour .driver-popover-close-btn {
+  color: #94a3b8;
+}
+.driver-popover.uc-tour .driver-popover-close-btn:hover {
+  color: var(--brand-900);
+}
+.driver-popover.uc-tour .driver-popover-arrow-side-left,
+.driver-popover.uc-tour .driver-popover-arrow-side-right,
+.driver-popover.uc-tour .driver-popover-arrow-side-top,
+.driver-popover.uc-tour .driver-popover-arrow-side-bottom {
+  border-color: #fff transparent transparent #fff;
 }
 
 @media print {
   .no-print {
     display: none !important;
+  }
+}
+
+/* ── Mobile responsiveness ── */
+@keyframes uc-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes uc-slide-right {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+.uc-fade-in {
+  animation: uc-fade 0.18s ease-out;
+}
+.uc-slide-in {
+  animation: uc-slide-right 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@media (max-width: 640px) {
+  /* Multi-column form rows inside dialogs collapse to a single column */
+  [role="dialog"] .grid-cols-2,
+  [role="dialog"] .grid-cols-3,
+  [role="alertdialog"] .grid-cols-2,
+  [role="alertdialog"] .grid-cols-3 {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+  /* Tall dialogs scroll within the viewport instead of overflowing */
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"] {
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+    padding: 1.25rem;
+  }
+  /* Page heading scales down slightly on phones */
+  h1 {
+    font-size: 1.125rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .driver-popover.uc-tour {
+    max-width: calc(100vw - 2rem);
   }
 }

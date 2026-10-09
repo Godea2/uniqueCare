@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
-import { Briefcase, Plus, Globe, Copy, Check, QrCode, ExternalLink, RefreshCw, Sparkles, Trash2, BarChart3, Link2, FileText } from "lucide-react";
+import { Briefcase, Plus, Globe, Copy, Check, QrCode, ExternalLink, RefreshCw, Trash2, BarChart3, Link2, FileText } from "lucide-react";
 import { toast } from "sonner";
 import QRCode from "qrcode";
 import type { RouterOutputs } from "@/lib/router-types";
@@ -40,7 +40,7 @@ export default function Jobs() {
       {jobs.length === 0 ? (
         <EmptyState icon={Briefcase} title="No jobs yet" hint="Create your first vacancy to start receiving applications." />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4" data-tour="job-list">
           {jobs.map((j) => (
             <JobCard key={j.id} job={j} onSetStatus={(status) => setStatus.mutate({ id: Number(j.id), status })} />
           ))}
@@ -347,7 +347,7 @@ function CreateJobDialog({ open, onClose }: { open: boolean; onClose: () => void
               <Button size="sm" variant="outline"
                 disabled={f.descriptionMd.length < 10 || suggest.isPending}
                 onClick={() => suggest.mutate({ title: f.title || "Care role", descriptionMd: f.descriptionMd })}>
-                <Sparkles className="h-3.5 w-3.5 mr-1" /> {suggest.isPending ? "Thinking…" : "Suggest from job description"}
+                {suggest.isPending ? "Thinking…" : "Suggest from job description"}
               </Button>
               <Button size="sm" variant="outline" onClick={() => setReqs((rs) => [...rs, { key: `req_${rs.length + 1}`, label: "", weight: 10, type: "scored", required: false }])}>
                 <Plus className="h-3.5 w-3.5 mr-1" /> Add

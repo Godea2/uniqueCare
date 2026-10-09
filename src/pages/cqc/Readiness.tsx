@@ -73,7 +73,7 @@ export default function Readiness() {
         }
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4" data-tour="cqc-domains">
         {questions.map((qq) => (
           <Link key={qq.key} to={qq.to} className="uc-focus rounded-xl">
             <div className="uc-card p-4 h-full hover:shadow-md transition-shadow">

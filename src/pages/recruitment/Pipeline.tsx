@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Sparkles, UserX, Table2, LayoutGrid, Download } from "lucide-react";
+import { UserX, Table2, LayoutGrid, Download } from "lucide-react";
 import { toast } from "sonner";
 import type { RouterOutputs } from "@/lib/router-types";
 
@@ -30,6 +30,9 @@ function fmtAnswer(v: unknown): string {
 function toCsv(rows: string[][]): string {
   return rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
 }
+
+const KANBAN_TINTS = ["#efebfd", "#e8f3fb", "#fdf2df", "#fdeef5", "#e7f7ee", "#e6f7f6", "#edf0f6", "#fdecec"];
+const KANBAN_DEEP = ["#6d5bd0", "#2f7fc4", "#b45309", "#c2507f", "#15803d", "#0f766e", "#526078", "#b91c1c"];
 
 const STAGE_GROUPS: { label: string; stages: string[] }[] = [
   { label: "Applied", stages: ["applied", "review"] },
@@ -216,19 +219,19 @@ export default function Pipeline() {
           </table>
         </div>
       ) : (
-      <div className="flex gap-3 overflow-x-auto pb-4">
-        {groups.map((g) => (
-          <div key={g.label} className="w-64 shrink-0">
-            <p className="uc-label mb-2 flex items-center justify-between">
+      <div className="flex gap-3 overflow-x-auto pb-4" data-tour="pipeline-board">
+        {groups.map((g, gi) => (
+          <div key={g.label} className="w-64 shrink-0 uc-kanban-col" style={{ background: KANBAN_TINTS[gi % KANBAN_TINTS.length] }}>
+            <p className="mb-2.5 flex items-center justify-between px-1.5 pt-1 text-[13px] font-semibold" style={{ color: KANBAN_DEEP[gi % KANBAN_DEEP.length] }}>
               {g.label}
-              <span className="rounded-full bg-[--brand-100] px-2 py-0.5 text-[10px] font-semibold text-[--brand-900]">{g.apps.length}</span>
+              <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-white px-1.5 text-[11px] font-bold shadow-sm" style={{ color: KANBAN_DEEP[gi % KANBAN_DEEP.length] }}>{g.apps.length}</span>
             </p>
             <div className="space-y-2">
               {g.apps.map((a) => {
                 const checked = selected.includes(Number(a.id));
                 const canScreenOut = a.aiScore !== null && a.aiScore < 60 && a.stage === "applied";
                 return (
-                  <div key={a.id} className="uc-card p-3">
+                  <div key={a.id} className="uc-card uc-kanban-card p-3">
                     <div className="flex items-start gap-2">
                       {canScreenOut && (
                         <input
@@ -258,7 +261,7 @@ export default function Pipeline() {
                               disabled={screen.isPending}
                               onClick={() => screen.mutate({ applicationId: Number(a.id) })}
                             >
-                              <Sparkles className="h-3 w-3 mr-1" /> Screen
+                              Screen
                             </Button>
                           )}
                         </div>
@@ -267,7 +270,7 @@ export default function Pipeline() {
                   </div>
                 );
               })}
-              {g.apps.length === 0 && <div className="rounded-lg border border-dashed py-6 text-center text-xs text-muted-foreground" style={{ borderColor: "var(--line)" }}>Empty</div>}
+              {g.apps.length === 0 && <div className="rounded-2xl border border-dashed py-6 text-center text-xs" style={{ borderColor: `${KANBAN_DEEP[gi % KANBAN_DEEP.length]}55`, color: `${KANBAN_DEEP[gi % KANBAN_DEEP.length]}99` }}>Empty</div>}
             </div>
           </div>
         ))}

@@ -7,7 +7,7 @@ export default function Careers() {
   const q = trpc.hr.publicJobs.useQuery();
 
   return (
-    <div className="min-h-screen bg-[--brand-50]">
+    <div className="min-h-screen bg-[--app-bg]">
       <header className="bg-white border-b" style={{ borderColor: "var(--line)" }}>
         <div className="mx-auto max-w-3xl px-4 py-4 flex items-center justify-between">
           <img src="/logo.png" alt="Unique Care UK" className="h-9 w-auto" />

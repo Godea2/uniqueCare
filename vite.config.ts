@@ -12,6 +12,9 @@ export default defineConfig({
     inspectAttr(), react()],
   server: {
     port: 3000,
+    watch: {
+      ignored: ["**/new_ui_update/**"],
+    },
   },
   resolve: {
     alias: {

@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Sparkles, CheckCircle2, XCircle, FileCheck2, GraduationCap, Copy, Check, ArrowLeft, FileText } from "lucide-react";
+import { CheckCircle2, XCircle, FileCheck2, GraduationCap, Copy, Check, ArrowLeft, FileText } from "lucide-react";
 import { toast } from "sonner";
 
 const CRITERIA = ["Values & motivation", "Person-centred care", "Safeguarding awareness", "Communication", "Reliability", "Scenario judgement"];
@@ -79,7 +79,7 @@ export default function CandidateDetail() {
               <>
                 {app.aiScore === null && (
                   <Button size="sm" variant="outline" disabled={screen.isPending} onClick={() => screen.mutate({ applicationId: app.id })}>
-                    <Sparkles className="h-3.5 w-3.5 mr-1" /> {screen.isPending ? "Screening…" : "Run AI screening"}
+                    {screen.isPending ? "Screening…" : "Run AI screening"}
                   </Button>
                 )}
                 <Button size="sm" onClick={() => move.mutate({ applicationId: app.id, to: "shortlisted", override: stage === "review" ? false : false })}>
@@ -142,7 +142,7 @@ export default function CandidateDetail() {
                   <>
                     <Button size="sm" variant="outline" disabled={screen.isPending}
                       onClick={() => screen.mutate({ applicationId: app.id })}>
-                      <Sparkles className="h-3.5 w-3.5 mr-1" /> {screen.isPending ? "Re-scoring…" : "Re-score"}
+                      {screen.isPending ? "Re-scoring…" : "Re-score"}
                     </Button>
                     <span className={`text-lg font-bold ${(app.aiScore ?? 0) >= 85 ? "text-green-700" : (app.aiScore ?? 0) >= 60 ? "text-amber-700" : "text-red-700"}`}>
                       {app.aiScore}/100
@@ -162,6 +162,7 @@ export default function CandidateDetail() {
               <>
                 {app.aiSummary && <p className="text-sm mb-3">{app.aiSummary}</p>}
                 {breakdown && (
+                  <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-xs text-muted-foreground border-b" style={{ borderColor: "var(--line)" }}>
@@ -184,6 +185,7 @@ export default function CandidateDetail() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 )}
                 {flags.length > 0 && (
                   <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">

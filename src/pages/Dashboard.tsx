@@ -1,10 +1,13 @@
 import { Link } from "react-router";
+import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, StatCard, Loading, ErrorState, Chip } from "@/components/common";
 import { useAuth } from "@/hooks/useAuth";
+import { markWelcomeSeen, startFullTour, welcomeSeen } from "@/tours/tours";
+import { Button } from "@/components/ui/button";
 import {
   CalendarRange, FileCheck2, Headset, ShieldAlert, ClipboardList,
-  Briefcase, HeartHandshake, AlertTriangle, ArrowRight,
+  Briefcase, HeartHandshake, AlertTriangle, ArrowRight, X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { StaffRole } from "@db/schema";
@@ -87,12 +90,16 @@ export default function Dashboard() {
         title={`${greeting()}, ${d.name.split(" ")[0]}`}
         subtitle={ROLE_LABELS[role]}
       />
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {tiles.map((t) => (
-          <Link key={t.label} to={t.to} className="uc-focus rounded-xl">
-            <StatCard label={t.label} value={t.value} hint={t.hint} icon={t.icon} tone={t.tone} />
-          </Link>
-        ))}
+      <WelcomeCard />
+      <div className="uc-card p-5">
+        <h2 className="uc-label mb-4">At a glance</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          {tiles.map((t) => (
+            <Link key={t.label} to={t.to} className="uc-focus rounded-[22px]">
+              <StatCard label={t.label} value={t.value} hint={t.hint} icon={t.icon} tone={t.tone} />
+            </Link>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -108,6 +115,59 @@ function greeting() {
   return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
 }
 
+/* First-visit welcome — a dismissible card (never a blocking popup) that
+   offers the full product tour once. */
+function WelcomeCard() {
+  const [show, setShow] = useState(() => !welcomeSeen());
+  if (!show) return null;
+  const dismiss = () => {
+    markWelcomeSeen();
+    setShow(false);
+  };
+  return (
+    <div
+      className="uc-hero relative overflow-hidden p-6 flex flex-col items-start gap-4 sm:flex-row sm:items-center"
+      data-testid="welcome-card"
+    >
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold text-white">Welcome to UniqueCare Connect</p>
+        <p className="text-sm text-white/85 mt-0.5">
+          New here? Take the one-minute tour — it walks you through every menu and feature.
+          You can replay it anytime from the Help button in the top bar.
+        </p>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button
+          size="sm"
+          className="!bg-white !text-[--brand-700] hover:!bg-white/90 shadow-md"
+          style={{ backgroundImage: "none" }}
+          onClick={() => {
+            dismiss();
+            startFullTour();
+          }}
+        >
+          Take the tour
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="!bg-transparent !text-white !border-white/40 hover:!bg-white/10 shadow-none"
+          onClick={dismiss}
+        >
+          Maybe later
+        </Button>
+      </div>
+      <button
+        onClick={dismiss}
+        aria-label="Dismiss welcome"
+        className="uc-focus absolute right-3 top-3 rounded-full p-1 text-white/70 hover:text-white"
+      >
+        <X className="h-4 w-4" aria-hidden />
+      </button>
+    </div>
+  );
+}
+
 function QuickActions({ role }: { role: StaffRole }) {
   const items: { label: string; to: string }[] = [];
   if (["super_admin", "admin", "care_coordinator"].includes(role))
@@ -121,7 +181,7 @@ function QuickActions({ role }: { role: StaffRole }) {
   items.push({ label: "View my rota", to: "/me" });
 
   return (
-    <div className="uc-card p-5">
+    <div className="uc-card p-5" data-tour="quick-actions">
       <h2 className="uc-label mb-3">Quick actions</h2>
       <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
         {items.map((i) => (
@@ -144,7 +204,7 @@ function TodayPanel({ role }: { role: StaffRole }) {
   const tasks = trpc.crm.myTasks.useQuery(undefined, { enabled: !isWorker });
 
   return (
-    <div className="uc-card p-5">
+    <div className="uc-card p-5" data-tour="today-panel">
       <h2 className="uc-label mb-3">
         {isWorker ? "Your visits today" : "Tasks due soon"}
       </h2>

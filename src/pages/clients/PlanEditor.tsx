@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Sparkles, RefreshCw, CheckCircle2, ArrowLeft, AlertTriangle } from "lucide-react";
+import { RefreshCw, CheckCircle2, ArrowLeft, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 type Section = { key: string; title: string; guidance?: string };
@@ -86,7 +86,7 @@ export default function PlanEditor() {
             {isAi && <AiBadge />}
             {plan.status === "draft" && (
               <Button size="sm" onClick={() => setGenOpen(true)}>
-                <Sparkles className="h-3.5 w-3.5 mr-1" /> Generate with AI
+                Generate with AI
               </Button>
             )}
             {canEdit && plan.status !== "draft" && (
@@ -254,7 +254,7 @@ function GenerateForm({ onSubmit, pending, error }: {
       <DialogFooter>
         <Button disabled={!filled || pending}
           onClick={() => onSubmit(Object.fromEntries(Object.entries(vals).filter(([, v]) => v.trim())))}>
-          <Sparkles className="h-4 w-4 mr-1.5" /> {pending ? "Generating…" : "Generate draft"}
+          {pending ? "Generating…" : "Generate draft"}
         </Button>
       </DialogFooter>
     </div>

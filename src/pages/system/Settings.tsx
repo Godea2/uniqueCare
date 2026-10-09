@@ -9,7 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { AiError } from "@/components/common";
 
@@ -81,7 +80,7 @@ function TemplatesSection({ templates, onChanged }: { templates: Tpl[]; onChange
       <div className="flex items-center justify-between mb-3">
         <h2 className="uc-label">Document templates</h2>
         <Button size="sm" variant="outline" onClick={() => setExtractOpen(true)}>
-          <Sparkles className="h-3.5 w-3.5 mr-1" /> Import from document (AI)
+          Import from document (AI)
         </Button>
       </div>
       <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
