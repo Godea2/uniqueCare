@@ -37,7 +37,7 @@ import { cvDownloadUrl, documentDownloadUrl, saveCv } from "../lib/cv-store";
 import { appUrl, orgProfile, portalUrl } from "../lib/app-url";
 import { jobRequirements, liveApplicationSchema, normaliseRequirements, syncJobForm } from "../lib/job-form";
 import {
-  ALLOW_PAST_INTERVIEW_SLOTS, canTransition, emailCandidate, emailCandidatesSlotsOpen, emailSlotsOpenIfAny, inviteToInterviewStage,
+  ALLOW_PAST_INTERVIEW_SLOTS, canTransition, complianceApplication, emailCandidate, emailCandidatesSlotsOpen, emailSlotsOpenIfAny, inviteToInterviewStage,
   isOpenStage, pushStage, screenApplication, screenInBackground, slotAudience, supersedeOlderApplications,
 } from "../lib/recruitment";
 import {
@@ -865,7 +865,7 @@ export const hrRouter2 = createRouter({
       // automation: all required verified → compliance_docs_complete + offer letter
       const doc = (await db.from("complianceDocuments").eq("id", input.id).first<ComplianceDocuments>())!;
       if (doc.ownerType === "candidate") {
-        const app = await db.from("applications").eq("candidateId", doc.ownerId).order("id", "desc").first<Applications>();
+        const app = await complianceApplication(Number(doc.ownerId));
         if (app && ["compliance_docs_requested", "approved"].includes(app.stage)) {
           const reqs = await db.from("complianceRequirements").eq("required", true).many<ComplianceRequirements>();
           const docs = await db.from("complianceDocuments").eq("ownerType", "candidate").eq("ownerId", doc.ownerId).many<ComplianceDocuments>();
@@ -922,8 +922,10 @@ export const hrRouter2 = createRouter({
       await audit(sc.staff.fullName, "document_rejected", "compliance_documents", input.id, { reason: input.reason });
       const doc = await db.from("complianceDocuments").eq("id", input.id).first<ComplianceDocuments>();
       if (doc?.ownerType === "candidate") {
-        const app = await db.from("applications").eq("candidateId", doc.ownerId).order("id", "desc").first<Applications>();
-        if (app) await emailCandidate(Number(app.id), "document_rejected", appUrl(ctx.req), { note: input.reason });
+        const app = await complianceApplication(Number(doc.ownerId));
+        const req = await db.from("complianceRequirements").eq("key", doc.requirementKey).first<ComplianceRequirements>();
+        const what = req?.label ?? doc.requirementKey.replace(/_/g, " ");
+        if (app) await emailCandidate(Number(app.id), "document_rejected", appUrl(ctx.req), { note: `${what}. ${input.reason}` });
       }
       return { ok: true };
     }),

@@ -11,6 +11,7 @@ const ACTION_LABELS: Record<string, string> = {
   interview_slots_open: "Choose an interview time",
   interview_booked: "View your booking",
   compliance_requested: "Upload your documents",
+  documents_received: "See your documents",
   document_rejected: "Upload the document again",
   offer_sent: "View your offer",
   staff_notification: "Open UniqueCare Connect",

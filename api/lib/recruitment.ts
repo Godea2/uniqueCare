@@ -105,8 +105,8 @@ async function loadParties(appId: number) {
 }
 
 export type CandidateEmailKind =
-  | "interview_invitation" | "interview_slots_open" | "interview_booked" | "compliance_requested" | "document_rejected"
-  | "offer_sent" | "unsuccessful" | "hired";
+  | "interview_invitation" | "interview_slots_open" | "interview_booked" | "compliance_requested" | "documents_received"
+  | "document_rejected" | "offer_sent" | "unsuccessful" | "hired";
 
 /** Email the candidate about a step in their application, always with their portal link. */
 export async function emailCandidate(
@@ -136,6 +136,10 @@ export async function emailCandidate(
       subject: `Documents needed for ${p.job.title}`,
       body: `${hi}\n\nCongratulations — you have passed the interview stage for ${p.job.title}.\n\nBefore we can make an offer we need some documents and your referee details. Please upload them in your candidate portal:\n${link}\n\n${sign}`,
     },
+    documents_received: {
+      subject: `We've received your documents — ${p.job.title}`,
+      body: `${hi}\n\nThank you for uploading all of your documents for ${p.job.title}.\n\nOur team will now check each one, usually within two working days. If anything needs to be sent again we will email you straight away. Once everything is checked, we will send your offer letter.\n\nYou can see the status of each document in your candidate portal:\n${link}\n\n${sign}`,
+    },
     document_rejected: {
       subject: `Please upload a document again — ${p.job.title}`,
       body: `${hi}\n\nWe could not accept one of your documents${extra?.note ? `: ${extra.note}` : "."}\n\nPlease upload it again in your candidate portal:\n${link}\n\n${sign}`,
@@ -155,6 +159,19 @@ export async function emailCandidate(
   };
   const msg = content[kind];
   await sendEmail({ to: p.cand.email, subject: msg.subject, body: msg.body, kind, relatedType: "application", relatedId: appId });
+}
+
+/**
+ * The application a candidate's compliance documents belong to. Documents are held per person,
+ * so with several applications pick the one at the documents stage, not simply the newest.
+ */
+export async function complianceApplication(candidateId: number) {
+  const apps = await db.from("applications").eq("candidateId", candidateId).order("id", "desc").many<Applications>();
+  return apps.find((a) => a.stage === "compliance_docs_requested")
+    ?? apps.find((a) => ["approved", "compliance_docs_complete", "offer_sent"].includes(a.stage))
+    ?? apps.find((a) => isOpenStage(a.stage))
+    ?? apps[0]
+    ?? null;
 }
 
 /** A slot a candidate for this job can see: for this job or any job, and not in the past (unless allowed). */

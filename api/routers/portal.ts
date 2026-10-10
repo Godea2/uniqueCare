@@ -11,7 +11,7 @@ import { waitUntil } from "@vercel/functions";
 import { audit, notifyRoles } from "../util";
 import { saveDocument, sniffDocument } from "../lib/cv-store";
 import { appUrl } from "../lib/app-url";
-import { emailCandidate, emailSlotsOpenIfAny, slotOpenForJob as slotOpen } from "../lib/recruitment";
+import { complianceApplication, emailCandidate, emailSlotsOpenIfAny, slotOpenForJob as slotOpen } from "../lib/recruitment";
 
 async function appByToken(portalToken: string) {
   const app = await db.from("applications").eq("portalToken", portalToken).first<Applications>();
@@ -140,7 +140,7 @@ export const portalRouter = createRouter({
       fileName: z.string().min(1).max(255),
       contentBase64: z.string().min(1).max(14_000_000),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { app, candidate } = await appByToken(input.token);
       if (["rejected", "withdrawn", "screened_out"].includes(app.stage)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "This application is closed." });
@@ -166,11 +166,32 @@ export const portalRouter = createRouter({
         status: "uploaded", fileName: input.fileName, fileKey: key, rejectionReason: null,
       });
       await audit("Candidate (portal)", "document_uploaded", "applications", app.id, { requirement: input.requirementKey });
-      await notifyRoles(["admin", "super_admin"], {
-        type: "hr", title: `Document to check — ${candidate.firstName} ${candidate.lastName}`,
-        body: `${input.requirementKey.replace(/_/g, " ")} uploaded.`, link: "/recruitment/compliance",
-      });
-      return { ok: true };
+
+      // One alert for the office when the whole set is in, and one per replacement of a rejected file;
+      // not one email per file while the candidate works through the list.
+      const docs = await db.from("complianceDocuments").eq("ownerType", "candidate").eq("ownerId", candidate.id).many<ComplianceDocuments>();
+      const outstanding = docs.filter((d) => d.status === "requested" || d.status === "rejected").length;
+      const toCheck = docs.filter((d) => d.status === "uploaded").length;
+      const name = `${candidate.firstName} ${candidate.lastName}`;
+      const firstFile = doc.status === "requested" || doc.status === "rejected";
+      const completedSet = firstFile && outstanding === 0;
+      const forApp = (await complianceApplication(Number(candidate.id))) ?? app;
+      if (completedSet) {
+        await notifyRoles(["admin", "super_admin"], {
+          type: "hr", title: `Documents ready to check — ${name}`,
+          body: `${name} has sent every document. ${toCheck} ${toCheck === 1 ? "is" : "are"} waiting for you to check.`,
+          link: "/recruitment/compliance",
+        });
+        waitUntil(emailCandidate(Number(forApp.id), "documents_received", appUrl(ctx.req)).catch(() => {}));
+      } else if (doc.status === "rejected") {
+        const req = await db.from("complianceRequirements").eq("key", doc.requirementKey).first<ComplianceRequirements>();
+        await notifyRoles(["admin", "super_admin"], {
+          type: "hr", title: `Replacement document to check — ${name}`,
+          body: `${req?.label ?? doc.requirementKey.replace(/_/g, " ")} was sent again after it was rejected.`,
+          link: "/recruitment/compliance",
+        });
+      }
+      return { ok: true, outstanding, allSent: outstanding === 0 };
     }),
 
   acceptOffer: publicQuery

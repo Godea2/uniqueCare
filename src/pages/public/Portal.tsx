@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Loading, ErrorState, Chip, fmtDate, fmtTime } from "@/components/common";
@@ -7,8 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { CheckCircle2, Circle, Upload, PenLine, GraduationCap, CalendarDays } from "lucide-react";
+import {
+  CheckCircle2, Circle, Upload, PenLine, GraduationCap, CalendarDays,
+  AlertTriangle, Camera, ChevronDown, Clock, FileText, Lightbulb, Loader2, Lock, PartyPopper, RefreshCw, ShieldCheck, UploadCloud,
+  type LucideIcon,
+} from "lucide-react";
 import { toast } from "sonner";
+import { MAX_UPLOAD_BYTES, shrinkImage } from "@/lib/shrink-image";
 
 const JOURNEY = [
   { key: "applied", label: "Application received" },
@@ -297,76 +302,230 @@ function BookingSection({ token, slots, booking, slot }: {
 }
 
 /* ── Compliance documents ── */
-function DocsSection({ token, docs }: {
-  token: string;
-  docs: { id: number | bigint; requirementKey: string; status: string; fileName: string | null; rejectionReason: string | null; requirement?: { label: string; guidance?: string | null } }[];
-}) {
-  const utils = trpc.useUtils();
-  const [files, setFiles] = useState<Record<string, File>>({});
-  const upload = trpc.portal.uploadDoc.useMutation({
-    onSuccess: (_d, v) => {
-      setFiles((s) => { const next = { ...s }; delete next[v.requirementKey]; return next; });
-      utils.portal.get.invalidate({ token });
-      toast.success("Document received");
-    },
-    onError: (e) => toast.error(e.message),
+type PortalDoc = {
+  id: number | bigint; requirementKey: string; status: string; fileName: string | null; rejectionReason: string | null;
+  requirement?: { label: string; guidance?: string | null };
+};
+
+const DOC_STATES: Record<string, { label: string; icon: LucideIcon; pill: string; tile: string; bar: string }> = {
+  requested: { label: "Needed", icon: FileText, pill: "bg-slate-100 text-slate-600", tile: "bg-slate-100 text-slate-500", bar: "bg-slate-200" },
+  uploaded: { label: "We're checking it", icon: Clock, pill: "bg-sky-50 text-sky-700", tile: "bg-sky-50 text-sky-600", bar: "bg-sky-500" },
+  verified: { label: "Verified", icon: ShieldCheck, pill: "bg-emerald-50 text-emerald-700", tile: "bg-emerald-50 text-emerald-600", bar: "bg-emerald-500" },
+  rejected: { label: "Please upload again", icon: AlertTriangle, pill: "bg-rose-50 text-rose-700", tile: "bg-rose-50 text-rose-600", bar: "bg-rose-500" },
+};
+const docState = (status: string) => DOC_STATES[status] ?? DOC_STATES.requested;
+const DOC_ORDER: Record<string, number> = { rejected: 0, requested: 1, uploaded: 2, verified: 3 };
+const ACCEPT_DOCS = ".pdf,.jpg,.jpeg,.png,.heic,.heif,.doc,.docx,application/pdf,image/*";
+
+async function toBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
   });
-  const send = async (requirementKey: string) => {
-    const file = files[requirementKey];
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { toast.error("Files must be 10 MB or smaller."); return; }
-    const contentBase64 = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    upload.mutate({ token, requirementKey, fileName: file.name, contentBase64 });
+}
+
+function DocsSection({ token, docs }: { token: string; docs: PortalDoc[] }) {
+  const utils = trpc.useUtils();
+  const [busy, setBusy] = useState<Record<string, string>>({});
+  const upload = trpc.portal.uploadDoc.useMutation();
+
+  const send = async (doc: PortalDoc, picked: File) => {
+    const key = doc.requirementKey;
+    setBusy((s) => ({ ...s, [key]: picked.name }));
+    try {
+      const file = await shrinkImage(picked);
+      if (file.size > MAX_UPLOAD_BYTES) {
+        toast.error("That file is too large to send. Please use a photo, or a PDF under 3 MB.");
+        return;
+      }
+      const res = await upload.mutateAsync({ token, requirementKey: key, fileName: file.name, contentBase64: await toBase64(file) });
+      await utils.portal.get.invalidate({ token });
+      if (res.allSent) toast.success("That's everything. We've emailed you a confirmation and will start checking your documents.");
+      else toast.success(`${doc.requirement?.label ?? "Document"} saved. ${res.outstanding} still to add.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed. Please try again.");
+    } finally {
+      setBusy((s) => { const next = { ...s }; delete next[key]; return next; });
+    }
   };
 
+  const count = (status: string) => docs.filter((d) => d.status === status).length;
+  const verified = count("verified");
+  const sent = verified + count("uploaded");
+  const allDone = docs.length > 0 && verified === docs.length;
+  const allSent = docs.length > 0 && sent === docs.length;
+  const toRedo = count("rejected");
+  const sorted = [...docs].sort((a, b) => (DOC_ORDER[a.status] ?? 1) - (DOC_ORDER[b.status] ?? 1));
+
   return (
-    <section className="uc-card p-5">
-      <h2 className="flex items-center gap-2 font-semibold text-[--brand-900]"><Upload className="h-4 w-4 text-[--brand-600]" /> Compliance documents</h2>
-      <p className="mt-1 text-xs text-muted-foreground">
-        We need these before we can make an offer (CQC Regulation 19). Photograph or scan each document and attach it below.
-      </p>
-      <ul className="mt-3 divide-y" style={{ borderColor: "var(--line)" }}>
-        {docs.map((doc) => (
-          <li key={doc.id} className="py-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-medium">{doc.requirement?.label ?? doc.requirementKey.replace(/_/g, " ")}</p>
-                {doc.requirement?.guidance && <p className="text-xs text-muted-foreground">{doc.requirement.guidance}</p>}
-                {doc.status === "rejected" && doc.rejectionReason && (
-                  <p className="mt-0.5 text-xs text-red-700">Rejected: {doc.rejectionReason} — please upload again.</p>
-                )}
-              </div>
-              <Chip value={doc.status} />
-            </div>
-            {(doc.status === "requested" || doc.status === "rejected") && (
-              <div className="mt-2 flex items-center gap-2">
-                <Input
-                  type="file" className="h-8 text-xs"
-                  accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.doc,.docx,application/pdf,image/*"
-                  aria-label={`Upload ${doc.requirement?.label ?? doc.requirementKey}`}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) setFiles((s) => ({ ...s, [doc.requirementKey]: file }));
-                  }}
-                />
-                <Button size="sm" className="h-8 shrink-0" disabled={!files[doc.requirementKey] || upload.isPending}
-                  onClick={() => void send(doc.requirementKey)}>
-                  {upload.isPending && upload.variables?.requirementKey === doc.requirementKey ? "Uploading…" : "Upload"}
-                </Button>
-              </div>
-            )}
-            {doc.fileName && doc.status !== "requested" && (
-              <p className="mt-1 text-xs text-muted-foreground">File: {doc.fileName}</p>
-            )}
-          </li>
+    <section className="overflow-hidden rounded-3xl border bg-white shadow-sm" style={{ borderColor: "var(--card-line)" }} aria-label="Compliance documents">
+      <header className="px-5 pb-4 pt-5 sm:px-6">
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[--brand-50] text-[--brand-600]">
+            <ShieldCheck className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold text-[--brand-900]">Your documents</h2>
+            <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
+              The law requires us to check these before we can offer you the job. A clear phone photo is fine.
+              Each file is saved as soon as you add it, so you can do them in any order and come back later.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <div className="flex items-baseline justify-between text-sm">
+            <span className="font-medium text-slate-800">
+              {allDone ? "All documents verified" : `${sent} of ${docs.length} sent`}
+            </span>
+            {verified > 0 && !allDone && <span className="text-xs text-emerald-700">{verified} verified</span>}
+          </div>
+          <div className="mt-2 flex h-2 gap-1" aria-hidden>
+            {[...docs].sort((a, b) => (DOC_ORDER[b.status] ?? 1) - (DOC_ORDER[a.status] ?? 1)).map((d) => (
+              <span key={String(d.id)} className={`flex-1 rounded-full ${docState(d.status).bar}`} />
+            ))}
+          </div>
+        </div>
+      </header>
+
+      {allDone ? (
+        <div className="mx-5 mb-5 flex items-center gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900 sm:mx-6">
+          <PartyPopper className="h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
+          Thank you. Everything is checked, and your offer letter is on its way.
+        </div>
+      ) : allSent ? (
+        <div className="mx-5 mb-5 rounded-2xl bg-sky-50 px-4 py-3 text-sm text-sky-950 sm:mx-6">
+          <p className="flex items-center gap-2 font-semibold">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-sky-600" aria-hidden /> All documents sent. There's nothing else to do.
+          </p>
+          <ol className="mt-2 space-y-1 pl-6 text-xs leading-relaxed text-sky-900/80 list-decimal">
+            <li>We check each document, usually within two working days.</li>
+            <li>If one needs redoing, we'll email you and show it here.</li>
+            <li>Once everything is checked, we'll email your offer letter to accept here.</li>
+          </ol>
+        </div>
+      ) : toRedo > 0 ? (
+        <div className="mx-5 mb-4 flex items-center gap-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-900 sm:mx-6" role="status">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" aria-hidden />
+          {toRedo === 1 ? "One document needs" : `${toRedo} documents need`} uploading again. {toRedo === 1 ? "It's" : "They're"} at the top of the list.
+        </div>
+      ) : (
+        <details className="group mx-5 mb-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm sm:mx-6">
+          <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-slate-700">
+            <Lightbulb className="h-4 w-4 text-amber-500" aria-hidden />
+            Tips for a photo we can accept first time
+            <ChevronDown className="ml-auto h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
+          </summary>
+          <ul className="mt-2 space-y-1 pl-6 text-xs leading-relaxed text-muted-foreground list-disc">
+            <li>Lay the document flat in good light, with all four corners in the picture.</li>
+            <li>No glare, shadows or fingers over the text. Every word should be readable.</li>
+            <li>For two-sided documents, upload a PDF or photo showing both sides.</li>
+            <li>PDF, photo (JPG, PNG, HEIC) or Word. Large photos are made smaller for you.</li>
+          </ul>
+        </details>
+      )}
+
+      <ul className="space-y-3 px-5 pb-5 sm:px-6 sm:pb-6">
+        {sorted.map((doc) => (
+          <DocCard key={String(doc.id)} doc={doc} uploadingName={busy[doc.requirementKey]} onFile={(f) => void send(doc, f)} />
         ))}
       </ul>
+
+      <p className="flex items-center gap-1.5 border-t bg-slate-50/70 px-5 py-3 text-[11px] text-muted-foreground sm:px-6" style={{ borderColor: "var(--card-line)" }}>
+        <Lock className="h-3 w-3 shrink-0" aria-hidden />
+        Your documents are stored securely and only seen by our recruitment team (CQC Regulation 19).
+      </p>
     </section>
+  );
+}
+
+function DocCard({ doc, uploadingName, onFile }: { doc: PortalDoc; uploadingName?: string; onFile: (file: File) => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const [drag, setDrag] = useState(false);
+  const state = docState(doc.status);
+  const label = doc.requirement?.label ?? doc.requirementKey.replace(/_/g, " ");
+  const needsFile = doc.status === "requested" || doc.status === "rejected";
+  const canReplace = doc.status === "uploaded";
+  const uploading = !!uploadingName;
+  const pick = (files: FileList | null | undefined) => { const f = files?.[0]; if (f) onFile(f); };
+
+  return (
+    <li className={`rounded-2xl border p-4 transition-shadow ${doc.status === "rejected" ? "border-rose-200" : ""} ${needsFile ? "shadow-sm" : ""}`}
+      style={doc.status === "rejected" ? undefined : { borderColor: "var(--card-line)" }}>
+      <div className="flex items-start gap-3">
+        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${state.tile}`}>
+          <state.icon className="h-[18px] w-[18px]" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <p className="text-sm font-semibold text-slate-800">{label}</p>
+            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${state.pill}`}>{state.label}</span>
+          </div>
+          {doc.requirement?.guidance && <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{doc.requirement.guidance}</p>}
+        </div>
+      </div>
+
+      {doc.status === "rejected" && (
+        <div className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-xs leading-relaxed text-rose-800" role="alert">
+          <span className="font-semibold">We couldn't accept the last file.</span>{" "}
+          {doc.rejectionReason ? doc.rejectionReason : "Please upload a clearer copy."}
+        </div>
+      )}
+
+      {doc.fileName && !needsFile && !uploading && (
+        <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2">
+          <FileText className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+          <span className="min-w-0 flex-1 truncate text-xs text-slate-700">{doc.fileName}</span>
+          {canReplace && (
+            <button type="button" onClick={() => fileRef.current?.click()}
+              className="inline-flex items-center gap-1 rounded-md text-xs font-medium text-[--brand-700] hover:text-[--brand-900]">
+              <RefreshCw className="h-3 w-3" aria-hidden /> Replace
+            </button>
+          )}
+        </div>
+      )}
+
+      {uploading ? (
+        <div className="mt-3 rounded-xl border border-dashed border-[--brand-500] bg-[--brand-50] px-4 py-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-[--brand-900]">
+            <Loader2 className="h-4 w-4 animate-spin text-[--brand-600]" aria-hidden />
+            Uploading <span className="truncate font-normal text-slate-600">{uploadingName}</span>
+          </div>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white">
+            <div className="h-full w-1/3 animate-[uc-indeterminate_1.2s_ease-in-out_infinite] rounded-full bg-[--brand-600]" />
+          </div>
+        </div>
+      ) : needsFile && (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+          onDragLeave={() => setDrag(false)}
+          onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files); }}
+          className={`mt-3 flex flex-col items-center gap-3 rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors sm:flex-row sm:text-left ${drag ? "border-[--brand-500] bg-[--brand-50]" : "border-slate-200 bg-slate-50/60"}`}
+        >
+          <UploadCloud className="hidden h-7 w-7 shrink-0 text-[--brand-600] sm:block" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-slate-800">{doc.status === "rejected" ? "Upload a new copy" : "Add this document"}</p>
+            <p className="text-xs text-muted-foreground">Drop a file here, choose one, or take a photo</p>
+          </div>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Button type="button" size="sm" variant="outline" className="flex-1 sm:flex-none sm:hidden" onClick={() => cameraRef.current?.click()}>
+              <Camera className="mr-1.5 h-4 w-4" /> Take a photo
+            </Button>
+            <Button type="button" size="sm" className="flex-1 sm:flex-none" onClick={() => fileRef.current?.click()}>
+              <Upload className="mr-1.5 h-4 w-4" /> Choose file
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <input ref={fileRef} type="file" accept={ACCEPT_DOCS} className="hidden" aria-label={`Upload ${label}`}
+        onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" aria-label={`Take a photo of ${label}`}
+        onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+    </li>
   );
 }
 
