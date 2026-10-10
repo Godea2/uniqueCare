@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { APPLICATION_STAGES } from "@db/schema";
-import { canTransition, computeScore, enforceEvidence } from "./recruitment";
+import { canTransition, computeScore, enforceEvidence, isOpenStage } from "./recruitment";
 
 describe("stage rules", () => {
   const closed = ["hired", "rejected", "withdrawn", "screened_out"];
@@ -17,6 +17,12 @@ describe("stage rules", () => {
     for (const stage of beforeShortlist) {
       expect(canTransition(stage as never, "screened_out")).toBe(true);
     }
+  });
+
+  it("treats only hired, rejected, withdrawn and screened out as closed", () => {
+    const open = APPLICATION_STAGES.filter((s) => isOpenStage(s));
+    expect(APPLICATION_STAGES.filter((s) => !isOpenStage(s)).sort()).toEqual([...closed].sort());
+    for (const stage of open) expect(canTransition(stage, "withdrawn"), stage).toBe(true);
   });
 
   it("never reopens closed applications except a screened-out one", () => {

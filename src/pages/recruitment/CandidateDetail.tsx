@@ -9,7 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { CheckCircle2, XCircle, FileCheck2, GraduationCap, Copy, Check, ArrowLeft, FileText } from "lucide-react";
+import {
+  CheckCircle2, XCircle, FileCheck2, GraduationCap, Copy, Check, ArrowLeft, FileText,
+  BadgeCheck, ThumbsUp, ThumbsDown, Ban, MessageSquarePlus, type LucideIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   answerText, conditionMet, trippedKnockouts, DISPLAY_TYPES,
@@ -17,6 +20,17 @@ import {
 } from "@contracts/form-schema";
 
 const CRITERIA = ["Values & motivation", "Person-centred care", "Safeguarding awareness", "Communication", "Reliability", "Scenario judgement"];
+
+const CRITERIA_HINTS: Record<string, string> = {
+  "Values & motivation": "Genuine reasons for wanting care work, focused on the people they'll support.",
+  "Person-centred care": "Puts the person's choices, dignity and independence first.",
+  "Safeguarding awareness": "Spots signs of harm or neglect and knows to report them straight away.",
+  "Communication": "Clear and kind, listens well, and adapts to the person in front of them.",
+  "Reliability": "Turns up, on time, and follows through. Look for examples from past work.",
+  "Scenario judgement": "Makes safe, sensible choices in the scenario questions.",
+};
+
+const SCALE: Record<number, string> = { 1: "Poor", 2: "Below standard", 3: "Meets standard", 4: "Strong", 5: "Exceptional" };
 
 const STAGE_LABELS: Record<string, string> = {
   applied: "Applied", review: "Human review", shortlisted: "Shortlisted",
@@ -461,25 +475,43 @@ function Scorecards({ d }: { d: NonNullable<Detail> }) {
         d.scorecards.map((sc) => {
           const member = d.panel.find((p) => Number(p.id) === sc.panelMemberId);
           const scores = (sc.scores as { criterion: string; score: number; comment?: string }[]) ?? [];
+          const recInfo = RECOMMENDATIONS.find((r) => r.value === sc.recommendation);
+          const recStyle = recInfo ? REC_STYLES[recInfo.tone] : null;
+          const max = Math.max(scores.length * 5, 1);
           return (
-            <div key={sc.id} className="rounded-lg border p-3" style={{ borderColor: "var(--line)" }}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="flex items-center gap-2 text-sm font-medium">
+            <div key={sc.id} className="rounded-2xl border bg-white p-4" style={{ borderColor: "var(--card-line)" }}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-800">
                   <AvatarDot name={member?.fullName ?? "?"} color={member?.avatarColor} />
-                  {member?.fullName ?? "Panel member"}
+                  <span className="truncate">{member?.fullName ?? "Panel member"}</span>
                 </span>
-                <span className="text-sm">
-                  <strong>{sc.total}</strong>/30 · <Chip value={sc.recommendation === "strong_yes" || sc.recommendation === "yes" ? "verified" : "rejected"} label={(sc.recommendation ?? "").replace(/_/g, " ")} />
-                </span>
+                <div className="flex shrink-0 items-center gap-3">
+                  {recInfo && (
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${recStyle?.on ?? ""}`}>
+                      <recInfo.icon className={`h-3.5 w-3.5 ${recStyle?.icon ?? ""}`} aria-hidden /> {recInfo.label}
+                    </span>
+                  )}
+                  <span className="text-lg font-bold tabular-nums text-[--brand-900]">
+                    {sc.total}<span className="text-xs font-medium text-muted-foreground">/{max}</span>
+                  </span>
+                </div>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+              <ul className="mt-3 grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
                 {scores.map((s) => (
-                  <div key={s.criterion} className="flex items-center justify-between rounded bg-[--brand-50] px-2 py-1 text-xs">
-                    <span>{s.criterion}</span>
-                    <span className="font-semibold">{s.score}/5</span>
-                  </div>
+                  <li key={s.criterion}>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600">{s.criterion}</span>
+                      <span className="font-semibold tabular-nums text-slate-800">{s.score}/5</span>
+                    </div>
+                    <div className="mt-1 flex gap-0.5" aria-hidden>
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <span key={n} className={`h-1.5 flex-1 rounded-full ${n <= s.score ? scoreTone(s.score).split(" ").find((c) => c.startsWith("bg-")) : "bg-slate-100"}`} />
+                      ))}
+                    </div>
+                    {s.comment && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">“{s.comment}”</p>}
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           );
         })
@@ -488,67 +520,159 @@ function Scorecards({ d }: { d: NonNullable<Detail> }) {
   );
 }
 
+type Recommendation = "strong_yes" | "yes" | "no" | "strong_no";
+
+const RECOMMENDATIONS: { value: Recommendation; label: string; hint: string; icon: LucideIcon; tone: string }[] = [
+  { value: "strong_yes", label: "Strong yes", hint: "Hire. Stood out.", icon: BadgeCheck, tone: "emerald" },
+  { value: "yes", label: "Yes", hint: "Hire. Meets the bar.", icon: ThumbsUp, tone: "green" },
+  { value: "no", label: "No", hint: "Not this time.", icon: ThumbsDown, tone: "amber" },
+  { value: "strong_no", label: "Strong no", hint: "Concerns to note.", icon: Ban, tone: "rose" },
+];
+
+const REC_STYLES: Record<string, { on: string; icon: string }> = {
+  emerald: { on: "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500", icon: "text-emerald-600" },
+  green: { on: "border-green-500 bg-green-50 ring-1 ring-green-500", icon: "text-green-600" },
+  amber: { on: "border-amber-500 bg-amber-50 ring-1 ring-amber-500", icon: "text-amber-600" },
+  rose: { on: "border-rose-500 bg-rose-50 ring-1 ring-rose-500", icon: "text-rose-600" },
+};
+
+/** Selected-score colour: weak answers read red, middling amber, strong green. */
+function scoreTone(n: number) {
+  if (n <= 2) return "border-rose-500 bg-rose-500 text-white";
+  if (n === 3) return "border-amber-500 bg-amber-500 text-white";
+  return "border-emerald-600 bg-emerald-600 text-white";
+}
+
 function ScorecardForm({ applicationId, onDone }: { applicationId: number; onDone: () => void }) {
   const [scores, setScores] = useState<Record<string, number>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
-  const [rec, setRec] = useState<"strong_yes" | "yes" | "no" | "strong_no">("yes");
+  const [notesOpen, setNotesOpen] = useState<Record<string, boolean>>({});
+  const [rec, setRec] = useState<Recommendation | null>(null);
   const submit = trpc.hr2.submitScorecard.useMutation({
     onSuccess: () => { toast.success("Scorecard submitted"); onDone(); },
     onError: (e) => toast.error(e.message),
   });
-  const complete = CRITERIA.every((c) => scores[c]);
+  const scored = CRITERIA.filter((c) => scores[c]).length;
+  const total = CRITERIA.reduce((a, c) => a + (scores[c] ?? 0), 0);
+  const max = CRITERIA.length * 5;
+  const ready = scored === CRITERIA.length && rec !== null;
 
   return (
-    <div className="mt-4 rounded-lg border p-4 bg-[--brand-50]/50" style={{ borderColor: "var(--line)" }}>
-      <p className="uc-label mb-3">Your scorecard</p>
-      <div className="space-y-2.5">
-        {CRITERIA.map((c) => (
-          <div key={c} className="grid grid-cols-[1fr_auto] items-center gap-2">
-            <div>
-              <p className="text-sm font-medium">{c}</p>
-              <Input
-                placeholder="Comment (optional)" className="mt-1 h-7 text-xs"
-                value={comments[c] ?? ""} onChange={(e) => setComments((s) => ({ ...s, [c]: e.target.value }))}
-              />
-            </div>
-            <div className="flex gap-1" role="radiogroup" aria-label={`${c} score`}>
-              {[1, 2, 3, 4, 5].map((n) => (
-                <button
-                  key={n} type="button"
-                  onClick={() => setScores((s) => ({ ...s, [c]: n }))}
-                  aria-pressed={scores[c] === n}
-                  className={`h-8 w-8 rounded-md border text-sm font-semibold transition-colors uc-focus ${scores[c] === n ? "bg-[--brand-600] text-white border-[--brand-600]" : "bg-white hover:bg-[--brand-100]"}`}
-                  style={{ borderColor: scores[c] === n ? undefined : "var(--line)" }}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
+    <section className="mt-4 overflow-hidden rounded-2xl border bg-white" style={{ borderColor: "var(--card-line)" }} aria-label="Your scorecard">
+      <header className="flex items-start justify-between gap-4 border-b px-5 py-4" style={{ borderColor: "var(--card-line)" }}>
+        <div>
+          <h3 className="text-base font-semibold text-[--brand-900]">Your scorecard</h3>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            Score each area from 1 to 5 based on what you heard. Other panel members can't see your scores until they submit their own.
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-2xl font-bold tabular-nums text-[--brand-900]">{total}<span className="text-sm font-medium text-muted-foreground">/{max}</span></p>
+          <p className="text-[11px] text-muted-foreground">{scored} of {CRITERIA.length} scored</p>
+        </div>
+      </header>
+      <div className="h-1 bg-slate-100" aria-hidden>
+        <div className="h-full bg-[--brand-600] transition-all" style={{ width: `${(scored / CRITERIA.length) * 100}%` }} />
       </div>
-      <div className="mt-3 flex items-center justify-between">
-        <Select value={rec} onValueChange={(v) => setRec(v as typeof rec)}>
-          <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="strong_yes">Strong yes</SelectItem>
-            <SelectItem value="yes">Yes</SelectItem>
-            <SelectItem value="no">No</SelectItem>
-            <SelectItem value="strong_no">Strong no</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button
-          disabled={!complete || submit.isPending}
-          onClick={() => submit.mutate({
-            applicationId,
-            scores: CRITERIA.map((c) => ({ criterion: c, score: scores[c], comment: comments[c] || undefined })),
-            recommendation: rec,
+
+      <ol className="divide-y" style={{ borderColor: "var(--card-line)" }}>
+        {CRITERIA.map((c, i) => {
+          const value = scores[c];
+          const noteShown = notesOpen[c] || !!comments[c];
+          return (
+            <li key={c} className="px-5 py-4" style={{ borderColor: "var(--card-line)" }}>
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="flex min-w-0 gap-3">
+                  <span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${value ? "bg-[--brand-600] text-white" : "bg-slate-100 text-slate-500"}`}>
+                    {value ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800">{c}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{CRITERIA_HINTS[c]}</p>
+                  </div>
+                </div>
+                <div className="shrink-0 md:w-[232px]">
+                  <div className="flex gap-1.5" role="radiogroup" aria-label={`${c} score`}>
+                    {[1, 2, 3, 4, 5].map((n) => {
+                      const on = value === n;
+                      return (
+                        <button
+                          key={n} type="button" role="radio" aria-checked={on}
+                          aria-label={`${n} — ${SCALE[n]}`} title={SCALE[n]}
+                          onClick={() => setScores((s) => ({ ...s, [c]: n }))}
+                          className={`uc-focus h-10 flex-1 rounded-xl border text-sm font-semibold tabular-nums transition-all ${on ? `${scoreTone(n)} shadow-sm` : "bg-white text-slate-600 hover:-translate-y-px hover:border-[--brand-600] hover:bg-[--brand-50]"}`}
+                          style={on ? undefined : { borderColor: "var(--card-line)" }}
+                        >
+                          {n}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className={`mt-1.5 h-4 text-right text-[11px] font-medium ${value ? "text-slate-600" : "text-muted-foreground"}`}>
+                    {value ? SCALE[value] : "1 poor · 5 exceptional"}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-2 pl-9">
+                {noteShown ? (
+                  <Textarea
+                    rows={2} autoFocus={notesOpen[c] && !comments[c]} maxLength={1000}
+                    placeholder={`What did they say or do that shows this? (optional)`}
+                    className="min-h-[60px] resize-y rounded-xl bg-slate-50/60 text-sm"
+                    value={comments[c] ?? ""}
+                    onChange={(e) => setComments((s) => ({ ...s, [c]: e.target.value }))}
+                    aria-label={`Note for ${c}`}
+                  />
+                ) : (
+                  <button type="button" onClick={() => setNotesOpen((s) => ({ ...s, [c]: true }))}
+                    className="uc-focus inline-flex items-center gap-1 rounded-md text-xs font-medium text-[--brand-700] hover:text-[--brand-900]">
+                    <MessageSquarePlus className="h-3.5 w-3.5" /> Add a note
+                  </button>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+
+      <div className="border-t bg-slate-50/60 px-5 py-4" style={{ borderColor: "var(--card-line)" }}>
+        <p className="text-sm font-semibold text-slate-800">Your recommendation</p>
+        <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Recommendation">
+          {RECOMMENDATIONS.map((r) => {
+            const on = rec === r.value;
+            const style = REC_STYLES[r.tone];
+            return (
+              <button key={r.value} type="button" role="radio" aria-checked={on} onClick={() => setRec(r.value)}
+                className={`uc-focus flex flex-col items-start gap-1 rounded-xl border bg-white px-3 py-2.5 text-left transition-all hover:-translate-y-px ${on ? style.on : "hover:border-[--brand-600]"}`}
+                style={on ? undefined : { borderColor: "var(--card-line)" }}>
+                <r.icon className={`h-4 w-4 ${on ? style.icon : "text-slate-400"}`} aria-hidden />
+                <span className="text-sm font-semibold text-slate-800">{r.label}</span>
+                <span className="text-[11px] leading-snug text-muted-foreground">{r.hint}</span>
+              </button>
+            );
           })}
-        >
-          Submit scorecard
-        </Button>
+        </div>
+
+        <div className="mt-4 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground">
+            {ready ? "Ready to submit. You can't change it afterwards."
+              : scored < CRITERIA.length ? `Score ${CRITERIA.length - scored} more ${CRITERIA.length - scored === 1 ? "area" : "areas"} to continue.`
+              : "Choose your recommendation to continue."}
+          </p>
+          <Button
+            className="sm:min-w-44"
+            disabled={!ready || submit.isPending}
+            onClick={() => rec && submit.mutate({
+              applicationId,
+              scores: CRITERIA.map((c) => ({ criterion: c, score: scores[c], comment: comments[c]?.trim() || undefined })),
+              recommendation: rec,
+            })}
+          >
+            {submit.isPending ? "Submitting…" : "Submit scorecard"}
+          </Button>
+        </div>
       </div>
-    </div>
+    </section>
   );
 }
 

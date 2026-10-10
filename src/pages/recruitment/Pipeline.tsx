@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { UserX, Table2, LayoutGrid, Download } from "lucide-react";
+import { UserX, Table2, LayoutGrid, Download, Layers } from "lucide-react";
 import { toast } from "sonner";
 import type { RouterOutputs } from "@/lib/router-types";
 
@@ -245,6 +245,13 @@ export default function Pipeline() {
                           {a.candidate?.firstName} {a.candidate?.lastName}
                         </Link>
                         <p className="text-[11px] text-muted-foreground line-clamp-1">{a.job?.title}</p>
+                        {a.otherOpenJobs.length > 0 && (
+                          <p className="mt-0.5 flex items-center gap-1 text-[10.5px] text-[--brand-700] line-clamp-1"
+                            title={`Also applying for: ${a.otherOpenJobs.join(", ")}`}>
+                            <Layers className="h-3 w-3 shrink-0" aria-hidden />
+                            Also applying: {a.otherOpenJobs.join(", ")}
+                          </p>
+                        )}
                         <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                           <Chip value={a.stage} />
                           {a.aiScore !== null && (

@@ -37,7 +37,7 @@ const ALLOWED: Record<ApplicationStage, ApplicationStage[]> = {
   training_booked: ["online_training_in_progress", "rejected", "withdrawn"],
   online_training_in_progress: ["dbs_verified", "rejected", "withdrawn"],
   dbs_verified: ["training_complete", "rejected", "withdrawn"],
-  training_complete: ["hired", "rejected"],
+  training_complete: ["hired", "rejected", "withdrawn"],
   hired: [],
   rejected: [],
   withdrawn: [],
@@ -45,6 +45,25 @@ const ALLOWED: Record<ApplicationStage, ApplicationStage[]> = {
 
 export function canTransition(from: ApplicationStage, to: ApplicationStage) {
   return (ALLOWED[from] ?? []).includes(to);
+}
+
+/** Stages an application never leaves on its own (screened out can be reopened by a person). */
+export const CLOSED_STAGES: ApplicationStage[] = ["hired", "rejected", "withdrawn", "screened_out"];
+export const isOpenStage = (stage: string) => !CLOSED_STAGES.includes(stage as ApplicationStage);
+
+/**
+ * One live application per person per job: when a newer one arrives, close the older open ones
+ * (withdrawn, with the reason in their history) and release any interview they had booked.
+ */
+export async function supersedeOlderApplications(candidateId: number, jobPostingId: number, keepId: number) {
+  const others = await db.from("applications")
+    .eq("candidateId", candidateId).eq("jobPostingId", jobPostingId).neq("id", keepId).many<Applications>();
+  const open = others.filter((a) => isOpenStage(a.stage));
+  for (const a of open) {
+    await pushStage(Number(a.id), "withdrawn", "System (duplicate check)", `Replaced by a newer application (#${keepId}) for the same job`);
+    await db.from("interviewBookings").eq("applicationId", a.id).eq("status", "booked").update({ status: "cancelled" });
+  }
+  return open.map((a) => Number(a.id));
 }
 
 export async function pushStage(

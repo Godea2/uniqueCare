@@ -38,7 +38,7 @@ import { appUrl, orgProfile, portalUrl } from "../lib/app-url";
 import { jobRequirements, liveApplicationSchema, normaliseRequirements, syncJobForm } from "../lib/job-form";
 import {
   ALLOW_PAST_INTERVIEW_SLOTS, canTransition, emailCandidate, emailCandidatesSlotsOpen, emailSlotsOpenIfAny, inviteToInterviewStage,
-  pushStage, screenApplication, screenInBackground, slotAudience,
+  isOpenStage, pushStage, screenApplication, screenInBackground, slotAudience, supersedeOlderApplications,
 } from "../lib/recruitment";
 import {
   validateSubmission, trippedKnockouts, suggestRequirementSetup, REQUIREMENT_ANSWER_TYPES,
@@ -396,11 +396,18 @@ export const hrRouter = createRouter({
         if (src) sourceChannel = src.slug;
       }
 
-      // One application per email per job every 30 days. Admins are exempt so they can test the form.
+      // One live application per person per job, and a new one at most every 30 days.
+      // Admins are exempt so they can test the form; their older application for the job is closed below.
       let cand = await db.from("candidates").eq("email", email).first<Candidates>();
       if (cand && !applicantIsAdmin) {
         const previous = await db.from("applications").eq("candidateId", cand.id).eq("jobPostingId", job.id)
           .order("createdAt", "desc").first<Applications>();
+        if (previous && isOpenStage(previous.stage)) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `You already have an application for ${job.title} in progress. You can follow it, complete forms and book your interview in your candidate portal, using the link in your confirmation email.`,
+          });
+        }
         const appliedAt = previous?.createdAt ? new Date(previous.createdAt) : null;
         if (appliedAt && Date.now() - appliedAt.getTime() < REAPPLY_AFTER_DAYS * 86_400_000) {
           const again = new Date(appliedAt.getTime() + REAPPLY_AFTER_DAYS * 86_400_000);
@@ -451,8 +458,10 @@ export const hrRouter = createRouter({
         extractedText: input.cv.extractedText || null,
         extractStatus: input.cv.readable ? "ok" : "unreadable",
       });
+      const replaced = await supersedeOlderApplications(Number(cand.id), Number(job.id), appId);
       await audit("System", "application_received", "applications", appId, {
         job: job.title, source: sourceChannel, ...(applicantIsAdmin ? { adminTest: true } : {}),
+        ...(replaced.length ? { replaced } : {}),
       });
 
       const flags: string[] = [...knockoutHits.map((h) => `Knockout: ${h.message}`)];
@@ -500,15 +509,20 @@ export const hrRouter = createRouter({
     .input(z.object({ jobId: z.number().optional() }))
     .query(async ({ ctx, input }) => {
       requireRole(await getStaff(ctx), ...RECRUITMENT_ROLES);
-      const appsQuery = db.from("applications").order("createdAt", "desc");
-      if (input.jobId) appsQuery.eq("jobPostingId", input.jobId);
-      const apps = await appsQuery.many<Applications>();
+      const all = await db.from("applications").order("createdAt", "desc").many<Applications>();
+      const apps = input.jobId ? all.filter((a) => Number(a.jobPostingId) === input.jobId) : all;
       const cands = await db.from("candidates").many<Candidates>();
       const jobs = await db.from("jobPostings").many<JobPostings>();
+      const jobTitle = (id: number) => jobs.find((j) => j.id === id)?.title ?? "another job";
       return apps.map((a) => ({
         ...a,
         candidate: cands.find((c) => c.id === a.candidateId),
         job: jobs.find((j) => j.id === a.jobPostingId),
+        /** The same person's other live applications, so a second card reads as another job, not a duplicate. */
+        otherOpenJobs: isOpenStage(a.stage)
+          ? all.filter((o) => o.candidateId === a.candidateId && o.id !== a.id && isOpenStage(o.stage) && o.jobPostingId !== a.jobPostingId)
+            .map((o) => jobTitle(Number(o.jobPostingId)))
+          : [],
       }));
     }),
 
@@ -575,6 +589,15 @@ export const hrRouter = createRouter({
       requireRole(sc, "super_admin", "admin");
       if (input.override && !input.reason) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "An override requires a reason." });
+      }
+      if (input.to === "interview_booked") {
+        const booking = await db.from("interviewBookings").eq("applicationId", input.applicationId).eq("status", "booked").first<InterviewBookings>();
+        if (!booking) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "No interview time is booked for this candidate yet. They choose one in their candidate portal once interview slots are open, and the stage moves to Interview booked by itself.",
+          });
+        }
       }
       if (input.to === "rejected" || input.to === "screened_out") {
         if (!input.reason) throw new TRPCError({ code: "BAD_REQUEST", message: "A rejection/screen-out reason is required." });
