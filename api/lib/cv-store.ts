@@ -46,6 +46,13 @@ export async function saveCv(bytes: Uint8Array, fileName: string, contentType: s
   return { key };
 }
 
+export async function readCv(key: string): Promise<Uint8Array | null> {
+  await ensureBucket();
+  const { data, error } = await supabase().storage.from(BUCKET).download(key);
+  if (error || !data) return null;
+  return new Uint8Array(await data.arrayBuffer());
+}
+
 export async function cvDownloadUrl(key: string): Promise<string> {
   await ensureBucket();
   const { data, error } = await supabase().storage.from(BUCKET).createSignedUrl(key, 60 * 15);

@@ -31,7 +31,7 @@ import {
 import { getStaff, requireRole, audit, notifyRoles } from "../util";
 import { callAI } from "../ai/provider";
 import { sendEmail } from "../lib/mailer";
-import { cvDownloadUrl, saveCv } from "../lib/cv-store";
+import { cvDownloadUrl, readCv, saveCv } from "../lib/cv-store";
 import {
   defaultCareWorkerForm, validateSubmission, trippedKnockouts, conditionMet,
   formSchemaDoc, DISPLAY_TYPES, type FormSchemaDoc, type FormAnswers,
@@ -704,26 +704,31 @@ export const hrRouter = createRouter({
         labelledAnswers = Object.entries((app.answers ?? {}) as Record<string, unknown>).map(([k, v]) => ({ label: k, value: v }));
       }
 
-      // Fairness redaction: strip name/email/phone/street-level data; keep postcode district only
-      let cvText = (app.cvText ?? "")
-        .replace(/[A-Z][a-z]+ [A-Z][a-z]+/g, "[candidate]")
-        .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, "[email]")
-        .replace(/(\+44\s?|0)\d[\d\s]{8,12}/g, "[phone]")
-        .replace(/\b\d{1,3}\s+[A-Z][a-z]+ (Street|Road|Lane|Avenue|Close|Drive|Way)\b/g, "[address]");
-      const cvNote = app.cvUnreadable ? "\n[Note: CV file unreadable — manual review required. Score from form answers only.]" : "";
+      // Fairness: the model may read the file, but must not treat identity details as evidence.
+      const cvText = (app.cvText ?? "").slice(0, 4000);
+      let cvFile: Uint8Array | null = null;
+      if (app.cvFileKey && (app.cvFileName ?? "").toLowerCase().endsWith(".pdf")) {
+        cvFile = await readCv(app.cvFileKey);
+      }
+      const cvNote = !cvFile && app.cvUnreadable
+        ? "\n[Note: the CV file could not be opened and the extracted text is empty. Score from the form answers and mark CV evidence as unknown.]"
+        : "";
 
       const result = await callAI({
-        feature: "scoreApplication", promptVersion: "2.0", schema: aiScreenSchema, temperature: 0.2,
+        feature: "scoreApplication", promptVersion: "3.0", schema: aiScreenSchema, temperature: 0.2,
+        files: cvFile
+          ? [{ data: cvFile, mediaType: "application/pdf", filename: app.cvFileName ?? "cv.pdf" }]
+          : undefined,
         validate: (r) => reqs.length === 0 || r.requirement_results.length > 0,
-        system: `You are screening a care worker application for a UK domiciliary care provider. Score each requirement strictly against evidence in the CV text and form answers. Quote the exact evidence. Never infer protected characteristics (age, gender, ethnicity, religion, disability, pregnancy). Reply with strict JSON only.`,
-        user: `Job: ${job.title}\nJob description:\n${(job.descriptionMd ?? "").slice(0, 2500)}\n\nRequirements (key, weight, required):\n${reqs.map((r) => `- ${r.key} (weight ${r.weight}${r.required ? ", REQUIRED" : ""}): ${r.label}`).join("\n")}\n\nForm answers (labelled):\n${labelledAnswers.map((a) => `- ${a.label}: ${JSON.stringify(a.value)}`).join("\n")}\n\nCV text:\n${cvText.slice(0, 4000)}${cvNote}\n\nFor each requirement give met=yes|partial|no|unknown, an exact evidence quote, and source=cv|form. Also strengths[], gaps[], a 3-4 sentence summary, and flags[] (e.g. employment gaps, missing right-to-work evidence).`,
+        system: `You are screening a care worker application for a UK domiciliary care provider. Read the attached CV file when one is provided, including scanned pages. Score each requirement strictly against evidence in that CV and the form answers. Quote the exact evidence. Never infer protected characteristics (age, gender, ethnicity, religion, disability, pregnancy). Do not use the candidate's name, email, phone, or home address as evidence. Reply with strict JSON only.`,
+        user: `Job: ${job.title}\nJob description:\n${(job.descriptionMd ?? "").slice(0, 2500)}\n\nRequirements (key, weight, required):\n${reqs.map((r) => `- ${r.key} (weight ${r.weight}${r.required ? ", REQUIRED" : ""}): ${r.label}`).join("\n")}\n\nForm answers (labelled):\n${labelledAnswers.map((a) => `- ${a.label}: ${JSON.stringify(a.value)}`).join("\n")}\n\n${cvFile ? "The CV PDF is attached. Read that file. Extracted text below is only a backup.\n\n" : ""}CV text:\n${cvText}${cvNote}\n\nFor each requirement give met=yes|partial|no|unknown, an exact evidence quote, and source=cv|form. Also strengths[], gaps[], a 3-4 sentence summary, and flags[] (e.g. employment gaps, missing right-to-work evidence).`,
       });
 
       const score = computeScore(reqs, result.requirement_results);
       const flags = [
         ...result.flags,
         ...knockoutHits.map((h) => `Knockout: ${h.message}`),
-        ...(app.cvUnreadable ? ["CV unreadable — manual review"] : []),
+        ...(app.cvUnreadable && !cvFile ? ["CV unreadable — manual review"] : []),
       ];
       await db.from("applications").eq("id", app.id).update({
         aiScore: score, aiBreakdown: result.requirement_results as never,

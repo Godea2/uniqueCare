@@ -151,9 +151,9 @@ export default function CandidateDetail() {
                 )}
               </div>
             </div>
-            {app.cvUnreadable && (
-              <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-                CV unreadable — manual review required. The file could not be text-extracted (it may be a scan).
+            {app.cvUnreadable && app.aiScore === null && (
+              <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                Little text could be copied out of this CV. Screen still sends the PDF to Gemini, which can read a scanned file.
               </div>
             )}
             {app.aiScore === null ? (

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && esbuild api/boot.ts --platform=node --bundle --format=esm --outfile=dist/boot.js --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\" && esbuild api/boot.ts --platform=node --bundle --format=esm --outfile=api/boot.mjs --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\"",
+    "build": "vite build && esbuild api/boot.ts --platform=node --bundle --format=esm --external:nodemailer --outfile=dist/boot.js --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\" && esbuild api/boot.ts --platform=node --bundle --format=esm --external:nodemailer --outfile=api/boot.mjs --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\"",
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "NODE_ENV=production node dist/boot.js",
@@ -15,6 +15,7 @@
     "db:seed": "tsx db/seed.ts"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.131",
     "@ai-sdk/openai-compatible": "2.0.78",
     "@aws-sdk/client-s3": "^3.965.0",
     "@aws-sdk/s3-request-presigner": "^3.965.0",
@@ -69,6 +70,7 @@
     "mammoth": "^1.13.0",
     "nanoid": "^5.1.6",
     "next-themes": "^0.4.6",
+    "nodemailer": "^10.0.16",
     "pdf-parse": "^2.4.5",
     "qrcode": "^1.5.4",
     "react": "^19.2.0",
@@ -88,6 +90,7 @@
     "@eslint/js": "^9.39.1",
     "@hono/vite-dev-server": "^0.19.0",
     "@types/node": "^24.10.1",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
