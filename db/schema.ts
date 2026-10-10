@@ -424,6 +424,8 @@ export interface InterviewSlots {
   capacity: number | null;
   teamsMeetingUrl: string | null;
   locationText: string | null;
+  /** Email candidates who become ready to book after the slot was created. Missing until migration 0003 runs. */
+  notifyNewCandidates?: boolean | null;
   createdAt: string;
 }
 

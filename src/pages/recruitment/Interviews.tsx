@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { CalendarDays, Plus, Trophy, Video } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { BellOff, CalendarDays, Mail, Plus, Trophy, Video } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Interviews() {
@@ -54,6 +55,11 @@ export default function Interviews() {
                     </span>
                   ))}
                 </div>
+                {s.notifyNewCandidates === false && (
+                  <p className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <BellOff className="h-3 w-3" aria-hidden /> New candidates aren't emailed about this slot
+                  </p>
+                )}
                 {s.teamsMeetingUrl && (
                   <a className="mt-2 block truncate text-[11px] text-[--brand-700] underline" href={s.teamsMeetingUrl}
                     target="_blank" rel="noreferrer" title={s.teamsMeetingUrl}>
@@ -127,8 +133,21 @@ function CreateSlotDialog({ open, onClose, jobs, staff, onCreated }: {
   const [capacity, setCapacity] = useState(1);
   const [meetingUrl, setMeetingUrl] = useState("");
   const [locationText, setLocationText] = useState("");
+  const [notifyNow, setNotifyNow] = useState(true);
+  const [notifyLater, setNotifyLater] = useState(true);
+  const audienceQ = trpc.hr2.slotAudience.useQuery({ jobPostingId: jobId ? Number(jobId) : undefined }, { enabled: open });
+  const readyNow = audienceQ.data?.readyNow ?? 0;
+  const onTheWay = audienceQ.data?.onTheWay ?? 0;
   const create = trpc.hr2.createSlot.useMutation({
-    onSuccess: () => { toast.success("Slot created"); onCreated(); },
+    onSuccess: (res) => {
+      toast.success(res.readyNow > 0
+        ? `Slot created. Emailing ${res.readyNow} candidate${res.readyNow === 1 ? "" : "s"} who can book now.`
+        : "Slot created.");
+      if (!res.laterSaved) {
+        toast.warning("New candidates will still be emailed about this slot. Run the 0003 SQL in Supabase to turn that off per slot.");
+      }
+      onCreated();
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -138,7 +157,7 @@ function CreateSlotDialog({ open, onClose, jobs, staff, onCreated }: {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[92vh] overflow-y-auto">
         <DialogHeader><DialogTitle>New interview slot</DialogTitle></DialogHeader>
         <div className="grid grid-cols-3 gap-3">
           <div>
@@ -195,6 +214,35 @@ function CreateSlotDialog({ open, onClose, jobs, staff, onCreated }: {
           <Input id="sl-loc" value={locationText} onChange={(e) => setLocationText(e.target.value)}
             placeholder={meetingUrl ? "Video interview" : "Office address"} />
         </div>
+        <fieldset className="mt-4 rounded-xl border p-3" style={{ borderColor: "var(--line)" }}>
+          <legend className="flex items-center gap-1.5 px-1 text-sm font-medium text-[--brand-900]">
+            <Mail className="h-3.5 w-3.5" aria-hidden /> Let candidates know
+          </legend>
+          <label className="flex items-start gap-2.5 py-1.5 text-sm">
+            <Checkbox className="mt-0.5" checked={notifyNow} onCheckedChange={(v) => setNotifyNow(v === true)} />
+            <span>
+              <span className="font-medium text-slate-800">Email candidates who can book now</span>
+              <span className="block text-xs text-muted-foreground">
+                {audienceQ.isLoading ? "Counting…"
+                  : readyNow === 0 ? `Nobody${jobId ? " for this job" : ""} has finished their pre-interview form yet.`
+                  : `${readyNow} candidate${readyNow === 1 ? " has" : "s have"} finished the pre-interview form${jobId ? " for this job" : ""} and ${readyNow === 1 ? "is" : "are"} waiting for a time.`}
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2.5 py-1.5 text-sm">
+            <Checkbox className="mt-0.5" checked={notifyLater} onCheckedChange={(v) => setNotifyLater(v === true)} />
+            <span>
+              <span className="font-medium text-slate-800">Also email candidates who become ready later</span>
+              <span className="block text-xs text-muted-foreground">
+                Anyone who finishes the pre-interview form{jobId ? " for this job" : ""} while this slot still has room gets an email to book.
+                {onTheWay > 0 && ` ${onTheWay} ${onTheWay === 1 ? "is" : "are"} on the way now.`}
+              </span>
+            </span>
+          </label>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Only shortlisted candidates who have completed their pre-interview form can book. Nobody gets this email more than once a day.
+          </p>
+        </fieldset>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
@@ -204,6 +252,7 @@ function CreateSlotDialog({ open, onClose, jobs, staff, onCreated }: {
               jobPostingId: jobId ? Number(jobId) : undefined,
               panelMemberIds: panel, capacity,
               meetingUrl: meetingUrl.trim() || undefined, locationText: locationText.trim() || undefined,
+              notifyNow, notifyLater,
             })}>
             Create slot
           </Button>

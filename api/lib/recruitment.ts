@@ -2,7 +2,8 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { db } from "../db";
 import type {
-  ApplicationStage, ApplicationFormVersions, Applications, Candidates, EmailOutbox, JobPostings, PreInterviewForms,
+  ApplicationStage, ApplicationFormVersions, Applications, Candidates, EmailOutbox, InterviewBookings, InterviewSlots,
+  JobPostings, PreInterviewForms,
 } from "@db/schema";
 import { audit, notifyRoles, ruleEnabled } from "../util";
 import { callAI } from "../ai/provider";
@@ -137,18 +138,57 @@ export async function emailCandidate(
   await sendEmail({ to: p.cand.email, subject: msg.subject, body: msg.body, kind, relatedType: "application", relatedId: appId });
 }
 
-/** Tell candidates waiting to book that interview times are open. At most one email per application per day. */
+/** A slot a candidate for this job can see: for this job or any job, and not in the past (unless allowed). */
+export const slotOpenForJob = (s: InterviewSlots, jobId: number) =>
+  (s.jobPostingId == null || Number(s.jobPostingId) === jobId) &&
+  (ALLOW_PAST_INTERVIEW_SLOTS || new Date(s.startsAt).getTime() > Date.now());
+
+/** Candidates who can book an interview for the job (or for any job when null), and those still filling in the form. */
+export async function slotAudience(jobPostingId: number | null) {
+  const apps = await db.from("applications")
+    .in("stage", ["shortlisted", "pre_interview_forms_sent", "pre_interview_forms_complete"]).many<Applications>();
+  const forJob = apps.filter((a) => jobPostingId == null || Number(a.jobPostingId) === jobPostingId);
+  return {
+    readyNow: forJob.filter((a) => a.stage === "pre_interview_forms_complete").length,
+    onTheWay: forJob.filter((a) => a.stage !== "pre_interview_forms_complete").length,
+  };
+}
+
+/** At most one "interview times are open" email per application per day. */
+async function slotsEmailDue(appId: number) {
+  const last = await db.from("emailOutbox")
+    .eq("relatedType", "application").eq("relatedId", String(appId)).eq("kind", "interview_slots_open")
+    .order("id", "desc").first<EmailOutbox>();
+  return !last || new Date(last.createdAt).getTime() <= Date.now() - 86_400_000;
+}
+
+/** Tell candidates waiting to book that interview times are open. Returns how many were emailed. */
 export async function emailCandidatesSlotsOpen(jobPostingId: number | null, baseUrl: string) {
   const waiting = await db.from("applications").eq("stage", "pre_interview_forms_complete").many<Applications>();
-  const dayAgo = Date.now() - 86_400_000;
+  let sent = 0;
   for (const app of waiting) {
     if (jobPostingId != null && Number(app.jobPostingId) !== jobPostingId) continue;
-    const last = await db.from("emailOutbox")
-      .eq("relatedType", "application").eq("relatedId", String(app.id)).eq("kind", "interview_slots_open")
-      .order("id", "desc").first<EmailOutbox>();
-    if (last && new Date(last.createdAt).getTime() > dayAgo) continue;
+    if (!(await slotsEmailDue(Number(app.id)))) continue;
     await emailCandidate(Number(app.id), "interview_slots_open", baseUrl);
+    sent++;
   }
+  return sent;
+}
+
+/**
+ * A candidate has just become ready to book: email them if a slot they can book is open
+ * and that slot was set to tell candidates who become ready later.
+ */
+export async function emailSlotsOpenIfAny(app: Applications, baseUrl: string) {
+  const slots = await db.from("interviewSlots").many<InterviewSlots>();
+  const booked = await db.from("interviewBookings").eq("status", "booked").many<InterviewBookings>();
+  const announce = slots.some((s) =>
+    s.notifyNewCandidates !== false &&
+    slotOpenForJob(s, Number(app.jobPostingId)) &&
+    booked.filter((b) => b.slotId === s.id).length < (s.capacity ?? 1));
+  if (!announce || !(await slotsEmailDue(Number(app.id)))) return false;
+  await emailCandidate(Number(app.id), "interview_slots_open", baseUrl);
+  return true;
 }
 
 /** Shortlisted → pre-interview form opened in the portal and the candidate invited. */

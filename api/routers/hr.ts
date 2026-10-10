@@ -37,7 +37,8 @@ import { cvDownloadUrl, documentDownloadUrl, saveCv } from "../lib/cv-store";
 import { appUrl, orgProfile, portalUrl } from "../lib/app-url";
 import { jobRequirements, liveApplicationSchema, normaliseRequirements, syncJobForm } from "../lib/job-form";
 import {
-  ALLOW_PAST_INTERVIEW_SLOTS, canTransition, emailCandidate, emailCandidatesSlotsOpen, inviteToInterviewStage, pushStage, screenApplication, screenInBackground,
+  ALLOW_PAST_INTERVIEW_SLOTS, canTransition, emailCandidate, emailCandidatesSlotsOpen, emailSlotsOpenIfAny, inviteToInterviewStage,
+  pushStage, screenApplication, screenInBackground, slotAudience,
 } from "../lib/recruitment";
 import {
   validateSubmission, trippedKnockouts, suggestRequirementSetup, REQUIREMENT_ANSWER_TYPES,
@@ -590,6 +591,10 @@ export const hrRouter = createRouter({
       if (input.to === "rejected" || input.to === "screened_out") {
         await emailCandidate(input.applicationId, "unsuccessful", base);
       }
+      if (input.to === "pre_interview_forms_complete") {
+        const moved = await db.from("applications").eq("id", input.applicationId).first<Applications>();
+        if (moved) waitUntil(emailSlotsOpenIfAny(moved, base).catch(() => {}));
+      }
       return { ok: true };
     }),
 
@@ -658,6 +663,8 @@ export const hrRouter2 = createRouter({
       panelMemberIds: z.array(z.number()), capacity: z.number().min(1).max(5).default(1),
       locationText: z.string().trim().max(300).optional(),
       meetingUrl: z.string().trim().url().max(2000).optional().or(z.literal("")),
+      notifyNow: z.boolean().default(true),
+      notifyLater: z.boolean().default(true),
     }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
@@ -678,9 +685,29 @@ export const hrRouter2 = createRouter({
         locationText: input.locationText || (meetingUrl ? "Video interview" : "In person — address to be confirmed"),
         teamsMeetingUrl: meetingUrl,
       });
-      await audit(sc.staff.fullName, "interview_slot_created", "interview_slots", row.id);
-      waitUntil(emailCandidatesSlotsOpen(input.jobPostingId ?? null, appUrl(ctx.req)).catch(() => {}));
-      return { id: row.id };
+      let laterSaved = true;
+      if (!input.notifyLater) {
+        try {
+          await db.from("interviewSlots").eq("id", row.id).update({ notifyNewCandidates: false });
+        } catch {
+          laterSaved = false;
+        }
+      }
+      await audit(sc.staff.fullName, "interview_slot_created", "interview_slots", row.id, {
+        notifyNow: input.notifyNow, notifyLater: input.notifyLater,
+      });
+      const audience = await slotAudience(input.jobPostingId ?? null);
+      if (input.notifyNow) waitUntil(emailCandidatesSlotsOpen(input.jobPostingId ?? null, appUrl(ctx.req)).catch(() => 0));
+      return { id: row.id, readyNow: input.notifyNow ? audience.readyNow : 0, laterSaved };
+    }),
+
+  /** Who a new slot would reach: candidates ready to book now, and those still on their pre-interview form. */
+  slotAudience: authedQuery
+    .input(z.object({ jobPostingId: z.number().optional() }))
+    .query(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      return slotAudience(input.jobPostingId ?? null);
     }),
 
   submitScorecard: authedQuery

@@ -426,6 +426,7 @@ export const COLUMN_MAP: Record<TableKey, Record<string, string>> = {
     capacity: "capacity",
     teamsMeetingUrl: "teams_meeting_url",
     locationText: "location_text",
+    notifyNewCandidates: "notify_new_candidates",
     createdAt: "created_at",
   },
   jobLinkSources: {

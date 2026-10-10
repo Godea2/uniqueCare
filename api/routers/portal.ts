@@ -7,14 +7,11 @@ import type {
   InterviewBookings, ComplianceDocuments, ComplianceRequirements, OfferLetters,
   TrainingCourses, TrainingSessions, TrainingEnrolments,
 } from "@db/schema";
+import { waitUntil } from "@vercel/functions";
 import { audit, notifyRoles } from "../util";
 import { saveDocument, sniffDocument } from "../lib/cv-store";
 import { appUrl } from "../lib/app-url";
-import { ALLOW_PAST_INTERVIEW_SLOTS, emailCandidate } from "../lib/recruitment";
-
-const slotOpen = (s: InterviewSlots, jobId: number) =>
-  (s.jobPostingId == null || Number(s.jobPostingId) === jobId) &&
-  (ALLOW_PAST_INTERVIEW_SLOTS || new Date(s.startsAt).getTime() > Date.now());
+import { emailCandidate, emailSlotsOpenIfAny, slotOpenForJob as slotOpen } from "../lib/recruitment";
 
 async function appByToken(portalToken: string) {
   const app = await db.from("applications").eq("portalToken", portalToken).first<Applications>();
@@ -70,7 +67,7 @@ export const portalRouter = createRouter({
       data: z.record(z.string(), z.unknown()),
       submit: z.boolean().default(false),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { app } = await appByToken(input.token);
       if (!["pre_interview_forms_sent", "shortlisted"].includes(app.stage))
         throw new TRPCError({ code: "BAD_REQUEST", message: "The form is not open for this application." });
@@ -97,6 +94,7 @@ export const portalRouter = createRouter({
           body: `Application #${app.id} can now book an interview. Make sure there are open interview slots.`,
           link: `/recruitment/pipeline/${app.id}`,
         });
+        waitUntil(emailSlotsOpenIfAny({ ...app, stage: "pre_interview_forms_complete" }, appUrl(ctx.req)).catch(() => {}));
       }
       return { ok: true };
     }),
