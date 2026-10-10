@@ -11,6 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { CheckCircle2, XCircle, FileCheck2, GraduationCap, Copy, Check, ArrowLeft, FileText } from "lucide-react";
 import { toast } from "sonner";
+import {
+  answerText, conditionMet, trippedKnockouts, DISPLAY_TYPES,
+  type FormAnswers, type FormField, type FormSchemaDoc,
+} from "@contracts/form-schema";
 
 const CRITERIA = ["Values & motivation", "Person-centred care", "Safeguarding awareness", "Communication", "Reliability", "Scenario judgement"];
 
@@ -212,6 +216,12 @@ export default function CandidateDetail() {
             )}
           </section>
 
+          <ApplicationAnswers
+            schema={d.formSchema}
+            answers={(app.answers ?? {}) as FormAnswers}
+            requirements={jobReqs}
+          />
+
           {/* CV viewer — side by side with the screening evidence above */}
           {cvKey && (
             <CvViewer applicationId={app.id} fileKey={cvKey} fileName={latestCv?.fileName ?? app.cvFileName ?? "CV"} versions={d.cvVersions ?? []} />
@@ -332,6 +342,73 @@ export default function CandidateDetail() {
       <OverrideDialog open={overrideOpen} onClose={() => setOverrideOpen(false)} current={stage}
         onConfirm={(to, reason) => move.mutate({ applicationId: app.id, to: to as never, reason, override: true })} />
     </div>
+  );
+}
+
+/** Everything the applicant filled in, laid out in the same steps as the form they saw. */
+function ApplicationAnswers({ schema, answers, requirements }: {
+  schema: FormSchemaDoc | null;
+  answers: FormAnswers;
+  requirements: { key: string; label: string; required?: boolean }[];
+}) {
+  const knockoutIds = new Set(schema ? trippedKnockouts(schema, answers).map((k) => k.fieldId) : []);
+  const display = (field: FormField, value: unknown) => {
+    if (field.type === "consent") return value === true || value === "true" || value === "yes" ? "Agreed" : "Not agreed";
+    return answerText(field, value);
+  };
+
+  return (
+    <section className="uc-card p-5" aria-label="Application answers">
+      <h2 className="uc-label mb-3">Application answers</h2>
+      {schema ? (
+        <div className="space-y-5">
+          {schema.sections.map((section) => {
+            const rows = section.fields.filter((f) => !DISPLAY_TYPES.includes(f.type) && conditionMet(f, answers));
+            if (rows.length === 0) return null;
+            return (
+              <div key={section.id}>
+                <h3 className="text-sm font-semibold text-[--brand-900] mb-2">{section.title}</h3>
+                <dl className="divide-y rounded-xl border" style={{ borderColor: "var(--line)" }}>
+                  {rows.map((f) => {
+                    const text = display(f, answers[f.id]);
+                    const req = f.requirementKey ? requirements.find((r) => r.key === f.requirementKey) : undefined;
+                    const knockout = knockoutIds.has(f.id);
+                    return (
+                      <div key={f.id} className={`grid gap-1 px-3 py-2.5 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-4 ${knockout ? "bg-red-50" : ""}`}
+                        style={{ borderColor: "var(--line)" }}>
+                        <dt className="text-xs text-muted-foreground">
+                          {f.label}
+                          {req && (
+                            <span className="mt-1 block text-[10px] font-medium text-[--brand-700]">
+                              Screening: {req.label}{req.required ? " (must have)" : ""}
+                            </span>
+                          )}
+                        </dt>
+                        <dd className={`text-sm whitespace-pre-wrap break-words ${knockout ? "font-medium text-red-800" : ""}`}>
+                          {text || <span className="text-muted-foreground">Not answered</span>}
+                          {knockout && <span className="mt-1 block text-xs font-normal">{f.knockoutRule?.message ?? "Knockout answer — needs human review"}</span>}
+                        </dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              </div>
+            );
+          })}
+        </div>
+      ) : Object.keys(answers).length > 0 ? (
+        <dl className="divide-y rounded-xl border" style={{ borderColor: "var(--line)" }}>
+          {Object.entries(answers).map(([k, v]) => (
+            <div key={k} className="grid gap-1 px-3 py-2.5 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-4" style={{ borderColor: "var(--line)" }}>
+              <dt className="text-xs text-muted-foreground">{k.replace(/_/g, " ")}</dt>
+              <dd className="text-sm whitespace-pre-wrap break-words">{typeof v === "object" ? JSON.stringify(v) : String(v)}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="text-sm text-muted-foreground">No form answers were saved with this application.</p>
+      )}
+    </section>
   );
 }
 
