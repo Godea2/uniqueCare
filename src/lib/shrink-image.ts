@@ -1,7 +1,7 @@
 /**
- * Phone photos are often 3–8 MB, but an upload request can carry about 3 MB of file.
- * Re-encode large JPEG, PNG and WebP photos as a JPEG no wider than `maxSide`, which keeps
- * documents readable. Anything else (PDF, Word, HEIC) is returned untouched.
+ * Phone photos are often 3–8 MB. Re-encode large JPEG, PNG and WebP photos as a JPEG no wider
+ * than `maxSide`, which keeps documents readable and uploads quick. Anything else (PDF, Word,
+ * HEIC) is returned untouched.
  */
 export async function shrinkImage(file: File, maxSide = 2200, quality = 0.85): Promise<File> {
   if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 1.2 * 1024 * 1024) return file;
@@ -21,6 +21,3 @@ export async function shrinkImage(file: File, maxSide = 2200, quality = 0.85): P
   if (!blob || blob.size >= file.size) return file;
   return new File([blob], `${file.name.replace(/\.[^.]+$/, "")}.jpg`, { type: "image/jpeg" });
 }
-
-/** Largest file one upload request can carry once base64-encoded. */
-export const MAX_UPLOAD_BYTES = 3.2 * 1024 * 1024;

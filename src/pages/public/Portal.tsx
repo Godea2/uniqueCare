@@ -13,7 +13,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { MAX_UPLOAD_BYTES, shrinkImage } from "@/lib/shrink-image";
+import { shrinkImage } from "@/lib/shrink-image";
+import { MAX_DOCUMENT_BYTES, putFile } from "@/lib/upload-file";
 
 const JOURNEY = [
   { key: "applied", label: "Application received" },
@@ -317,30 +318,29 @@ const docState = (status: string) => DOC_STATES[status] ?? DOC_STATES.requested;
 const DOC_ORDER: Record<string, number> = { rejected: 0, requested: 1, uploaded: 2, verified: 3 };
 const ACCEPT_DOCS = ".pdf,.jpg,.jpeg,.png,.heic,.heif,.doc,.docx,application/pdf,image/*";
 
-async function toBase64(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
+type Uploading = { name: string; progress: number; phase: "sending" | "checking" };
 
 function DocsSection({ token, docs }: { token: string; docs: PortalDoc[] }) {
   const utils = trpc.useUtils();
-  const [busy, setBusy] = useState<Record<string, string>>({});
-  const upload = trpc.portal.uploadDoc.useMutation();
+  const [busy, setBusy] = useState<Record<string, Uploading>>({});
+  const prepare = trpc.portal.docUploadUrl.useMutation();
+  const confirm = trpc.portal.confirmDoc.useMutation();
 
   const send = async (doc: PortalDoc, picked: File) => {
     const key = doc.requirementKey;
-    setBusy((s) => ({ ...s, [key]: picked.name }));
+    const track = (patch: Partial<Uploading>) =>
+      setBusy((s) => ({ ...s, [key]: { ...(s[key] ?? { name: picked.name, progress: 0, phase: "sending" }), ...patch } }));
+    track({ name: picked.name, progress: 0, phase: "sending" });
     try {
       const file = await shrinkImage(picked);
-      if (file.size > MAX_UPLOAD_BYTES) {
-        toast.error("That file is too large to send. Please use a photo, or a PDF under 3 MB.");
+      if (file.size > MAX_DOCUMENT_BYTES) {
+        toast.error("That file is over 10 MB. Please send a smaller PDF, or a photo of the document.");
         return;
       }
-      const res = await upload.mutateAsync({ token, requirementKey: key, fileName: file.name, contentBase64: await toBase64(file) });
+      const target = await prepare.mutateAsync({ token, requirementKey: key, fileName: file.name, size: file.size });
+      await putFile(target.uploadUrl, file, (progress) => track({ progress }));
+      track({ phase: "checking", progress: 1 });
+      const res = await confirm.mutateAsync({ token, requirementKey: key, fileName: file.name, key: target.key });
       await utils.portal.get.invalidate({ token });
       if (res.allSent) toast.success("That's everything. We've emailed you a confirmation and will start checking your documents.");
       else toast.success(`${doc.requirement?.label ?? "Document"} saved. ${res.outstanding} still to add.`);
@@ -422,14 +422,14 @@ function DocsSection({ token, docs }: { token: string; docs: PortalDoc[] }) {
             <li>Lay the document flat in good light, with all four corners in the picture.</li>
             <li>No glare, shadows or fingers over the text. Every word should be readable.</li>
             <li>For two-sided documents, upload a PDF or photo showing both sides.</li>
-            <li>PDF, photo (JPG, PNG, HEIC) or Word. Large photos are made smaller for you.</li>
+            <li>PDF, photo (JPG, PNG, HEIC) or Word, up to 10 MB. Large photos are made smaller for you.</li>
           </ul>
         </details>
       )}
 
       <ul className="space-y-3 px-5 pb-5 sm:px-6 sm:pb-6">
         {sorted.map((doc) => (
-          <DocCard key={String(doc.id)} doc={doc} uploadingName={busy[doc.requirementKey]} onFile={(f) => void send(doc, f)} />
+          <DocCard key={String(doc.id)} doc={doc} uploading={busy[doc.requirementKey]} onFile={(f) => void send(doc, f)} />
         ))}
       </ul>
 
@@ -441,7 +441,7 @@ function DocsSection({ token, docs }: { token: string; docs: PortalDoc[] }) {
   );
 }
 
-function DocCard({ doc, uploadingName, onFile }: { doc: PortalDoc; uploadingName?: string; onFile: (file: File) => void }) {
+function DocCard({ doc, uploading, onFile }: { doc: PortalDoc; uploading?: Uploading; onFile: (file: File) => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
@@ -449,7 +449,6 @@ function DocCard({ doc, uploadingName, onFile }: { doc: PortalDoc; uploadingName
   const label = doc.requirement?.label ?? doc.requirementKey.replace(/_/g, " ");
   const needsFile = doc.status === "requested" || doc.status === "rejected";
   const canReplace = doc.status === "uploaded";
-  const uploading = !!uploadingName;
   const pick = (files: FileList | null | undefined) => { const f = files?.[0]; if (f) onFile(f); };
 
   return (
@@ -491,11 +490,20 @@ function DocCard({ doc, uploadingName, onFile }: { doc: PortalDoc; uploadingName
       {uploading ? (
         <div className="mt-3 rounded-xl border border-dashed border-[--brand-500] bg-[--brand-50] px-4 py-4">
           <div className="flex items-center gap-2 text-sm font-medium text-[--brand-900]">
-            <Loader2 className="h-4 w-4 animate-spin text-[--brand-600]" aria-hidden />
-            Uploading <span className="truncate font-normal text-slate-600">{uploadingName}</span>
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[--brand-600]" aria-hidden />
+            {uploading.phase === "checking" ? "Saving" : "Uploading"}
+            <span className="min-w-0 flex-1 truncate font-normal text-slate-600">{uploading.name}</span>
+            {uploading.phase === "sending" && uploading.progress > 0 && (
+              <span className="tabular-nums text-xs text-[--brand-700]">{Math.round(uploading.progress * 100)}%</span>
+            )}
           </div>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white">
-            <div className="h-full w-1/3 animate-[uc-indeterminate_1.2s_ease-in-out_infinite] rounded-full bg-[--brand-600]" />
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white" role="progressbar" aria-label={`Uploading ${label}`}
+            aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploading.phase === "sending" ? Math.round(uploading.progress * 100) : undefined}>
+            {uploading.phase === "sending" && uploading.progress > 0 ? (
+              <div className="h-full rounded-full bg-[--brand-600] transition-[width] duration-200" style={{ width: `${Math.max(4, uploading.progress * 100)}%` }} />
+            ) : (
+              <div className="h-full w-1/3 animate-[uc-indeterminate_1.2s_ease-in-out_infinite] rounded-full bg-[--brand-600]" />
+            )}
           </div>
         </div>
       ) : needsFile && (

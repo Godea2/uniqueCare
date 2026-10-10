@@ -78,6 +78,34 @@ export function documentDownloadUrl(key: string): Promise<string> {
   return signedUrl(DOC_BUCKET, key, "This document could not be opened.");
 }
 
+/**
+ * A one-time link the browser can PUT a document to, so large files go straight to storage
+ * instead of through the serverless function (which caps request bodies at about 4.5 MB).
+ */
+export async function documentUploadTarget(ownerKey: string, fileName: string) {
+  await ensureBucket(DOC_BUCKET);
+  const key = `${ownerKey}/${Date.now()}-${safeName(fileName)}`;
+  const { data, error } = await supabase().storage.from(DOC_BUCKET).createSignedUploadUrl(key);
+  if (error || !data?.signedUrl) throw new Error("We could not prepare your upload. Please try again.");
+  return { key, uploadUrl: data.signedUrl };
+}
+
+/** Size and first bytes of a stored document, or null when nothing was stored under `key`. */
+export async function inspectDocument(key: string): Promise<{ size: number; head: Uint8Array } | null> {
+  await ensureBucket(DOC_BUCKET);
+  const { data } = await supabase().storage.from(DOC_BUCKET).createSignedUrl(key, 60);
+  if (!data?.signedUrl) return null;
+  const res = await fetch(data.signedUrl, { headers: { range: "bytes=0-31" } });
+  if (!res.ok) return null;
+  const head = new Uint8Array(await res.arrayBuffer());
+  const total = res.headers.get("content-range")?.split("/")[1];
+  return { size: total && total !== "*" ? Number(total) : head.length, head };
+}
+
+export async function removeDocument(key: string): Promise<void> {
+  await supabase().storage.from(DOC_BUCKET).remove([key]).catch(() => {});
+}
+
 /** Accept PDF, JPEG, PNG, HEIC/HEIF and Word files, checked by their first bytes. */
 export function sniffDocument(bytes: Uint8Array, fileName: string): string | null {
   const b = bytes;

@@ -9,7 +9,7 @@ import type {
 } from "@db/schema";
 import { waitUntil } from "@vercel/functions";
 import { audit, notifyRoles } from "../util";
-import { saveDocument, sniffDocument } from "../lib/cv-store";
+import { documentUploadTarget, inspectDocument, removeDocument, saveDocument, sniffDocument } from "../lib/cv-store";
 import { appUrl } from "../lib/app-url";
 import { complianceApplication, emailCandidate, emailSlotsOpenIfAny, slotOpenForJob as slotOpen } from "../lib/recruitment";
 
@@ -19,6 +19,60 @@ async function appByToken(portalToken: string) {
   const candidate = await db.from("candidates").eq("id", app.candidateId).first<Candidates>();
   const job = await db.from("jobPostings").eq("id", app.jobPostingId).first<JobPostings>();
   return { app, candidate: candidate!, job: job! };
+}
+
+const MAX_DOC_BYTES = 10 * 1024 * 1024;
+const TOO_LARGE = "Files must be 10 MB or smaller.";
+const WRONG_TYPE = "Upload a PDF, photo (JPG, PNG, HEIC) or Word document.";
+
+/** The requested document a portal upload is for, if the application can still take uploads. */
+async function docForUpload(token: string, requirementKey: string) {
+  const { app, candidate } = await appByToken(token);
+  if (["rejected", "withdrawn", "screened_out"].includes(app.stage)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "This application is closed." });
+  }
+  const doc = await db.from("complianceDocuments")
+    .eq("ownerType", "candidate")
+    .eq("ownerId", candidate.id)
+    .eq("requirementKey", requirementKey)
+    .first<ComplianceDocuments>();
+  if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "We have not asked for this document." });
+  if (doc.status === "verified") throw new TRPCError({ code: "BAD_REQUEST", message: "This document is already verified." });
+  return { app, candidate, doc };
+}
+
+async function recordUpload({ app, candidate, doc, fileName, key, baseUrl }: {
+  app: Applications; candidate: Candidates; doc: ComplianceDocuments; fileName: string; key: string; baseUrl: string;
+}) {
+  await db.from("complianceDocuments").eq("id", doc.id).update({
+    status: "uploaded", fileName, fileKey: key, rejectionReason: null,
+  });
+  await audit("Candidate (portal)", "document_uploaded", "applications", app.id, { requirement: doc.requirementKey });
+
+  // One alert for the office when the whole set is in, and one per replacement of a rejected file;
+  // not one email per file while the candidate works through the list.
+  const docs = await db.from("complianceDocuments").eq("ownerType", "candidate").eq("ownerId", candidate.id).many<ComplianceDocuments>();
+  const outstanding = docs.filter((d) => d.status === "requested" || d.status === "rejected").length;
+  const toCheck = docs.filter((d) => d.status === "uploaded").length;
+  const name = `${candidate.firstName} ${candidate.lastName}`;
+  const firstFile = doc.status === "requested" || doc.status === "rejected";
+  if (firstFile && outstanding === 0) {
+    const forApp = (await complianceApplication(Number(candidate.id))) ?? app;
+    await notifyRoles(["admin", "super_admin"], {
+      type: "hr", title: `Documents ready to check — ${name}`,
+      body: `${name} has sent every document. ${toCheck} ${toCheck === 1 ? "is" : "are"} waiting for you to check.`,
+      link: "/recruitment/compliance",
+    });
+    waitUntil(emailCandidate(Number(forApp.id), "documents_received", baseUrl).catch(() => {}));
+  } else if (doc.status === "rejected") {
+    const req = await db.from("complianceRequirements").eq("key", doc.requirementKey).first<ComplianceRequirements>();
+    await notifyRoles(["admin", "super_admin"], {
+      type: "hr", title: `Replacement document to check — ${name}`,
+      body: `${req?.label ?? doc.requirementKey.replace(/_/g, " ")} was sent again after it was rejected.`,
+      link: "/recruitment/compliance",
+    });
+  }
+  return { ok: true, outstanding, allSent: outstanding === 0 };
 }
 
 export const portalRouter = createRouter({
@@ -134,6 +188,47 @@ export const portalRouter = createRouter({
       return { ok: true, teamsMeetingUrl: slot.teamsMeetingUrl };
     }),
 
+  /** Step 1 of an upload: a one-time storage link the browser sends the file to directly. */
+  docUploadUrl: publicQuery
+    .input(z.object({
+      token: z.string(), requirementKey: z.string().min(1).max(60),
+      fileName: z.string().min(1).max(255), size: z.number().int().positive(),
+    }))
+    .mutation(async ({ input }) => {
+      const { candidate } = await docForUpload(input.token, input.requirementKey);
+      if (input.size > MAX_DOC_BYTES) throw new TRPCError({ code: "BAD_REQUEST", message: TOO_LARGE });
+      try {
+        return await documentUploadTarget(`candidate-${candidate.id}`, input.fileName);
+      } catch (err) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "Upload failed." });
+      }
+    }),
+
+  /** Step 2: check what arrived in storage and record it against the requirement. */
+  confirmDoc: publicQuery
+    .input(z.object({
+      token: z.string(), requirementKey: z.string().min(1).max(60),
+      fileName: z.string().min(1).max(255), key: z.string().min(1).max(400),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { app, candidate, doc } = await docForUpload(input.token, input.requirementKey);
+      if (!input.key.startsWith(`candidate-${candidate.id}/`) || input.key.includes("..")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That upload does not belong to this application." });
+      }
+      const stored = await inspectDocument(input.key);
+      if (!stored) throw new TRPCError({ code: "BAD_REQUEST", message: "Your file did not reach us. Please try again." });
+      if (stored.size > MAX_DOC_BYTES) {
+        await removeDocument(input.key);
+        throw new TRPCError({ code: "BAD_REQUEST", message: TOO_LARGE });
+      }
+      if (!sniffDocument(stored.head, input.fileName)) {
+        await removeDocument(input.key);
+        throw new TRPCError({ code: "BAD_REQUEST", message: WRONG_TYPE });
+      }
+      return recordUpload({ app, candidate, doc, fileName: input.fileName, key: input.key, baseUrl: appUrl(ctx.req) });
+    }),
+
+  /** Single-request upload for small files; the portal now uses docUploadUrl + confirmDoc. */
   uploadDoc: publicQuery
     .input(z.object({
       token: z.string(), requirementKey: z.string().min(1).max(60),
@@ -141,57 +236,18 @@ export const portalRouter = createRouter({
       contentBase64: z.string().min(1).max(14_000_000),
     }))
     .mutation(async ({ input, ctx }) => {
-      const { app, candidate } = await appByToken(input.token);
-      if (["rejected", "withdrawn", "screened_out"].includes(app.stage)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This application is closed." });
-      }
-      const doc = await db.from("complianceDocuments")
-        .eq("ownerType", "candidate")
-        .eq("ownerId", candidate.id)
-        .eq("requirementKey", input.requirementKey)
-        .first<ComplianceDocuments>();
-      if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "We have not asked for this document." });
-      if (doc.status === "verified") throw new TRPCError({ code: "BAD_REQUEST", message: "This document is already verified." });
+      const { app, candidate, doc } = await docForUpload(input.token, input.requirementKey);
       const bytes = Uint8Array.from(Buffer.from(input.contentBase64, "base64"));
-      if (bytes.length > 10 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "Files must be 10 MB or smaller." });
+      if (bytes.length > MAX_DOC_BYTES) throw new TRPCError({ code: "BAD_REQUEST", message: TOO_LARGE });
       const mime = sniffDocument(bytes, input.fileName);
-      if (!mime) throw new TRPCError({ code: "BAD_REQUEST", message: "Upload a PDF, photo (JPG, PNG, HEIC) or Word document." });
+      if (!mime) throw new TRPCError({ code: "BAD_REQUEST", message: WRONG_TYPE });
       let key: string;
       try {
         ({ key } = await saveDocument(`candidate-${candidate.id}`, bytes, input.fileName, mime));
       } catch (err) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "Upload failed." });
       }
-      await db.from("complianceDocuments").eq("id", doc.id).update({
-        status: "uploaded", fileName: input.fileName, fileKey: key, rejectionReason: null,
-      });
-      await audit("Candidate (portal)", "document_uploaded", "applications", app.id, { requirement: input.requirementKey });
-
-      // One alert for the office when the whole set is in, and one per replacement of a rejected file;
-      // not one email per file while the candidate works through the list.
-      const docs = await db.from("complianceDocuments").eq("ownerType", "candidate").eq("ownerId", candidate.id).many<ComplianceDocuments>();
-      const outstanding = docs.filter((d) => d.status === "requested" || d.status === "rejected").length;
-      const toCheck = docs.filter((d) => d.status === "uploaded").length;
-      const name = `${candidate.firstName} ${candidate.lastName}`;
-      const firstFile = doc.status === "requested" || doc.status === "rejected";
-      const completedSet = firstFile && outstanding === 0;
-      const forApp = (await complianceApplication(Number(candidate.id))) ?? app;
-      if (completedSet) {
-        await notifyRoles(["admin", "super_admin"], {
-          type: "hr", title: `Documents ready to check — ${name}`,
-          body: `${name} has sent every document. ${toCheck} ${toCheck === 1 ? "is" : "are"} waiting for you to check.`,
-          link: "/recruitment/compliance",
-        });
-        waitUntil(emailCandidate(Number(forApp.id), "documents_received", appUrl(ctx.req)).catch(() => {}));
-      } else if (doc.status === "rejected") {
-        const req = await db.from("complianceRequirements").eq("key", doc.requirementKey).first<ComplianceRequirements>();
-        await notifyRoles(["admin", "super_admin"], {
-          type: "hr", title: `Replacement document to check — ${name}`,
-          body: `${req?.label ?? doc.requirementKey.replace(/_/g, " ")} was sent again after it was rejected.`,
-          link: "/recruitment/compliance",
-        });
-      }
-      return { ok: true, outstanding, allSent: outstanding === 0 };
+      return recordUpload({ app, candidate, doc, fileName: input.fileName, key, baseUrl: appUrl(ctx.req) });
     }),
 
   acceptOffer: publicQuery
