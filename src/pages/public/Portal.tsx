@@ -298,11 +298,27 @@ function DocsSection({ token, docs }: {
   docs: { id: number | bigint; requirementKey: string; status: string; fileName: string | null; rejectionReason: string | null; requirement?: { label: string; guidance?: string | null } }[];
 }) {
   const utils = trpc.useUtils();
-  const [names, setNames] = useState<Record<string, string>>({});
+  const [files, setFiles] = useState<Record<string, File>>({});
   const upload = trpc.portal.uploadDoc.useMutation({
-    onSuccess: () => { utils.portal.get.invalidate({ token }); toast.success("Document received"); },
+    onSuccess: (_d, v) => {
+      setFiles((s) => { const next = { ...s }; delete next[v.requirementKey]; return next; });
+      utils.portal.get.invalidate({ token });
+      toast.success("Document received");
+    },
     onError: (e) => toast.error(e.message),
   });
+  const send = async (requirementKey: string) => {
+    const file = files[requirementKey];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error("Files must be 10 MB or smaller."); return; }
+    const contentBase64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    upload.mutate({ token, requirementKey, fileName: file.name, contentBase64 });
+  };
 
   return (
     <section className="uc-card p-5">
@@ -327,15 +343,16 @@ function DocsSection({ token, docs }: {
               <div className="mt-2 flex items-center gap-2">
                 <Input
                   type="file" className="h-8 text-xs"
-                  aria-label={`Upload ${doc.requirementKey}`}
+                  accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.doc,.docx,application/pdf,image/*"
+                  aria-label={`Upload ${doc.requirement?.label ?? doc.requirementKey}`}
                   onChange={(e) => {
                     const file = e.target.files?.[0];
-                    if (file) setNames((s) => ({ ...s, [doc.requirementKey]: file.name }));
+                    if (file) setFiles((s) => ({ ...s, [doc.requirementKey]: file }));
                   }}
                 />
-                <Button size="sm" className="h-8 shrink-0" disabled={!names[doc.requirementKey] || upload.isPending}
-                  onClick={() => upload.mutate({ token, requirementKey: doc.requirementKey, fileName: names[doc.requirementKey] })}>
-                  Upload
+                <Button size="sm" className="h-8 shrink-0" disabled={!files[doc.requirementKey] || upload.isPending}
+                  onClick={() => void send(doc.requirementKey)}>
+                  {upload.isPending && upload.variables?.requirementKey === doc.requirementKey ? "Uploading…" : "Upload"}
                 </Button>
               </div>
             )}

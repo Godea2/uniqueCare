@@ -9,7 +9,7 @@
     {
       "src": "api/index.js",
       "use": "@vercel/node",
-      "config": { "includeFiles": "dist/boot.js" }
+      "config": { "includeFiles": "dist/boot.js", "maxDuration": 60 }
     }
   ],
   "routes": [

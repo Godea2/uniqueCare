@@ -43,7 +43,7 @@ export default function Interviews() {
                 </div>
                 <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1">
                   <Video className="h-3.5 w-3.5" aria-hidden />
-                  {fmtTime(s.startsAt)}–{fmtTime(s.endsAt)} · {s.locationText ?? "Microsoft Teams"}
+                  {fmtTime(s.startsAt)}–{fmtTime(s.endsAt)} · {s.locationText ?? "Interview"}
                 </p>
                 <div className="mt-2 flex items-center gap-1.5">
                   {(s.panel ?? []).map((p) => (
@@ -53,9 +53,10 @@ export default function Interviews() {
                   ))}
                 </div>
                 {s.teamsMeetingUrl && (
-                  <p className="mt-2 truncate text-[11px] text-muted-foreground" title={s.teamsMeetingUrl}>
-                    Teams: {s.teamsMeetingUrl}
-                  </p>
+                  <a className="mt-2 block truncate text-[11px] text-[--brand-700] underline" href={s.teamsMeetingUrl}
+                    target="_blank" rel="noreferrer" title={s.teamsMeetingUrl}>
+                    {s.teamsMeetingUrl}
+                  </a>
                 )}
               </div>
             ))}
@@ -122,6 +123,8 @@ function CreateSlotDialog({ open, onClose, jobs, staff, onCreated }: {
   const [jobId, setJobId] = useState<string>("");
   const [panel, setPanel] = useState<number[]>([]);
   const [capacity, setCapacity] = useState(1);
+  const [meetingUrl, setMeetingUrl] = useState("");
+  const [locationText, setLocationText] = useState("");
   const create = trpc.hr2.createSlot.useMutation({
     onSuccess: () => { toast.success("Slot created"); onCreated(); },
     onError: (e) => toast.error(e.message),
@@ -174,17 +177,26 @@ function CreateSlotDialog({ open, onClose, jobs, staff, onCreated }: {
           <Label htmlFor="sl-cap">Capacity (candidates per slot)</Label>
           <Input id="sl-cap" type="number" min={1} max={5} value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} className="w-24" />
         </div>
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          A Microsoft Teams join link is generated as a placeholder — replace it with the real meeting link if you use your own Teams account.
-        </p>
+        <div className="mt-3">
+          <Label htmlFor="sl-url">Meeting link (optional)</Label>
+          <Input id="sl-url" type="url" value={meetingUrl} onChange={(e) => setMeetingUrl(e.target.value)}
+            placeholder="Paste the Teams, Zoom or Google Meet link" />
+          <p className="mt-1 text-[11px] text-muted-foreground">Candidates see this link once they book. Leave it blank for a face-to-face interview.</p>
+        </div>
+        <div className="mt-3">
+          <Label htmlFor="sl-loc">Where</Label>
+          <Input id="sl-loc" value={locationText} onChange={(e) => setLocationText(e.target.value)}
+            placeholder={meetingUrl ? "Video interview" : "Office address"} />
+        </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
-            disabled={!date || panel.length === 0 || create.isPending}
+            disabled={!date || panel.length === 0 || end <= start || create.isPending || (!!meetingUrl && !/^https:\/\//.test(meetingUrl))}
             onClick={() => create.mutate({
-              startsAt: `${date}T${start}:00`, endsAt: `${date}T${end}:00`,
+              startsAt: new Date(`${date}T${start}:00`).toISOString(), endsAt: new Date(`${date}T${end}:00`).toISOString(),
               jobPostingId: jobId ? Number(jobId) : undefined,
               panelMemberIds: panel, capacity,
+              meetingUrl: meetingUrl.trim() || undefined, locationText: locationText.trim() || undefined,
             })}>
             Create slot
           </Button>

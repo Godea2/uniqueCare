@@ -18,7 +18,7 @@ import type {
   Visits,
 } from "@db/schema";
 import { getStaff, requireRole, audit, notify, notifyRoles } from "../util";
-import { callAI } from "../ai/provider";
+import { callAI, modelName } from "../ai/provider";
 
 const planContentSchema = z.record(z.string(), z.string());
 
@@ -112,12 +112,15 @@ export const cqcRouter = createRouter({
         .eq("kind", input.planType === "care" ? "care_plan" : "support_plan")
         .eq("active", true)
         .first<DocumentTemplates>();
+      if (!tpl) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: `No active ${input.planType} plan template is set up. Load the document templates in Supabase first.` });
+      }
       const existing = await db.from("carePlans")
         .eq("clientId", input.clientId).eq("planType", input.planType).isNull("deletedAt")
         .many<CarePlans>();
       const version = (Math.max(0, ...existing.map((e) => e.version)) || 0) + 1;
       const [row] = await db.from("carePlans").insert<CarePlans>({
-        clientId: input.clientId, templateId: tpl?.id ?? null, planType: input.planType,
+        clientId: input.clientId, templateId: tpl.id, planType: input.planType,
         version, status: "draft", content: {},
       });
       await audit(sc.staff.fullName, "plan_created", "care_plans", row.id, { planType: input.planType });
@@ -148,7 +151,7 @@ export const cqcRouter = createRouter({
       });
       await db.from("carePlans").eq("id", plan.id).update({
         status: "ai_generated", inputs: input.inputs as never,
-        content: result.sections as never, aiModel: "kimi", aiGeneratedAt: new Date(),
+        content: result.sections as never, aiModel: modelName(), aiGeneratedAt: new Date(),
       });
       await audit(sc.staff.fullName, "plan_ai_generated", "care_plans", plan.id);
       return { content: result.sections };

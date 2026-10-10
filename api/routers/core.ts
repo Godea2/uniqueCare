@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { createRouter, authedQuery } from "../middleware";
+import { createRouter, authedQuery, signedInQuery } from "../middleware";
 import { db } from "../db";
+import { geocodePostcode } from "../lib/geo";
 import {
   STAFF_ROLES,
+  type Applications,
   type AuditLog,
   type AutomationRules,
   type Candidates,
@@ -16,27 +18,87 @@ import {
   type Tickets,
   type Visits,
 } from "@db/schema";
-import { getStaff, requireRole, audit } from "../util";
+import { getStaff, requireRole, audit, notify } from "../util";
 
 export const coreRouter = createRouter({
   /** Current signed-in user's staff profile */
-  me: authedQuery.query(async ({ ctx }) => {
+  me: signedInQuery.query(async ({ ctx }) => {
     const { staff } = await getStaff(ctx);
     return staff;
   }),
 
-  /** "View as" role switching (super_admin/admin only) */
+  /**
+   * "View as" role switching for managers. The real role is kept in homeRole
+   * so a manager previewing as a care worker can always switch back.
+   */
   setRole: authedQuery
     .input(z.object({ role: z.enum(STAFF_ROLES) }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      requireRole(sc, "super_admin", "admin");
-      await db.from("staffProfiles").eq("id", sc.staff.id).update({ role: input.role });
-      await audit(sc.staff.fullName, "role_changed", "staff_profile", sc.staff.id, { to: input.role });
+      const realRole = sc.staff.homeRole ?? sc.staff.role;
+      if (realRole !== "super_admin" && realRole !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only managers can preview other roles." });
+      }
+      if (realRole === "admin" && input.role === "super_admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admins cannot preview as Registered Manager." });
+      }
+      await db.from("staffProfiles").eq("id", sc.staff.id).update({
+        role: input.role,
+        homeRole: input.role === realRole ? null : realRole,
+      });
+      await audit(sc.staff.fullName, "role_preview", "staff_profile", sc.staff.id, { as: input.role, realRole });
       return { ok: true };
     }),
 
-  updateMyProfile: authedQuery
+  /** Approve, change role/status or update the job details of a staff member. */
+  updateStaff: authedQuery
+    .input(z.object({
+      id: z.number(),
+      role: z.enum(STAFF_ROLES).optional(),
+      status: z.enum(["active", "onboarding", "pending", "left"]).optional(),
+      jobTitle: z.string().trim().max(120).optional(),
+      contractedHours: z.number().min(0).max(60).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      const actorRole = sc.staff.homeRole ?? sc.staff.role;
+      if (actorRole !== "super_admin" && actorRole !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only managers can change staff accounts." });
+      }
+      const target = await db.from("staffProfiles").eq("id", input.id).first<StaffProfiles>();
+      if (!target) throw new TRPCError({ code: "NOT_FOUND" });
+      const targetRole = target.homeRole ?? target.role;
+      if (actorRole !== "super_admin" && (targetRole === "super_admin" || input.role === "super_admin")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only a Registered Manager can change Registered Manager accounts." });
+      }
+      if (target.id === sc.staff.id && (input.status && input.status !== "active" || input.role && input.role !== actorRole)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "You cannot change your own role or lock your own account." });
+      }
+      if (targetRole === "super_admin" && (input.status === "left" || (input.role && input.role !== "super_admin"))) {
+        const managers = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+        const remaining = managers.filter((m) => m.id !== target.id && (m.homeRole ?? m.role) === "super_admin" && m.status !== "left");
+        if (remaining.length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "At least one Registered Manager must remain." });
+        }
+      }
+      const patch: Partial<StaffProfiles> = {};
+      if (input.role) { patch.role = input.role; patch.homeRole = null; }
+      if (input.status) patch.status = input.status;
+      if (input.jobTitle !== undefined) patch.jobTitle = input.jobTitle || null;
+      if (input.contractedHours !== undefined) patch.contractedHours = String(input.contractedHours);
+      if (input.status === "active" && !target.startDate) patch.startDate = new Date().toISOString().slice(0, 10);
+      await db.from("staffProfiles").eq("id", input.id).update(patch);
+      await audit(sc.staff.fullName, "staff_updated", "staff_profile", input.id, {
+        before: { role: target.role, status: target.status, jobTitle: target.jobTitle },
+        after: patch,
+      });
+      if (target.status === "pending" && input.status === "active") {
+        await notify({ staffId: target.id, type: "account_approved", title: "Your account has been approved", link: "/" });
+      }
+      return { ok: true };
+    }),
+
+  updateMyProfile: signedInQuery
     .input(z.object({
       fullName: z.string().min(2).optional(),
       phone: z.string().optional(),
@@ -44,7 +106,17 @@ export const coreRouter = createRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      await db.from("staffProfiles").eq("id", sc.staff.id).update(input);
+      const patch: Partial<StaffProfiles> = { ...input };
+      if (input.homePostcode !== undefined) {
+        const home = input.homePostcode.trim() ? await geocodePostcode(input.homePostcode) : null;
+        if (input.homePostcode.trim() && !home) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That postcode wasn't recognised." });
+        }
+        patch.homePostcode = input.homePostcode.trim().toUpperCase() || null;
+        patch.lat = home ? String(home.lat) : null;
+        patch.lng = home ? String(home.lng) : null;
+      }
+      await db.from("staffProfiles").eq("id", sc.staff.id).update(patch);
       return { ok: true };
     }),
 
@@ -65,19 +137,28 @@ export const coreRouter = createRouter({
       address: z.string().optional(),
       cqcLocationId: z.string().optional(),
       screeningThreshold: z.number().min(50).max(100).optional(),
+      signatoryName: z.string().trim().max(120).optional(),
+      signatoryTitle: z.string().trim().max(120).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, "super_admin");
-      const org = await db.from("organisations").first<Organisations>();
-      if (!org) throw new TRPCError({ code: "NOT_FOUND" });
-      const settings = { ...(org.settings as object ?? {}) };
-      if (input.screeningThreshold) (settings as Record<string, unknown>).screeningThreshold = input.screeningThreshold;
+      let org = await db.from("organisations").first<Organisations>();
+      if (!org) {
+        await db.from("organisations").insert({
+          name: input.name ?? "Unique Care UK", settings: { timezone: "Europe/London", screeningThreshold: 85 },
+        });
+        org = (await db.from("organisations").first<Organisations>())!;
+      }
+      const settings: Record<string, unknown> = { ...((org.settings as Record<string, unknown> | null) ?? {}) };
+      if (input.screeningThreshold) settings.screeningThreshold = input.screeningThreshold;
+      if (input.signatoryName !== undefined) settings.signatoryName = input.signatoryName;
+      if (input.signatoryTitle !== undefined) settings.signatoryTitle = input.signatoryTitle;
       await db.from("organisations").eq("id", org.id).update({
         name: input.name ?? org.name,
         address: input.address ?? org.address,
         cqcLocationId: input.cqcLocationId ?? org.cqcLocationId,
-        settings,
+        settings: settings as never,
       });
       await audit(sc.staff.fullName, "organisation_updated", "organisations", org.id, input);
       return { ok: true };
@@ -143,8 +224,9 @@ export const coreRouter = createRouter({
   globalSearch: authedQuery
     .input(z.object({ q: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
-      await getStaff(ctx);
-      const q = `%${input.q}%`;
+      const sc = await getStaff(ctx);
+      const seesCandidates = ["super_admin", "admin", "team_leader", "interview_panel"].includes(sc.staff.role);
+      const q = `%${input.q.replace(/[%_\\]/g, "\\$&")}%`;
       const [clientRows, staffRows, contactRows, ticketRows, candidateRows] = await Promise.all([
         db.from("clients").or([
           { op: "like", field: "firstName", value: q },
@@ -166,16 +248,25 @@ export const coreRouter = createRouter({
           { op: "like", field: "ticketNo", value: q },
           { op: "like", field: "subject", value: q },
         ]).limit(5).many<Tickets>(),
-        db.from("candidates").or([
-          { op: "like", field: "firstName", value: q },
-          { op: "like", field: "lastName", value: q },
-          { op: "like", field: "email", value: q },
-          { op: "like", field: "phone", value: q },
-        ]).limit(5).many<Candidates>(),
+        seesCandidates
+          ? db.from("candidates").or([
+            { op: "like", field: "firstName", value: q },
+            { op: "like", field: "lastName", value: q },
+            { op: "like", field: "email", value: q },
+            { op: "like", field: "phone", value: q },
+          ]).limit(5).many<Candidates>()
+          : Promise.resolve([] as Candidates[]),
       ]);
+      const apps = candidateRows.length
+        ? await db.from("applications").in("candidateId", candidateRows.map((c) => c.id)).order("createdAt", "desc").many<Applications>()
+        : [];
       return {
         clients: clientRows, staff: staffRows, contacts: contactRows,
-        tickets: ticketRows, candidates: candidateRows,
+        tickets: ticketRows,
+        candidates: candidateRows.map((c) => ({
+          ...c,
+          applicationId: apps.find((a) => a.candidateId === c.id)?.id ?? null,
+        })),
       };
     }),
 

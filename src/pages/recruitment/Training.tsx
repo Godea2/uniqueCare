@@ -74,8 +74,17 @@ export default function Training() {
                     <tbody>
                       {s.attendees.map((at) => (
                         <tr key={at.id} className="border-b last:border-0" style={{ borderColor: "var(--line)" }}>
-                          <td className="py-1.5">{at.name}</td>
-                          <td className="py-1.5 text-right"><Chip value={at.status} /></td>
+                          <td className="py-1.5">
+                            {at.applicationId
+                              ? <Link to={`/recruitment/pipeline/${at.applicationId}`} className="hover:underline">{at.name}</Link>
+                              : at.name}
+                          </td>
+                          <td className="py-1.5 text-right space-x-1">
+                            {at.personType === "candidate" && (
+                              <Chip value={at.dbsVerified ? "verified" : "pending"} label={at.dbsVerified ? "DBS checked" : "DBS not checked"} />
+                            )}
+                            <Chip value={at.status} />
+                          </td>
                         </tr>
                       ))}
                     </tbody>

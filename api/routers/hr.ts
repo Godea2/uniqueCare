@@ -6,7 +6,6 @@ import {
   APPLICATION_STAGES,
   type ApplicationStage,
   type ApplicationForms,
-  type ApplicationFormTemplates,
   type ApplicationFormVersions,
   type Applications,
   type Candidates,
@@ -24,95 +23,48 @@ import {
   type PreInterviewForms,
   type References,
   type StaffProfiles,
+  type StaffRole,
   type TrainingCourses,
   type TrainingEnrolments,
   type TrainingSessions,
 } from "@db/schema";
-import { getStaff, requireRole, audit, notifyRoles } from "../util";
+import { getStaff, requireRole, audit, notifyRoles, ruleEnabled } from "../util";
+import { geocodePostcode } from "../lib/geo";
 import { callAI } from "../ai/provider";
 import { sendEmail } from "../lib/mailer";
-import { cvDownloadUrl, readCv, saveCv } from "../lib/cv-store";
+import { cvDownloadUrl, documentDownloadUrl, saveCv } from "../lib/cv-store";
+import { appUrl, orgProfile, portalUrl } from "../lib/app-url";
+import { jobRequirements, liveApplicationSchema, normaliseRequirements, syncJobForm } from "../lib/job-form";
+import { canTransition, emailCandidate, inviteToInterviewStage, pushStage, screenApplication, screenInBackground } from "../lib/recruitment";
 import {
-  defaultCareWorkerForm, validateSubmission, trippedKnockouts, conditionMet,
-  formSchemaDoc, DISPLAY_TYPES, type FormSchemaDoc, type FormAnswers,
+  validateSubmission, trippedKnockouts,
+  formSchemaDoc, type FormSchemaDoc, type FormAnswers,
 } from "@contracts/form-schema";
 import { extractCvText } from "../lib/cv-text";
+import { waitUntil } from "@vercel/functions";
 import crypto from "crypto";
+
+const RECRUITMENT_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader", "interview_panel"];
 
 const token = () => crypto.randomBytes(24).toString("hex");
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 const newApplySlug = (title: string) => `${slugify(title).slice(0, 60)}-${crypto.randomBytes(4).toString("hex").slice(0, 6)}`;
 
-// Allowed stage transitions (state machine). Admins can override with a reason.
-const ALLOWED: Record<ApplicationStage, ApplicationStage[]> = {
-  applied: ["screened_out", "shortlisted", "review", "withdrawn"],
-  review: ["screened_out", "shortlisted", "withdrawn"],
-  screened_out: ["applied"],
-  shortlisted: ["pre_interview_forms_sent", "rejected", "withdrawn"],
-  pre_interview_forms_sent: ["pre_interview_forms_complete", "withdrawn"],
-  pre_interview_forms_complete: ["interview_booked", "withdrawn"],
-  interview_booked: ["interviewed", "withdrawn"],
-  interviewed: ["approved", "rejected", "withdrawn"],
-  approved: ["compliance_docs_requested", "rejected", "withdrawn"],
-  compliance_docs_requested: ["compliance_docs_complete", "withdrawn"],
-  compliance_docs_complete: ["offer_sent", "withdrawn"],
-  offer_sent: ["offer_accepted", "withdrawn"],
-  offer_accepted: ["training_booked", "withdrawn"],
-  training_booked: ["online_training_in_progress", "withdrawn"],
-  online_training_in_progress: ["dbs_verified", "withdrawn"],
-  dbs_verified: ["training_complete", "withdrawn"],
-  training_complete: ["hired"],
-  hired: [],
-  rejected: [],
-  withdrawn: [],
-};
-
-export function canTransition(from: ApplicationStage, to: ApplicationStage) {
-  return (ALLOWED[from] ?? []).includes(to);
-}
-
-async function pushStage(
-  applicationId: number,
-  to: ApplicationStage,
-  actor: string,
-  reason?: string,
-  override = false,
-) {
-  const app = await db.from("applications").eq("id", applicationId).first<Applications>();
-  if (!app) throw new TRPCError({ code: "NOT_FOUND", message: "Application not found" });
-  const from = app.stage as ApplicationStage;
-  if (!override && !canTransition(from, to)) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: `Cannot move from ${from} to ${to}. Use an override with a reason if this is intentional.`,
-    });
-  }
-  const history = [...((app.stageHistory as never[]) ?? []), {
-    from, to, actor, at: new Date().toISOString(), ...(reason ? { reason } : {}),
-  }];
-  await db.from("applications").eq("id", applicationId).update({
-    stage: to, stageHistory: history as never, adminOverride: override || app.adminOverride, overrideReason: override ? reason ?? null : app.overrideReason,
-  });
-  await audit(actor, `stage:${from}->${to}`, "applications", applicationId, { reason, override });
-  return app;
-}
-
-const requirementSchema = z.object({
-  key: z.string(), label: z.string(), weight: z.number(),
-  type: z.string(), required: z.boolean(),
+const requirementInput = z.object({
+  key: z.string().optional(), label: z.string().max(200), weight: z.number().min(0).max(100),
+  type: z.string().optional(), required: z.boolean(),
 });
 
-const aiScreenSchema = z.object({
-  requirement_results: z.array(z.object({
-    requirement_key: z.string(),
-    met: z.enum(["yes", "partial", "no", "unknown"]),
-    evidence: z.string(),
-    source: z.enum(["cv", "form"]),
-  })),
-  strengths: z.array(z.string()),
-  gaps: z.array(z.string()),
-  summary: z.string(),
-  flags: z.array(z.string()),
+const jobInput = z.object({
+  title: z.string().trim().min(3).max(200), location: z.string().trim().min(2).max(200),
+  postcode: z.string().trim().max(10).optional(),
+  salaryText: z.string().trim().max(120).optional(),
+  employmentType: z.enum(["full_time", "part_time", "zero_hours", "bank"]),
+  descriptionMd: z.string().trim().min(10).max(20000),
+  requirements: z.array(requirementInput).max(20),
+  screeningThreshold: z.number().min(50).max(100).default(85),
+  closesAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")).optional(),
+  formTemplateId: z.number().optional(),
 });
 
 const aiRequirementsSchema = z.object({
@@ -125,31 +77,15 @@ const aiRequirementsSchema = z.object({
   })).min(1).max(12),
 });
 
-/** Score from requirement results + weights, computed in code (never trust the model's total). */
-export function computeScore(
-  requirements: z.infer<typeof requirementSchema>[],
-  results: z.infer<typeof aiScreenSchema>["requirement_results"],
-): number {
-  const totalWeight = requirements.reduce((a, r) => a + r.weight, 0) || 1;
-  let earned = 0;
-  for (const req of requirements) {
-    const b = results.find((x) => x.requirement_key === req.key);
-    if (!b) continue;
-    const frac = { yes: 1, partial: 0.5, unknown: 0.25, no: 0 }[b.met];
-    earned += req.weight * frac;
-    // hard-required items not met cap the score at 50
-    if (req.required && b.met === "no") return Math.min(50, Math.round((earned / totalWeight) * 100));
-  }
-  return Math.min(100, Math.round((earned / totalWeight) * 100));
-}
-
 export const hrRouter = createRouter({
   // ── Job postings ──
   jobs: authedQuery.query(async () => {
     const jobs = await db.from("jobPostings").order("createdAt", "desc").many<JobPostings>();
     const sources = await db.from("jobLinkSources").many<JobLinkSources>();
     const apps = await db.from("applications").many<Applications>();
+    const forms = await db.from("applicationForms").many<ApplicationForms>();
     return jobs.map((j) => {
+      const form = forms.find((f) => f.jobPostingId === j.id);
       const jobApps = apps.filter((a) => a.jobPostingId === j.id);
       const bySource: Record<string, number> = {};
       for (const a of jobApps) {
@@ -159,6 +95,7 @@ export const hrRouter = createRouter({
       return {
         ...j,
         linkSources: sources.filter((s) => s.jobPostingId === j.id),
+        formTemplateId: form?.templateId ?? null,
         applicationCount: jobApps.length,
         applicationsBySource: bySource,
       };
@@ -166,37 +103,49 @@ export const hrRouter = createRouter({
   }),
 
   createJob: authedQuery
-    .input(z.object({
-      title: z.string().min(3), location: z.string(), postcode: z.string().optional(),
-      salaryText: z.string().optional(), employmentType: z.enum(["full_time", "part_time", "zero_hours", "bank"]),
-      descriptionMd: z.string().min(10), requirements: z.array(requirementSchema),
-      screeningThreshold: z.number().min(50).max(100).default(85),
-      closesAt: z.string().optional(),
-    }))
+    .input(jobInput)
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, "super_admin", "admin");
+      const { requirements, formTemplateId, ...fields } = input;
       const slug = slugify(input.title) + "-" + token().slice(0, 6);
       const [jobRow] = await db.from("jobPostings").insert<JobPostings>({
-        ...input, publicSlug: slug, status: "draft",
+        ...fields, closesAt: fields.closesAt || null, requirements: normaliseRequirements(requirements) as never,
+        publicSlug: slug, status: "draft",
         applySlug: newApplySlug(input.title), applyLinkEnabled: true, applyLinkCreatedAt: new Date(),
       });
-      const jobId = jobRow.id;
-      // Attach a per-job application form copied from the default template, published as v1
-      const tpl = await db.from("applicationFormTemplates").eq("name", "Care Worker — Standard").first<ApplicationFormTemplates>();
-      const baseSchema = (tpl?.schemaJson as FormSchemaDoc | null) ?? defaultCareWorkerForm();
-      const [formRow] = await db.from("applicationForms").insert<ApplicationForms>({
-        jobPostingId: jobId, templateId: tpl ? Number(tpl.id) : null,
-        name: tpl?.name ?? "Care Worker — Standard", draftSchema: baseSchema as never,
+      const job = (await db.from("jobPostings").eq("id", jobRow.id).first<JobPostings>())!;
+      await syncJobForm(job, { by: sc.staff.fullName, publish: true, templateId: formTemplateId ?? null });
+      await audit(sc.staff.fullName, "job_created", "job_postings", job.id, { title: input.title });
+      return { id: job.id, slug };
+    }),
+
+  /** Edit a job. Requirement changes flow straight into the application form candidates see. */
+  updateJob: authedQuery
+    .input(jobInput.extend({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      const { id, requirements, formTemplateId, ...fields } = input;
+      const existing = await db.from("jobPostings").eq("id", id).first<JobPostings>();
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found" });
+      const reqs = normaliseRequirements(requirements);
+      if (existing.status === "live" && reqs.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A live job needs at least one screening requirement." });
+      }
+      await db.from("jobPostings").eq("id", id).update({
+        ...fields, closesAt: fields.closesAt || null, requirements: reqs as never,
       });
-      const formId = formRow.id;
-      const [versionRow] = await db.from("applicationFormVersions").insert<ApplicationFormVersions>({
-        formId, version: 1, schemaJson: baseSchema as never, publishedBy: sc.staff.fullName,
+      const job = (await db.from("jobPostings").eq("id", id).first<JobPostings>())!;
+      const form = await db.from("applicationForms").eq("jobPostingId", id).first<ApplicationForms>();
+      const switchTemplate = formTemplateId != null && formTemplateId !== form?.templateId;
+      await syncJobForm(job, {
+        by: sc.staff.fullName,
+        publish: job.status === "live" || !form?.publishedVersionId || switchTemplate,
+        templateId: switchTemplate ? formTemplateId : null,
       });
-      await db.from("applicationForms").eq("id", formId).update({ publishedVersionId: versionRow.id });
-      await db.from("jobPostings").eq("id", jobId).update({ applicationFormId: formId });
-      await audit(sc.staff.fullName, "job_created", "job_postings", jobId, { title: input.title });
-      return { id: jobId, slug };
+      await audit(sc.staff.fullName, "job_updated", "job_postings", id, { title: input.title });
+      return { ok: true };
     }),
 
   setJobStatus: authedQuery
@@ -204,15 +153,16 @@ export const hrRouter = createRouter({
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, "super_admin", "admin");
+      const job = await db.from("jobPostings").eq("id", input.id).first<JobPostings>();
+      if (!job) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found" });
       if (input.status === "live") {
-        const job = await db.from("jobPostings").eq("id", input.id).first<JobPostings>();
-        const reqs = (job?.requirements as unknown[] | null) ?? [];
-        if (reqs.length === 0) {
+        if (jobRequirements(job).length === 0) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Add at least one screening requirement before going Live — AI screening needs them. Use “Suggest from job description” if helpful.",
+            message: "Add at least one screening requirement before going live. Screening scores candidates against them.",
           });
         }
+        await syncJobForm(job, { by: sc.staff.fullName, publish: true });
       }
       await db.from("jobPostings").eq("id", input.id).update({ status: input.status });
       await audit(sc.staff.fullName, `job_${input.status}`, "job_postings", input.id);
@@ -303,22 +253,7 @@ export const hrRouter = createRouter({
           sourceLabel,
         };
       }
-      // load published form schema
-      let schema: FormSchemaDoc = defaultCareWorkerForm();
-      let formVersionId: number | null = null;
-      if (job.applicationFormId) {
-        const form = await db.from("applicationForms").eq("id", job.applicationFormId).first<ApplicationForms>();
-        if (form?.publishedVersionId) {
-          const ver = await db.from("applicationFormVersions").eq("id", form.publishedVersionId).first<ApplicationFormVersions>();
-          if (ver) {
-            const parsed = formSchemaDoc.safeParse(ver.schemaJson);
-            if (parsed.success) {
-              schema = parsed.data;
-              formVersionId = Number(ver.id);
-            }
-          }
-        }
-      }
+      const { schema, versionId: formVersionId } = await liveApplicationSchema(job);
       return {
         state: "open" as const,
         job: {
@@ -411,21 +346,8 @@ export const hrRouter = createRouter({
       if (recent >= 5) {
         throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many submissions from this connection. Please try again later." });
       }
-      await db.from("rateLimitEvents").insert({ bucket: "apply", rlKey: ip });
-
       // Load the SAME published schema the renderer used and validate server-side
-      let schema: FormSchemaDoc = defaultCareWorkerForm();
-      let formVersionId: number | null = null;
-      if (job.applicationFormId) {
-        const form = await db.from("applicationForms").eq("id", job.applicationFormId).first<ApplicationForms>();
-        if (form?.publishedVersionId) {
-          const ver = await db.from("applicationFormVersions").eq("id", form.publishedVersionId).first<ApplicationFormVersions>();
-          if (ver) {
-            const parsed = formSchemaDoc.safeParse(ver.schemaJson);
-            if (parsed.success) { schema = parsed.data; formVersionId = Number(ver.id); }
-          }
-        }
-      }
+      const { schema, versionId: formVersionId } = await liveApplicationSchema(job);
       const answers = { ...(input.answers as FormAnswers) };
       // The CV travels as a dedicated upload payload; inject it so schema-required validation still applies.
       if (input.cv?.key) answers.cv_upload = { key: input.cv.key, fileName: input.cv.fileName, size: input.cv.size };
@@ -436,6 +358,7 @@ export const hrRouter = createRouter({
           message: `Please check your answers: ${Object.values(errors)[0]}`,
         });
       }
+      await db.from("rateLimitEvents").insert({ bucket: "apply", rlKey: ip });
 
       const firstName = String(answers.first_name ?? "").trim();
       const lastName = String(answers.last_name ?? "").trim();
@@ -474,7 +397,8 @@ export const hrRouter = createRouter({
 
       let appId: number;
       let portalTokenValue: string;
-      if (existingApp && !["withdrawn", "rejected", "screened_out"].includes(existingApp.stage)) {
+      const isDuplicate = !!existingApp && !["withdrawn", "rejected", "screened_out"].includes(existingApp.stage);
+      if (existingApp && isDuplicate) {
         // Duplicate: link to the existing application, keep the newer CV as a new version
         appId = Number(existingApp.id);
         portalTokenValue = existingApp.portalToken;
@@ -518,7 +442,7 @@ export const hrRouter = createRouter({
       }
 
       const flags: string[] = [...knockoutHits.map((h) => `Knockout: ${h.message}`)];
-      if (!input.cv.readable) flags.push("CV unreadable — manual review");
+      if (!input.cv.readable && !input.cv.fileName.toLowerCase().endsWith(".pdf")) flags.push("CV could not be read — check it manually");
       if (flags.length) {
         await db.from("applications").eq("id", appId).update({ aiFlags: flags as never });
       }
@@ -537,28 +461,33 @@ export const hrRouter = createRouter({
         body: `${firstName} ${lastName} applied via ${sourceChannel}.`,
         occurredAt: new Date(), loggedBy: "System", outcome: "application_received",
       });
+      const stillScreenable = !isDuplicate || ["applied", "review"].includes(existingApp!.stage);
+      const canScreen = jobRequirements(job).length > 0 && stillScreenable && await ruleEnabled("application_submitted");
       await notifyRoles(["admin", "super_admin"], {
         type: "hr", title: `New application — ${firstName} ${lastName}`,
-        body: `Applied for ${job.title} (${sourceChannel}). AI screening will run shortly.`,
+        body: `Applied for ${job.title} (${sourceChannel}).${canScreen ? " Screening is running now." : ""}`,
         link: `/recruitment/pipeline/${appId}`,
       });
-      // Confirmation email (recorded in outbox; delivered when Graph is connected)
+      const base = appUrl(ctx.req);
+      const org = await orgProfile();
       const ty = schema.thankYouText ?? "Thank you for your application.";
       await sendEmail({
         to: email,
-        subject: `Your application — ${job.title} at Unique Care UK`,
-        body: `Dear ${firstName},\n\n${ty}\n\nRole: ${job.title}\nLocation: ${job.location ?? ""}\n\nYou can track your application, complete forms and book interviews in your personal candidate portal.\n\nKind regards,\nUnique Care UK recruitment team`,
+        subject: `Your application — ${job.title} at ${org.name}`,
+        body: `Dear ${firstName},\n\n${ty}\n\nRole: ${job.title}\nLocation: ${job.location ?? ""}\n\nTrack your application, complete forms and book interviews in your candidate portal:\n${portalUrl(base, portalTokenValue)}\n\nKind regards,\n${org.signatory}\n${org.name}`,
         kind: "application_confirmation",
         relatedType: "application",
         relatedId: appId,
       });
-      return { applicationId: appId, portalToken: portalTokenValue, duplicate: !!existingApp };
+      if (canScreen) waitUntil(screenInBackground(appId, base));
+      return { applicationId: appId, portalToken: portalTokenValue, duplicate: isDuplicate };
     }),
 
   // ── Applications / pipeline ──
   pipeline: authedQuery
     .input(z.object({ jobId: z.number().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      requireRole(await getStaff(ctx), ...RECRUITMENT_ROLES);
       const appsQuery = db.from("applications").order("createdAt", "desc");
       if (input.jobId) appsQuery.eq("jobPostingId", input.jobId);
       const apps = await appsQuery.many<Applications>();
@@ -575,6 +504,7 @@ export const hrRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
+      requireRole(sc, ...RECRUITMENT_ROLES);
       const app = await db.from("applications").eq("id", input.id).first<Applications>();
       if (!app) throw new TRPCError({ code: "NOT_FOUND" });
       const candidate = (await db.from("candidates").eq("id", app.candidateId).first<Candidates>())!;
@@ -638,15 +568,13 @@ export const hrRouter = createRouter({
         if (!input.reason) throw new TRPCError({ code: "BAD_REQUEST", message: "A rejection/screen-out reason is required." });
         await db.from("applications").eq("id", input.applicationId).update({ rejectionReason: input.reason });
       }
-      const app = await pushStage(input.applicationId, input.to, sc.staff.fullName, input.reason, input.override);
-      // automation: shortlisted → send form + invite (creates portal link + form row)
+      await pushStage(input.applicationId, input.to, sc.staff.fullName, input.reason, input.override);
+      const base = appUrl(ctx.req);
       if (input.to === "shortlisted" || input.to === "pre_interview_forms_sent") {
-        const hasForm = await db.from("preInterviewForms").eq("applicationId", app.id).first<PreInterviewForms>();
-        if (!hasForm) await db.from("preInterviewForms").insert({ applicationId: app.id, data: {} });
-        if (app.stage !== input.to) {
-          // already moved; also ensure forms_sent stage
-        }
-        if (input.to === "shortlisted") await pushStage(app.id, "pre_interview_forms_sent", "System (automation)");
+        await inviteToInterviewStage(input.applicationId, "System (automation)", base);
+      }
+      if (input.to === "rejected" || input.to === "screened_out") {
+        await emailCandidate(input.applicationId, "unsuccessful", base);
       }
       return { ok: true };
     }),
@@ -660,7 +588,7 @@ export const hrRouter = createRouter({
       const result = await callAI({
         feature: "extractRequirementsFromJD", promptVersion: "1.0", schema: aiRequirementsSchema, temperature: 0.2,
         validate: (r) => r.requirements.length > 0,
-        system: `You extract screening requirements from UK domiciliary care job descriptions. Return strict JSON only.`,
+        system: `You extract screening requirements from job descriptions for a UK care provider. The role may be front-line care or an office, management or support role — use only what the description asks for. Return strict JSON only.`,
         user: `Job title: ${input.title}\n\nJob description:\n${input.descriptionMd.slice(0, 6000)}\n\nExtract 4-8 screenable requirements. For each: key (lowercase_snake), label (short, reviewable by a human), weight (1-40, importance), required (true only for genuine must-haves such as right to work), rationale. Weights should sum to roughly 100.`,
       });
       const reqs = result.requirements.map((r) => ({ key: r.key, label: r.label, weight: r.weight, type: "scored", required: r.required }));
@@ -676,103 +604,7 @@ export const hrRouter = createRouter({
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, "super_admin", "admin", "team_leader");
-      const app = await db.from("applications").eq("id", input.applicationId).first<Applications>();
-      if (!app) throw new TRPCError({ code: "NOT_FOUND" });
-      const job = (await db.from("jobPostings").eq("id", app.jobPostingId).first<JobPostings>())!;
-      const reqs = (job.requirements as z.infer<typeof requirementSchema>[]) ?? [];
-
-      // Form answers with labels — only fields flagged use_in_ai, with the published schema for labels
-      let labelledAnswers: { label: string; value: unknown }[] = [];
-      let knockoutHits: { fieldId: string; label: string; message: string }[] = [];
-      if (app.formVersionId) {
-        const ver = await db.from("applicationFormVersions").eq("id", app.formVersionId).first<ApplicationFormVersions>();
-        const parsed = ver ? formSchemaDoc.safeParse(ver.schemaJson) : null;
-        if (parsed?.success) {
-          const answers = (app.answers ?? {}) as FormAnswers;
-          knockoutHits = trippedKnockouts(parsed.data, answers);
-          for (const section of parsed.data.sections) {
-            for (const f of section.fields) {
-              if (!f.useInAi || DISPLAY_TYPES.includes(f.type)) continue;
-              if (!conditionMet(f, answers)) continue;
-              const v = answers[f.id];
-              if (v === undefined || v === null || v === "") continue;
-              labelledAnswers.push({ label: f.label, value: v });
-            }
-          }
-        }
-      } else {
-        labelledAnswers = Object.entries((app.answers ?? {}) as Record<string, unknown>).map(([k, v]) => ({ label: k, value: v }));
-      }
-
-      // Fairness: the model may read the file, but must not treat identity details as evidence.
-      const cvText = (app.cvText ?? "").slice(0, 4000);
-      let cvFile: Uint8Array | null = null;
-      if (app.cvFileKey && (app.cvFileName ?? "").toLowerCase().endsWith(".pdf")) {
-        cvFile = await readCv(app.cvFileKey);
-      }
-      const cvNote = !cvFile && app.cvUnreadable
-        ? "\n[Note: the CV file could not be opened and the extracted text is empty. Score from the form answers and mark CV evidence as unknown.]"
-        : "";
-
-      const result = await callAI({
-        feature: "scoreApplication", promptVersion: "3.0", schema: aiScreenSchema, temperature: 0.2,
-        files: cvFile
-          ? [{ data: cvFile, mediaType: "application/pdf", filename: app.cvFileName ?? "cv.pdf" }]
-          : undefined,
-        validate: (r) => reqs.length === 0 || r.requirement_results.length > 0,
-        system: `You are screening a care worker application for a UK domiciliary care provider. Read the attached CV file when one is provided, including scanned pages. Score each requirement strictly against evidence in that CV and the form answers. Quote the exact evidence. Never infer protected characteristics (age, gender, ethnicity, religion, disability, pregnancy). Do not use the candidate's name, email, phone, or home address as evidence. Reply with strict JSON only.`,
-        user: `Job: ${job.title}\nJob description:\n${(job.descriptionMd ?? "").slice(0, 2500)}\n\nRequirements (key, weight, required):\n${reqs.map((r) => `- ${r.key} (weight ${r.weight}${r.required ? ", REQUIRED" : ""}): ${r.label}`).join("\n")}\n\nForm answers (labelled):\n${labelledAnswers.map((a) => `- ${a.label}: ${JSON.stringify(a.value)}`).join("\n")}\n\n${cvFile ? "The CV PDF is attached. Read that file. Extracted text below is only a backup.\n\n" : ""}CV text:\n${cvText}${cvNote}\n\nFor each requirement give met=yes|partial|no|unknown, an exact evidence quote, and source=cv|form. Also strengths[], gaps[], a 3-4 sentence summary, and flags[] (e.g. employment gaps, missing right-to-work evidence).`,
-      });
-
-      const score = computeScore(reqs, result.requirement_results);
-      const flags = [
-        ...result.flags,
-        ...knockoutHits.map((h) => `Knockout: ${h.message}`),
-        ...(app.cvUnreadable && !cvFile ? ["CV unreadable — manual review"] : []),
-      ];
-      await db.from("applications").eq("id", app.id).update({
-        aiScore: score, aiBreakdown: result.requirement_results as never,
-        aiSummary: result.summary,
-        aiFlags: flags as never,
-      });
-      await audit(sc.staff.fullName, "ai_screening", "applications", app.id, { score });
-
-      // Knockout tripped → flag + human review, never auto-reject and never auto-shortlist
-      const knockoutTripped = knockoutHits.length > 0;
-      // automation: threshold rules — shortlist automatically; 60-84 → review; <60 stays applied until human bulk-confirms
-      const threshold = job.screeningThreshold ?? 85;
-      if (app.stage === "applied" || app.stage === "review") {
-        if (knockoutTripped) {
-          if (app.stage === "applied") await pushStage(app.id, "review", "System (knockout flag — human review)");
-        } else if (score >= threshold) {
-          if (app.stage === "review") {
-            // review → shortlisted is allowed
-          }
-          await pushStage(app.id, "shortlisted", "System (AI screening)");
-          const hasForm = await db.from("preInterviewForms").eq("applicationId", app.id).first<PreInterviewForms>();
-          if (!hasForm) await db.from("preInterviewForms").insert({ applicationId: app.id, data: {} });
-          await pushStage(app.id, "pre_interview_forms_sent", "System (automation)");
-          // interview invitation email
-          const cand = await db.from("candidates").eq("id", app.candidateId).first<Candidates>();
-          if (cand?.email) {
-            await sendEmail({
-              to: cand.email,
-              subject: `Great news — next steps for ${job.title} at Unique Care UK`,
-              body: `Dear ${cand.firstName},\n\nThank you for applying for ${job.title}. We would like to invite you to the next stage.\n\nPlease open your personal candidate portal to complete your pre-interview forms and book your interview slot.\n\nKind regards,\nUnique Care UK recruitment team`,
-              kind: "interview_invitation",
-              relatedType: "application",
-              relatedId: app.id,
-            });
-          }
-        } else if (score >= 60) {
-          if (app.stage === "applied") await pushStage(app.id, "review", "System (AI screening)");
-        }
-      }
-      return {
-        score, requirementResults: result.requirement_results,
-        strengths: result.strengths, gaps: result.gaps,
-        summary: result.summary, flags, knockoutTripped,
-      };
+      return screenApplication(input.applicationId, sc.staff.fullName, appUrl(ctx.req));
     }),
 
   bulkScreenOut: authedQuery
@@ -780,9 +612,11 @@ export const hrRouter = createRouter({
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, "super_admin", "admin");
+      const base = appUrl(ctx.req);
       for (const id of input.applicationIds) {
         await db.from("applications").eq("id", id).update({ rejectionReason: input.reason });
         await pushStage(id, "screened_out", sc.staff.fullName, input.reason);
+        await emailCandidate(id, "unsuccessful", base);
       }
       return { ok: true, count: input.applicationIds.length };
     }),
@@ -806,17 +640,24 @@ export const hrRouter2 = createRouter({
     .input(z.object({
       startsAt: z.string(), endsAt: z.string(), jobPostingId: z.number().optional(),
       panelMemberIds: z.array(z.number()), capacity: z.number().min(1).max(5).default(1),
-      locationText: z.string().optional(),
+      locationText: z.string().trim().max(300).optional(),
+      meetingUrl: z.string().trim().url().max(2000).optional().or(z.literal("")),
     }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, "super_admin", "admin");
-      // Fallback mode: no Microsoft Graph — admin pastes a Teams link manually (adapter interface)
+      const startsAt = new Date(input.startsAt);
+      const endsAt = new Date(input.endsAt);
+      if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The interview must end after it starts." });
+      }
+      const meetingUrl = input.meetingUrl || null;
       const [row] = await db.from("interviewSlots").insert<InterviewSlots>({
-        startsAt: new Date(input.startsAt), endsAt: new Date(input.endsAt),
+        startsAt, endsAt,
         jobPostingId: input.jobPostingId ?? null, panelMemberIds: input.panelMemberIds as never,
-        capacity: input.capacity, locationText: input.locationText ?? "Microsoft Teams (video interview)",
-        teamsMeetingUrl: `https://teams.microsoft.com/l/meetup-join/${token().slice(0, 12)}`,
+        capacity: input.capacity,
+        locationText: input.locationText || (meetingUrl ? "Video interview" : "In person — address to be confirmed"),
+        teamsMeetingUrl: meetingUrl,
       });
       await audit(sc.staff.fullName, "interview_slot_created", "interview_slots", row.id);
       return { id: row.id };
@@ -851,7 +692,7 @@ export const hrRouter2 = createRouter({
           await notifyRoles(["admin", "super_admin"], {
             type: "hr", title: "Candidate ready for decision",
             body: `All panel scorecards submitted for application #${app.id}.`,
-            link: `/recruitment/candidates/${app.id}`,
+            link: `/recruitment/pipeline/${app.id}`,
           });
         }
       }
@@ -861,7 +702,8 @@ export const hrRouter2 = createRouter({
 
   leaderboard: authedQuery
     .input(z.object({ jobId: z.number().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      requireRole(await getStaff(ctx), ...RECRUITMENT_ROLES);
       const appsQuery = db.from("applications");
       if (input.jobId) appsQuery.eq("jobPostingId", input.jobId);
       const apps = await appsQuery.many<Applications>();
@@ -891,6 +733,12 @@ export const hrRouter2 = createRouter({
       const app = await db.from("applications").eq("id", input.applicationId).first<Applications>();
       if (!app) throw new TRPCError({ code: "NOT_FOUND" });
       const reqs = await db.from("complianceRequirements").eq("required", true).many<ComplianceRequirements>();
+      if (reqs.length === 0) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No compliance documents are set up yet. Load the compliance requirements in Supabase first." });
+      }
+      if (!canTransition(app.stage as ApplicationStage, "compliance_docs_requested")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Approve the candidate after interview before requesting documents." });
+      }
       for (const req of reqs) {
         const has = await db.from("complianceDocuments")
           .eq("ownerType", "candidate")
@@ -917,6 +765,7 @@ export const hrRouter2 = createRouter({
       }
       await pushStage(app.id, "compliance_docs_requested", sc.staff.fullName);
       await audit(sc.staff.fullName, "compliance_requested", "applications", app.id);
+      await emailCandidate(app.id, "compliance_requested", appUrl(ctx.req));
       return { ok: true };
     }),
 
@@ -925,9 +774,22 @@ export const hrRouter2 = createRouter({
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, "super_admin", "admin");
+      const pendingDoc = await db.from("complianceDocuments").eq("id", input.id).first<ComplianceDocuments>();
+      if (!pendingDoc) throw new TRPCError({ code: "NOT_FOUND" });
+      if (pendingDoc.status !== "uploaded" && pendingDoc.status !== "verified") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only uploaded documents can be verified." });
+      }
+      let expiresAt = input.expiresAt || null;
+      if (!expiresAt) {
+        const req = await db.from("complianceRequirements").eq("key", pendingDoc.requirementKey).first<ComplianceRequirements>();
+        if (req?.expiresAfterMonths) {
+          const d = new Date();
+          d.setMonth(d.getMonth() + req.expiresAfterMonths);
+          expiresAt = d.toISOString().slice(0, 10);
+        }
+      }
       await db.from("complianceDocuments").eq("id", input.id).update({
-        status: "verified", verifiedBy: sc.staff.fullName, verifiedAt: new Date(),
-        expiresAt: input.expiresAt ?? null,
+        status: "verified", verifiedBy: sc.staff.fullName, verifiedAt: new Date(), expiresAt,
       });
       await audit(sc.staff.fullName, "document_verified", "compliance_documents", input.id);
       // automation: all required verified → compliance_docs_complete + offer letter
@@ -937,29 +799,46 @@ export const hrRouter2 = createRouter({
         if (app && ["compliance_docs_requested", "approved"].includes(app.stage)) {
           const reqs = await db.from("complianceRequirements").eq("required", true).many<ComplianceRequirements>();
           const docs = await db.from("complianceDocuments").eq("ownerType", "candidate").eq("ownerId", doc.ownerId).many<ComplianceDocuments>();
-          const allVerified = reqs.every((r) => docs.some((d) => d.requirementKey === r.key && d.status === "verified"));
+          const allVerified = reqs.length > 0 && reqs.every((r) => docs.some((d) => d.requirementKey === r.key && d.status === "verified"));
           if (allVerified) {
             if (app.stage === "compliance_docs_requested") await pushStage(app.id, "compliance_docs_complete", "System (automation)");
             const hasOffer = await db.from("offerLetters").eq("applicationId", app.id).first<OfferLetters>();
             if (!hasOffer) {
               const job = (await db.from("jobPostings").eq("id", app.jobPostingId).first<JobPostings>())!;
               const cand = (await db.from("candidates").eq("id", app.candidateId).first<Candidates>())!;
+              const org = await orgProfile();
               await db.from("offerLetters").insert({
-                applicationId: app.id, templateVersion: "v1",
-                content: buildOfferLetter(cand.firstName + " " + cand.lastName, job.title, job.salaryText ?? ""),
+                applicationId: app.id, templateVersion: "v2",
+                content: buildOfferLetter({
+                  name: `${cand.firstName} ${cand.lastName}`, role: job.title, salary: job.salaryText ?? "",
+                  orgName: org.name, signatory: org.signatory, signatoryTitle: org.signatoryTitle,
+                }),
                 sentAt: new Date(),
               });
               await pushStage(app.id, "offer_sent", "System (automation)");
+              await emailCandidate(app.id, "offer_sent", appUrl(ctx.req));
               await notifyRoles(["admin", "super_admin"], {
                 type: "hr", title: "Offer letter sent automatically",
                 body: `All compliance verified for application #${app.id}; offer letter generated and sent.`,
-                link: `/recruitment/candidates/${app.id}`,
+                link: `/recruitment/pipeline/${app.id}`,
               });
             }
           }
         }
       }
       return { ok: true };
+    }),
+
+  /** Short-lived link to an uploaded compliance document (office staff only). */
+  documentUrl: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin", "team_leader");
+      const doc = await db.from("complianceDocuments").eq("id", input.id).first<ComplianceDocuments>();
+      if (!doc?.fileKey) throw new TRPCError({ code: "NOT_FOUND", message: "No file has been uploaded for this document." });
+      await audit(sc.staff.fullName, "document_viewed", "compliance_documents", input.id);
+      return { url: await documentDownloadUrl(doc.fileKey) };
     }),
 
   rejectDocument: authedQuery
@@ -971,10 +850,16 @@ export const hrRouter2 = createRouter({
         status: "rejected", rejectionReason: input.reason,
       });
       await audit(sc.staff.fullName, "document_rejected", "compliance_documents", input.id, { reason: input.reason });
+      const doc = await db.from("complianceDocuments").eq("id", input.id).first<ComplianceDocuments>();
+      if (doc?.ownerType === "candidate") {
+        const app = await db.from("applications").eq("candidateId", doc.ownerId).order("id", "desc").first<Applications>();
+        if (app) await emailCandidate(Number(app.id), "document_rejected", appUrl(ctx.req), { note: input.reason });
+      }
       return { ok: true };
     }),
 
-  complianceQueue: authedQuery.query(async () => {
+  complianceQueue: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), "super_admin", "admin", "team_leader");
     const docs = await db.from("complianceDocuments").in("status", ["requested", "uploaded", "rejected"]).order("createdAt", "desc").many<ComplianceDocuments>();
     const reqs = await db.from("complianceRequirements").many<ComplianceRequirements>();
     const cands = await db.from("candidates").many<Candidates>();
@@ -988,7 +873,8 @@ export const hrRouter2 = createRouter({
     }));
   }),
 
-  complianceMatrix: authedQuery.query(async () => {
+  complianceMatrix: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), "super_admin", "admin", "team_leader");
     const staff = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
     const docs = await db.from("complianceDocuments").eq("ownerType", "staff").many<ComplianceDocuments>();
     const reqs = await db.from("complianceRequirements").many<ComplianceRequirements>();
@@ -1034,6 +920,11 @@ export const hrRouter2 = createRouter({
       requireRole(sc, "super_admin", "admin");
       const course = await db.from("trainingCourses").eq("id", input.courseId).first<TrainingCourses>();
       if (!course) throw new TRPCError({ code: "NOT_FOUND", message: "Course not found" });
+      const starts = new Date(input.startsAt);
+      const ends = new Date(input.endsAt);
+      if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime()) || ends <= starts) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The session must end after it starts." });
+      }
       const [row] = await db.from("trainingSessions").insert<TrainingSessions>({
         courseId: input.courseId, startsAt: new Date(input.startsAt), endsAt: new Date(input.endsAt),
         location: input.location ?? null, capacity: input.capacity ?? 12, trainerName: input.trainerName ?? null,
@@ -1042,22 +933,31 @@ export const hrRouter2 = createRouter({
       return { ok: true, id: row.id };
     }),
 
-  sessions: authedQuery.query(async () => {
+  sessions: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), "super_admin", "admin", "team_leader");
     const sessions = await db.from("trainingSessions").order("startsAt", "asc").many<TrainingSessions>();
     const enrolments = await db.from("trainingEnrolments").many<TrainingEnrolments>();
     const courses = await db.from("trainingCourses").many<TrainingCourses>();
     const cands = await db.from("candidates").many<Candidates>();
     const staff = await db.from("staffProfiles").many<StaffProfiles>();
+    const apps = await db.from("applications").order("id", "desc").many<Applications>();
+    const dbsChecks = await db.from("dbsVerifications").many<DbsVerifications>();
+    const latestApp = (candidateId: number) => apps.find((a) => a.candidateId === candidateId);
     return sessions.map((se) => ({
       ...se,
       course: courses.find((c) => c.id === se.courseId),
-      attendees: enrolments.filter((e) => e.sessionId === se.id).map((e) => ({
-        ...e,
-        name: e.personType === "candidate"
-          ? (() => { const c = cands.find((x) => x.id === e.personId); return c ? `${c.firstName} ${c.lastName}` : "?"; })()
-          : staff.find((x) => x.id === e.personId)?.fullName ?? "?",
-        dbsVerified: false,
-      })),
+      attendees: enrolments.filter((e) => e.sessionId === se.id).map((e) => {
+        const app = e.personType === "candidate" ? latestApp(e.personId) : undefined;
+        return {
+          ...e,
+          name: e.personType === "candidate"
+            ? (() => { const c = cands.find((x) => x.id === e.personId); return c ? `${c.firstName} ${c.lastName}` : "?"; })()
+            : staff.find((x) => x.id === e.personId)?.fullName ?? "?",
+          applicationId: app?.id ?? null,
+          stage: app?.stage ?? null,
+          dbsVerified: !!app && dbsChecks.some((d) => d.applicationId === app.id),
+        };
+      }),
     }));
   }),
 
@@ -1078,12 +978,13 @@ export const hrRouter2 = createRouter({
         verifiedBy: sc.staff.fullName, verifiedAt: new Date(), notes: input.notes ?? null,
       });
       if (input.applicationId) {
+        const path: ApplicationStage[] = ["offer_accepted", "training_booked", "online_training_in_progress", "dbs_verified"];
         const app = await db.from("applications").eq("id", input.applicationId).first<Applications>();
-        if (app && ["training_booked", "online_training_in_progress", "offer_accepted"].includes(app.stage)) {
-          if (app.stage === "offer_accepted") await pushStage(app.id, "training_booked", "System");
-          if (app.stage === "training_booked") await pushStage(app.id, "online_training_in_progress", "System");
-          const cur = (await db.from("applications").eq("id", app.id).first<Applications>())!;
-          if (cur.stage === "online_training_in_progress") await pushStage(app.id, "dbs_verified", sc.staff.fullName);
+        const from = app ? path.indexOf(app.stage as ApplicationStage) : -1;
+        if (app && from >= 0) {
+          for (let i = from + 1; i < path.length; i++) {
+            await pushStage(app.id, path[i], i === path.length - 1 ? sc.staff.fullName : "System");
+          }
         }
       }
       await audit(sc.staff.fullName, "dbs_verified_checkin", "dbs_verifications", input.applicationId);
@@ -1099,21 +1000,28 @@ export const hrRouter2 = createRouter({
       if (!app) throw new TRPCError({ code: "NOT_FOUND" });
       const dbs = await db.from("dbsVerifications").eq("applicationId", app.id).first<DbsVerifications>();
       if (!dbs) throw new TRPCError({ code: "BAD_REQUEST", message: "DBS verification at check-in is required before training can be completed." });
+      if (app.stage === "hired") throw new TRPCError({ code: "BAD_REQUEST", message: "This candidate has already been hired." });
+      if (!["dbs_verified", "training_complete"].includes(app.stage)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Record the DBS check at training check-in first." });
+      }
       if (app.stage === "dbs_verified") await pushStage(app.id, "training_complete", sc.staff.fullName);
-      // convert to care worker
       const cand = (await db.from("candidates").eq("id", app.candidateId).first<Candidates>())!;
+      const job = await db.from("jobPostings").eq("id", app.jobPostingId).first<JobPostings>();
       const existing = await db.from("staffProfiles").eq("email", cand.email).first<StaffProfiles>();
       let staffId: number;
       if (existing) {
+        // Never downgrade an existing office account; only reactivate it.
         staffId = Number(existing.id);
-        await db.from("staffProfiles").eq("id", staffId).update({ role: "care_worker", status: "active" });
+        await db.from("staffProfiles").eq("id", staffId).update({ status: "active", deletedAt: null });
       } else {
+        const home = cand.postcode ? await geocodePostcode(cand.postcode) : null;
         const [row] = await db.from("staffProfiles").insert<StaffProfiles>({
+          lat: home ? String(home.lat) : null, lng: home ? String(home.lng) : null,
           fullName: `${cand.firstName} ${cand.lastName}`, email: cand.email, phone: cand.phone,
-          role: "care_worker", jobTitle: "Care Worker",
+          role: "care_worker", jobTitle: job?.title ?? "Care Worker",
           employeeNo: `UC${Date.now().toString().slice(-5)}`,
           startDate: new Date().toISOString().slice(0, 10),
-          employmentType: "full_time", contractedHours: "37.5", maxWeeklyHours: "48",
+          employmentType: job?.employmentType ?? "full_time", contractedHours: "37.5", maxWeeklyHours: "48",
           homePostcode: cand.postcode, drives: cand.hasDrivingLicence ?? false,
           hasVehicle: cand.hasVehicle ?? false, skills: [], languages: ["English"], status: "active",
           avatarColor: "#1477AE",
@@ -1133,9 +1041,25 @@ export const hrRouter2 = createRouter({
       for (const d of docs) {
         await db.from("complianceDocuments").insert({
           ownerType: "staff", ownerId: staffId, requirementKey: d.requirementKey,
-          fileName: d.fileName, status: "verified", verifiedBy: d.verifiedBy,
+          fileName: d.fileName, fileKey: d.fileKey, status: "verified", verifiedBy: d.verifiedBy,
           verifiedAt: d.verifiedAt, expiresAt: d.expiresAt,
         });
+      }
+      // classroom sessions already held count as attended and completed
+      const allCourses = await db.from("trainingCourses").many<TrainingCourses>();
+      const heldSessions = await db.from("trainingSessions").lte("startsAt", new Date()).many<TrainingSessions>();
+      const candEnrolments = await db.from("trainingEnrolments").eq("personType", "candidate").eq("personId", cand.id).many<TrainingEnrolments>();
+      for (const e of candEnrolments) {
+        if (e.status === "completed" || !e.sessionId || !heldSessions.some((s) => s.id === e.sessionId)) continue;
+        const months = allCourses.find((c) => c.id === e.courseId)?.renewEveryMonths;
+        const completedAt = new Date();
+        let expiresAt: string | null = null;
+        if (months) {
+          const d = new Date(completedAt);
+          d.setMonth(d.getMonth() + months);
+          expiresAt = d.toISOString().slice(0, 10);
+        }
+        await db.from("trainingEnrolments").eq("id", e.id).update({ status: "completed", completedAt, expiresAt });
       }
       // copy training enrolments to staff record
       const enr = await db.from("trainingEnrolments").eq("personType", "candidate").eq("personId", cand.id).many<TrainingEnrolments>();
@@ -1149,26 +1073,27 @@ export const hrRouter2 = createRouter({
       const cur = await db.from("applications").eq("id", app.id).first<Applications>();
       if (cur?.stage === "training_complete") await pushStage(app.id, "hired", "System (automation)");
       await notifyRoles(["admin", "super_admin", "care_coordinator"], {
-        type: "hr", title: `${cand.firstName} ${cand.lastName} is now an active care worker`,
-        body: "Compliance documents and training copied to the staff file. Added to the rota pool.",
+        type: "hr", title: `${cand.firstName} ${cand.lastName} has joined as ${job?.title ?? "a new starter"}`,
+        body: "Compliance documents and training copied to the staff file.",
         link: `/staff`,
       });
       await audit(sc.staff.fullName, "candidate_hired", "applications", app.id, { staffId });
+      await emailCandidate(app.id, "hired", appUrl(ctx.req));
       return { ok: true, staffId };
     }),
 });
 
-function buildOfferLetter(name: string, role: string, salary: string) {
+function buildOfferLetter(o: { name: string; role: string; salary: string; orgName: string; signatory: string; signatoryTitle: string }) {
   const today = new Date().toLocaleDateString("en-GB");
-  return `UNIQUE CARE UK — OFFER OF EMPLOYMENT
+  return `${o.orgName.toUpperCase()} — OFFER OF EMPLOYMENT
 
 Date: ${today}
 
-Dear ${name},
+Dear ${o.name},
 
-We are delighted to offer you the position of ${role} at Unique Care UK.
+We are delighted to offer you the position of ${o.role} at ${o.orgName}.
 
-Pay: ${salary}
+Pay: ${o.salary || "As discussed at interview"}
 Hours: As per your contracted schedule, discussed at interview.
 Start date: To be confirmed on completion of mandatory training.
 
@@ -1177,7 +1102,7 @@ This offer is made subject to satisfactory completion of all mandatory training 
 Please accept this offer in your candidate portal by typing your full name as your electronic signature.
 
 Yours sincerely,
-Ruby Osei
-Registered Manager, Unique Care UK`;
+${o.signatory}${o.signatoryTitle ? `\n${o.signatoryTitle}` : ""}
+${o.orgName}`;
 }
 

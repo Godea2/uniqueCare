@@ -19,6 +19,10 @@ export default function ComplianceQueue() {
     onSuccess: () => { utils.hr2.complianceQueue.invalidate(); toast.success("Rejected"); },
     onError: (e) => toast.error(e.message),
   });
+  const openDoc = trpc.hr2.documentUrl.useMutation({
+    onSuccess: ({ url }) => window.open(url, "_blank", "noopener,noreferrer"),
+    onError: (e) => toast.error(e.message),
+  });
   const [expiry, setExpiry] = useState<Record<number, string>>({});
   const [rejectId, setRejectId] = useState<number | null>(null);
   const [reason, setReason] = useState("");
@@ -56,7 +60,14 @@ export default function ComplianceQueue() {
                     {d.requirement?.label ?? d.requirementKey.replace(/_/g, " ")}
                     {d.requirement?.required && <span className="ml-1 text-[10px] text-red-700 font-semibold">REQUIRED</span>}
                   </td>
-                  <td className="px-4 py-2.5 text-muted-foreground text-xs">{d.fileName ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-xs">
+                    {d.fileKey ? (
+                      <button type="button" className="text-[--brand-700] underline underline-offset-2 hover:text-[--brand-900]"
+                        onClick={() => openDoc.mutate({ id: Number(d.id) })} disabled={openDoc.isPending}>
+                        {d.fileName ?? "Open file"}
+                      </button>
+                    ) : <span className="text-muted-foreground">{d.fileName ?? "—"}</span>}
+                  </td>
                   <td className="px-4 py-2.5"><Chip value={d.status} /></td>
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">{fmtDateTime(d.createdAt)}</td>
                   <td className="px-4 py-2.5">

@@ -20,11 +20,13 @@ import type {
 } from "@db/schema";
 import { getStaff, requireRole, audit, notify, notifyRoles } from "../util";
 import { assignRota, type EngineVisit, type EngineWorker } from "../rota/engine";
+import { geocodePostcode, londonTime } from "../lib/geo";
 
 const DAY = 24 * 60;
 
+/** Midnight at the start of the rota week, UK time, so minute offsets match UK wall-clock availability. */
 function mondayOf(weekStart: string) {
-  return new Date(weekStart + "T00:00:00");
+  return londonTime(weekStart.slice(0, 10), "00:00");
 }
 function toMin(t: string) {
   const [h, m] = t.split(":").map(Number);
@@ -165,16 +167,18 @@ export const rotaRouter = createRouter({
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, "super_admin", "admin", "care_coordinator");
-      const count = await db.from("clients").count();
+      const geo = await geocodePostcode(input.postcode);
+      if (!geo) throw new TRPCError({ code: "BAD_REQUEST", message: "That postcode was not recognised. Check it and try again." });
+      const refs = await db.from("clients").many<Clients>();
+      const highest = refs.reduce((max, c) => Math.max(max, Number(/^UC-C-(\d+)$/.exec(c.clientRef)?.[1] ?? 0)), 0);
       const [row] = await db.from("clients").insert<Clients>({
-        clientRef: `UC-C-${String(count + 1).padStart(4, "0")}`,
+        clientRef: `UC-C-${String(highest + 1).padStart(4, "0")}`,
         firstName: input.firstName, lastName: input.lastName, dob: input.dob ?? null,
         gender: input.gender ?? null, addressLine1: input.addressLine1, town: input.town,
         postcode: input.postcode, phone: input.phone ?? null, fundingSource: input.fundingSource,
         riskLevel: input.riskLevel, accessNotes: input.accessNotes ?? null, status: "active",
         startDate: new Date().toISOString().slice(0, 10),
-        // Postcodes.io-style geocode placeholder: Birmingham centroid jitter until live lookup is wired
-        lat: "52.48", lng: "-1.83",
+        lat: String(geo.lat), lng: String(geo.lng),
       });
       const cid = row.id;
       await db.from("clientPreferences").insert({ clientId: cid, preferredGender: input.preferredGender });
@@ -212,6 +216,46 @@ export const rotaRouter = createRouter({
       };
     }),
 
+  /** Regular visit pattern for a client — the rota is generated from these each week. */
+  addVisitTemplate: authedQuery
+    .input(z.object({
+      clientId: z.number(),
+      days: z.array(z.number().int().min(0).max(6)).min(1),
+      startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      durationMinutes: z.number().int().min(15).max(720),
+      visitType: z.string().trim().min(2).max(60),
+      callType: z.enum(["single", "double"]),
+      flexibilityMinutes: z.number().int().min(0).max(120).default(15),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      const pkg = (await db.from("carePackages").eq("clientId", input.clientId).many<CarePackages>()).pop();
+      if (!pkg) throw new TRPCError({ code: "BAD_REQUEST", message: "This client has no care package yet." });
+      for (const day of input.days) {
+        await db.from("visitTemplates").insert({
+          carePackageId: pkg.id, clientId: input.clientId, dayOfWeek: day, startTime: input.startTime,
+          durationMinutes: input.durationMinutes, callType: input.callType,
+          visitType: input.visitType.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+          flexibilityMinutes: input.flexibilityMinutes,
+        });
+      }
+      await audit(sc.staff.fullName, "visit_template_added", "clients", input.clientId, { days: input.days, startTime: input.startTime });
+      return { ok: true };
+    }),
+
+  removeVisitTemplate: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      const tpl = await db.from("visitTemplates").eq("id", input.id).first<VisitTemplates>();
+      if (!tpl) throw new TRPCError({ code: "NOT_FOUND" });
+      await db.from("visitTemplates").eq("id", input.id).delete();
+      await audit(sc.staff.fullName, "visit_template_removed", "clients", tpl.clientId, { id: input.id });
+      return { ok: true };
+    }),
+
   // ── Rota weeks ──
   weeks: authedQuery.query(async () => {
     return db.from("rotaWeeks").order("weekStartDate", "desc").limit(12).many<RotaWeeks>();
@@ -234,16 +278,15 @@ export const rotaRouter = createRouter({
         for (const v of oldVisits) await db.from("visitAssignments").eq("visitId", v.id).delete();
         await db.from("visits").eq("rotaWeekId", week.id).delete();
       }
-      const monday = mondayOf(input.weekStartDate);
       const tpls = await db.from("visitTemplates").many<VisitTemplates>();
       const clientRows = await db.from("clients").eq("status", "active").many<Clients>();
       const activeClientIds = new Set(clientRows.map((c) => Number(c.id)));
       let created = 0;
       for (const t of tpls) {
         if (!activeClientIds.has(Number(t.clientId))) continue;
-        const day = new Date(monday); day.setDate(day.getDate() + t.dayOfWeek);
-        const [h, m] = t.startTime.split(":").map(Number);
-        const start = new Date(day); start.setHours(h, m, 0, 0);
+        const day = new Date(`${input.weekStartDate}T12:00:00Z`);
+        day.setUTCDate(day.getUTCDate() + t.dayOfWeek);
+        const start = londonTime(day.toISOString().slice(0, 10), t.startTime.slice(0, 5));
         const end = new Date(start.getTime() + t.durationMinutes * 60000);
         await db.from("visits").insert({
           rotaWeekId: week.id, clientId: t.clientId, visitTemplateId: t.id,

@@ -7,7 +7,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  FIELD_TYPES, DISPLAY_TYPES, conditionMet,
+  FIELD_TYPES, DISPLAY_TYPES, conditionMet, isRequirementField,
   type FormField, type FormSchemaDoc, type FormSection, type FieldType,
 } from "@contracts/form-schema";
 import { Button } from "@/components/ui/button";
@@ -446,6 +446,7 @@ function FieldSettings({ field: f, allFields, onChange, onClose }: {
   onClose: () => void;
 }) {
   const isDisplay = DISPLAY_TYPES.includes(f.type);
+  const fromRequirement = isRequirementField(f);
   return (
     <div className="uc-card p-4">
       <div className="flex items-center justify-between mb-3">
@@ -455,8 +456,10 @@ function FieldSettings({ field: f, allFields, onChange, onClose }: {
       <div className="space-y-3">
         <div>
           <Label>Label</Label>
-          <Input value={f.label} onChange={(e) => onChange({ label: e.target.value })} />
-          {f.locked && <p className="text-[10px] text-muted-foreground mt-0.5">Core field — the label is editable, but the field cannot be deleted and stays required.</p>}
+          <Input value={f.label} disabled={fromRequirement} onChange={(e) => onChange({ label: e.target.value })} />
+          {fromRequirement ? (
+            <p className="text-[10px] text-muted-foreground mt-0.5">This question comes from the job's screening requirements. Change its wording, or remove it, by editing the job.</p>
+          ) : f.locked && <p className="text-[10px] text-muted-foreground mt-0.5">Core field — the label is editable, but the field cannot be deleted and stays required.</p>}
         </div>
         {!isDisplay && (
           <>
@@ -554,10 +557,10 @@ function FieldSettings({ field: f, allFields, onChange, onClose }: {
             <div className="border-t pt-3 space-y-2" style={{ borderColor: "var(--card-line)" }}>
               <p className="uc-label">Screening</p>
               <label className="flex items-center gap-2 text-sm">
-                <Switch checked={f.useInAi} onCheckedChange={(v) => onChange({ useInAi: v })} />
+                <Switch checked={f.useInAi} disabled={fromRequirement} onCheckedChange={(v) => onChange({ useInAi: v })} />
                 Use in AI screening
               </label>
-              {f.useInAi && (
+              {f.useInAi && !fromRequirement && (
                 <div>
                   <Label>Maps to requirement (optional)</Label>
                   <Input value={f.requirementKey ?? ""} placeholder="e.g. right_to_work"

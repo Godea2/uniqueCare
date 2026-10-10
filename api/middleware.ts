@@ -2,6 +2,7 @@ import { ErrorMessages } from "@contracts/constants";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
+import { canUseApp, getStaff } from "./util";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -38,5 +39,21 @@ function requireRole(role: string) {
   });
 }
 
-export const authedQuery = t.procedure.use(requireAuth);
+const requireApprovedStaff = t.middleware(async ({ ctx, next }) => {
+  const { staff } = await getStaff(ctx);
+  if (!canUseApp(staff)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: staff.status === "pending"
+        ? "Your account is waiting for an administrator to approve it."
+        : "Your account no longer has access to UniqueCare Connect.",
+    });
+  }
+  return next();
+});
+
+/** Signed in, approved or not. Only for account/self-service endpoints. */
+export const signedInQuery = t.procedure.use(requireAuth);
+/** Signed in and approved as staff. Default for every staff endpoint. */
+export const authedQuery = signedInQuery.use(requireApprovedStaff);
 export const adminQuery = authedQuery.use(requireRole("admin"));

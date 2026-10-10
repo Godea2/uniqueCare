@@ -222,6 +222,7 @@ create table if not exists public.compliance_documents (
   owner_id bigint not null,
   requirement_key text not null,
   file_name text,
+  file_key text,
   status text default 'requested' not null,
   verified_by text,
   verified_at timestamptz,
@@ -572,6 +573,7 @@ create table if not exists public.staff_profiles (
   wtd_opt_out boolean default false,
   status text default 'active' not null,
   avatar_color text,
+  home_role text,
   deleted_at timestamptz,
   created_at timestamptz default now() not null,
   updated_at timestamptz default now() not null

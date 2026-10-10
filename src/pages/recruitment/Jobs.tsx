@@ -11,10 +11,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Briefcase, Plus, Globe, Copy, Check, QrCode, ExternalLink, RefreshCw, Trash2, BarChart3, Link2, FileText } from "lucide-react";
+import { Briefcase, Plus, Globe, Copy, Check, QrCode, ExternalLink, RefreshCw, Trash2, BarChart3, Link2, FileText, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import QRCode from "qrcode";
 import type { RouterOutputs } from "@/lib/router-types";
+import { formSchemaDoc, requirementKeyFromLabel, syncRequirementQuestions } from "@contracts/form-schema";
 
 type JobRow = RouterOutputs["hr"]["jobs"][number];
 
@@ -22,6 +23,7 @@ export default function Jobs() {
   const utils = trpc.useUtils();
   const q = trpc.hr.jobs.useQuery();
   const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<JobRow | null>(null);
   const setStatus = trpc.hr.setJobStatus.useMutation({
     onSuccess: () => { utils.hr.jobs.invalidate(); toast.success("Job updated"); },
     onError: (e) => toast.error(e.message),
@@ -43,11 +45,13 @@ export default function Jobs() {
       ) : (
         <div className="space-y-4" data-tour="job-list">
           {jobs.map((j) => (
-            <JobCard key={j.id} job={j} onSetStatus={(status) => setStatus.mutate({ id: Number(j.id), status })} />
+            <JobCard key={j.id} job={j} onEdit={() => setEditing(j)}
+              onSetStatus={(status) => setStatus.mutate({ id: Number(j.id), status })} />
           ))}
         </div>
       )}
-      <CreateJobDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <JobDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <JobDialog open={!!editing} job={editing ?? undefined} onClose={() => setEditing(null)} />
     </div>
   );
 }
@@ -70,7 +74,7 @@ async function downloadQr(url: string, name: string, format: "png" | "svg") {
   }
 }
 
-function JobCard({ job: j, onSetStatus }: { job: JobRow; onSetStatus: (s: "draft" | "live" | "closed") => void }) {
+function JobCard({ job: j, onSetStatus, onEdit }: { job: JobRow; onSetStatus: (s: "draft" | "live" | "closed") => void; onEdit: () => void }) {
   const utils = trpc.useUtils();
   const [regenOpen, setRegenOpen] = useState(false);
   const [newSource, setNewSource] = useState("");
@@ -130,6 +134,7 @@ function JobCard({ job: j, onSetStatus }: { job: JobRow; onSetStatus: (s: "draft
           {j.status === "closed" && (
             <Button size="sm" variant="outline" onClick={() => onSetStatus("live")}>Re-open</Button>
           )}
+          <Button size="sm" variant="outline" onClick={onEdit}><Pencil className="h-3.5 w-3.5 mr-1" /> Edit</Button>
           <Link to={`/recruitment/forms?job=${j.id}`}>
             <Button size="sm" variant="outline"><FileText className="h-3.5 w-3.5 mr-1" /> Application form</Button>
           </Link>
@@ -261,18 +266,55 @@ function QrMenu({ url, name, small }: { url: string; name: string; small?: boole
   );
 }
 
-type Req = { key: string; label: string; weight: number; type: string; required: boolean };
+type Req = { uid: string; key: string; label: string; weight: number; required: boolean };
+type EmploymentType = "full_time" | "part_time" | "zero_hours" | "bank";
 
 const EMPTY_JOB = {
   title: "", location: "Birmingham", postcode: "", salaryText: "",
-  employmentType: "full_time" as const, descriptionMd: "", screeningThreshold: 85, closesAt: "",
+  employmentType: "full_time" as EmploymentType, descriptionMd: "", screeningThreshold: 85, closesAt: "",
 };
 
-const STARTER_REQUIREMENTS: Req[] = [
-  { key: "right_to_work", label: "Right to work in the UK", weight: 20, type: "hard", required: true },
-  { key: "experience", label: "Care experience (paid or voluntary)", weight: 25, type: "scored", required: false },
-  { key: "values", label: "Person-centred values and communication", weight: 20, type: "scored", required: false },
-];
+const CARE_TEMPLATE = "Care Worker — Standard";
+let uidSeq = 0;
+const uid = () => `r${++uidSeq}`;
+
+function starterRequirements(templateName: string | undefined): Req[] {
+  const rtw = { uid: uid(), key: "right_to_work", label: "Right to work in the UK", weight: 20, required: true };
+  if (templateName !== CARE_TEMPLATE) return [rtw];
+  return [
+    rtw,
+    { uid: uid(), key: "experience", label: "Care experience (paid or voluntary)", weight: 25, required: false },
+    { uid: uid(), key: "values", label: "Person-centred values and communication", weight: 20, required: false },
+  ];
+}
+
+/** Which question each requirement becomes on the application form (requirement uid → question text). */
+function previewQuestions(schemaJson: unknown, reqs: Req[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const parsed = formSchemaDoc.safeParse(schemaJson);
+  if (!parsed.success) return out;
+  const taken = new Set(reqs.map((r) => r.key).filter(Boolean));
+  const keyed = reqs.map((r) => {
+    const key = r.key || requirementKeyFromLabel(r.label, taken);
+    taken.add(key);
+    return { uid: r.uid, key, label: r.label.trim(), weight: r.weight || 1, type: "scored", required: r.required };
+  });
+  const doc = syncRequirementQuestions(parsed.data, keyed);
+  const fields = doc.sections.flatMap((s) => s.fields);
+  for (const r of keyed) {
+    const field = fields.find((f) => f.requirementKey === r.key);
+    if (field) out.set(r.uid, field.label);
+  }
+  return out;
+}
+
+function jobRequirementsOf(job: JobRow): Req[] {
+  const raw = Array.isArray(job.requirements) ? (job.requirements as Partial<Req>[]) : [];
+  return raw.map((r) => ({
+    uid: uid(), key: String(r.key ?? ""), label: String(r.label ?? ""),
+    weight: Number(r.weight ?? 10), required: Boolean(r.required),
+  }));
+}
 
 function Field({
   label, htmlFor, hint, children, className,
@@ -304,37 +346,95 @@ function FormSection({ title, lede, children }: { title: string; lede?: string; 
   );
 }
 
-function CreateJobDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+function JobDialog({ open, onClose, job }: { open: boolean; onClose: () => void; job?: JobRow }) {
   const utils = trpc.useUtils();
+  const editing = !!job;
+  const templatesQ = trpc.forms.templates.useQuery(undefined, { enabled: open });
+  const templates = (templatesQ.data ?? []).filter((t) => t.status === "active" || t.id === job?.formTemplateId);
   const [f, setF] = useState(EMPTY_JOB);
-  const [reqs, setReqs] = useState<Req[]>(STARTER_REQUIREMENTS);
-  const reset = () => {
-    setF(EMPTY_JOB);
-    setReqs(STARTER_REQUIREMENTS);
+  const [reqs, setReqs] = useState<Req[]>([]);
+  const [reqsTouched, setReqsTouched] = useState(false);
+  const [templateId, setTemplateId] = useState<number | null>(null);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+
+  // Load the form once per opening: the job being edited, or a blank job on the care template.
+  const loadKey = open ? (job ? `job-${job.id}` : "new") : null;
+  if (open && loadKey !== loadedFor && (job || templatesQ.data)) {
+    setLoadedFor(loadKey);
+    setReqsTouched(false);
+    if (job) {
+      setF({
+        title: job.title, location: job.location ?? "", postcode: job.postcode ?? "", salaryText: job.salaryText ?? "",
+        employmentType: job.employmentType as EmploymentType, descriptionMd: job.descriptionMd ?? "",
+        screeningThreshold: job.screeningThreshold ?? 85, closesAt: job.closesAt ? String(job.closesAt).slice(0, 10) : "",
+      });
+      setReqs(jobRequirementsOf(job));
+      setTemplateId(job.formTemplateId ?? null);
+    } else {
+      const care = templatesQ.data?.find((t) => t.name === CARE_TEMPLATE);
+      setF(EMPTY_JOB);
+      setTemplateId(care ? Number(care.id) : null);
+      setReqs(starterRequirements(care?.name));
+    }
+  }
+  if (!open && loadedFor !== null) setLoadedFor(null);
+
+  const template = templates.find((t) => Number(t.id) === templateId);
+  const chooseTemplate = (id: number) => {
+    setTemplateId(id);
+    if (!editing && !reqsTouched) setReqs(starterRequirements(templates.find((t) => Number(t.id) === id)?.name));
+  };
+
+  const done = (message: string) => {
+    utils.hr.jobs.invalidate();
+    utils.forms.jobForm.invalidate();
+    toast.success(message);
+    onClose();
   };
   const create = trpc.hr.createJob.useMutation({
-    onSuccess: () => {
-      utils.hr.jobs.invalidate();
-      toast.success("Draft saved. Publish it when you are ready to share the link.");
-      reset();
-      onClose();
-    },
+    onSuccess: () => done("Draft saved. Publish it when you are ready to share the link."),
     onError: (e) => toast.error(e.message),
   });
+  const update = trpc.hr.updateJob.useMutation({
+    onSuccess: () => done(job?.status === "live" ? "Saved. Applicants now see the updated form." : "Saved."),
+    onError: (e) => toast.error(e.message),
+  });
+  const saving = create.isPending || update.isPending;
 
   const set = (k: string, v: unknown) => setF((s) => ({ ...s, [k]: v }));
-  const setReq = (i: number, k: keyof Req, v: unknown) =>
+  const setReq = (i: number, k: keyof Req, v: unknown) => {
+    setReqsTouched(true);
     setReqs((rs) => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
-  const ready = f.title.trim().length >= 3 && f.descriptionMd.trim().length >= 10;
+  };
+  const filledReqs = reqs.filter((r) => r.label.trim());
+  const ready = f.title.trim().length >= 3 && f.descriptionMd.trim().length >= 10 && f.location.trim().length >= 2
+    && filledReqs.every((r) => r.weight > 0);
   const reviewTop = f.screeningThreshold - 1;
+  const questions = previewQuestions(template?.schemaJson, filledReqs);
+  const templateChanged = editing && templateId !== (job?.formTemplateId ?? null);
+
+  const submit = () => {
+    const payload = {
+      title: f.title.trim(), location: f.location.trim(), postcode: f.postcode.trim() || undefined,
+      salaryText: f.salaryText.trim() || undefined, employmentType: f.employmentType,
+      descriptionMd: f.descriptionMd.trim(), screeningThreshold: f.screeningThreshold,
+      closesAt: f.closesAt || "",
+      requirements: filledReqs.map((r) => ({ key: r.key || undefined, label: r.label.trim(), weight: r.weight, required: r.required })),
+      formTemplateId: templateId ?? undefined,
+    };
+    if (job) update.mutate({ ...payload, id: Number(job.id), formTemplateId: templateChanged ? templateId ?? undefined : undefined });
+    else create.mutate(payload);
+  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex max-h-[min(92vh,880px)] w-[calc(100%-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-5 pr-14 text-left" style={{ borderColor: "var(--card-line)" }}>
-          <DialogTitle className="text-xl text-[--brand-900]">New job</DialogTitle>
+          <DialogTitle className="text-xl text-[--brand-900]">{editing ? "Edit job" : "New job"}</DialogTitle>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            This saves as a draft. Nothing is public until you publish it.
+            {!editing ? "This saves as a draft. Nothing is public until you publish it."
+              : job?.status === "live" ? "This job is live. Changes reach the careers page and the application form as soon as you save."
+              : "Changes are saved to the draft."}
           </p>
         </DialogHeader>
 
@@ -379,7 +479,7 @@ function CreateJobDialog({ open, onClose }: { open: boolean; onClose: () => void
 
           <FormSection
             title="Who gets through automatically"
-            lede="A score at or above the line moves them forward. Everyone else waits for a person. Nobody is rejected by the score alone."
+            lede="Each application is scored against the screening requirements as soon as it arrives. A score at or above the line moves it forward, as long as every must-have is clearly met. Everyone else waits for a person. Nobody is rejected by the score alone."
           >
             <Field label={`Shortlist from ${f.screeningThreshold}`} htmlFor="j-th">
               <input id="j-th" type="range" min={60} max={100} value={f.screeningThreshold}
@@ -404,59 +504,82 @@ function CreateJobDialog({ open, onClose }: { open: boolean; onClose: () => void
             </div>
           </FormSection>
 
-          <FormSection title="Screening Requirements">
-            <div className="flex justify-end">
-              <Button size="sm" variant="outline" onClick={() => setReqs((rs) => [...rs, { key: `req_${rs.length + 1}`, label: "", weight: 10, type: "scored", required: false }])}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add one
-              </Button>
-            </div>
+          <FormSection
+            title="Application form"
+            lede="Applicants fill in this form. Every screening requirement below is asked on it, so candidates can show they meet it."
+          >
+            <Field
+              label="Start from"
+              htmlFor="j-tpl"
+              hint={templateChanged
+                ? "Saving rebuilds this job's form from the chosen template. Edits made in the form builder will be replaced."
+                : "Care Worker includes care experience, driving and availability questions. General role keeps it short."}
+            >
+              <Select value={templateId != null ? String(templateId) : ""} onValueChange={(v) => chooseTemplate(Number(v))}>
+                <SelectTrigger id="j-tpl"><SelectValue placeholder={templatesQ.isLoading ? "Loading…" : "Choose a form"} /></SelectTrigger>
+                <SelectContent>
+                  {templates.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Field>
+          </FormSection>
+
+          <FormSection
+            title="Screening Requirements"
+            lede="What this role needs. Each one is asked on the application form and scored. Tick Must have for anything a candidate cannot do the job without."
+          >
             <ul className="space-y-3">
-              {reqs.map((r, i) => (
-                <li key={r.key} className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--card-line)" }}>
-                  <div className="flex items-start gap-2">
-                    <Input value={r.label} placeholder="What should we look for?"
-                      onChange={(e) => setReq(i, "label", e.target.value)} aria-label={`Requirement ${i + 1}`} />
-                    <Button size="sm" variant="ghost" className="h-9 w-9 shrink-0" aria-label={`Remove requirement ${i + 1}`}
-                      onClick={() => setReqs((rs) => rs.filter((_, j) => j !== i))}>
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
-                  </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
-                    <label className="flex items-center gap-2 text-sm text-slate-600">
-                      Weight
-                      <Input type="number" min={1} max={40} value={r.weight} className="h-8 w-16"
-                        onChange={(e) => setReq(i, "weight", Number(e.target.value))} aria-label={`Weight for requirement ${i + 1}`} />
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
-                      <Checkbox checked={r.required} onCheckedChange={(v) => setReq(i, "required", v === true)} />
-                      Must have
-                    </label>
-                  </div>
-                </li>
-              ))}
+              {reqs.map((r, i) => {
+                const q = questions.get(r.uid);
+                return (
+                  <li key={r.uid} className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--card-line)" }}>
+                    <div className="flex items-start gap-2">
+                      <Input value={r.label} placeholder="For example: Full UK driving licence"
+                        onChange={(e) => setReq(i, "label", e.target.value)} aria-label={`Requirement ${i + 1}`} maxLength={200} />
+                      <Button size="sm" variant="ghost" className="h-9 w-9 shrink-0" aria-label={`Remove requirement ${i + 1}`}
+                        onClick={() => { setReqsTouched(true); setReqs((rs) => rs.filter((_, j) => j !== i)); }}>
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+                      <label className="flex items-center gap-2 text-sm text-slate-600">
+                        Weight
+                        <Input type="number" min={1} max={100} value={r.weight} className="h-8 w-16"
+                          onChange={(e) => setReq(i, "weight", Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                          aria-label={`Weight for requirement ${i + 1}`} />
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                        <Checkbox checked={r.required} onCheckedChange={(v) => setReq(i, "required", v === true)} />
+                        Must have
+                      </label>
+                    </div>
+                    {q && (
+                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                        Asked on the form: <span className="text-slate-700">“{q}”</span>
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
+            <Button size="sm" variant="outline"
+              onClick={() => { setReqsTouched(true); setReqs((rs) => [...rs, { uid: uid(), key: "", label: "", weight: 10, required: false }]); }}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add a requirement
+            </Button>
           </FormSection>
         </div>
 
         <DialogFooter className="shrink-0 gap-3 border-t bg-white px-6 py-4 sm:items-center sm:justify-between" style={{ borderColor: "var(--card-line)" }}>
           <p className="text-xs text-muted-foreground sm:mr-auto">
-            {ready ? "Ready to save as a draft." : "Add a title and a short description to continue."}
+            {ready
+              ? editing ? "Ready to save." : "Ready to save as a draft."
+              : filledReqs.some((r) => r.weight <= 0) ? "Every requirement needs a weight above 0."
+              : "Add a title, location and a short description to continue."}
           </p>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button
-              disabled={create.isPending || !ready}
-              onClick={() => create.mutate({
-                title: f.title.trim(), location: f.location, postcode: f.postcode || undefined,
-                salaryText: f.salaryText || undefined, employmentType: f.employmentType,
-                descriptionMd: f.descriptionMd, screeningThreshold: f.screeningThreshold,
-                closesAt: f.closesAt || undefined,
-                requirements: reqs.filter((r) => r.label.trim()).map((r, i) => ({
-                  key: r.key || `req_${i}`, label: r.label, weight: r.weight, type: r.required ? "hard" : "scored", required: r.required,
-                })),
-              })}
-            >
-              {create.isPending ? "Saving…" : "Save draft"}
+            <Button disabled={saving || !ready} onClick={submit}>
+              {saving ? "Saving…" : editing ? "Save changes" : "Save draft"}
             </Button>
           </div>
         </DialogFooter>

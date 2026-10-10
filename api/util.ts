@@ -17,25 +17,71 @@ function isNamedSuperAdmin(email: string | null | undefined): boolean {
   return !!email && SUPER_ADMIN_EMAILS.has(email.trim().toLowerCase());
 }
 
-/** Resolve the signed-in user's staff profile; auto-create on first login. */
-export async function getStaff(ctx: TrpcContext): Promise<StaffCtx> {
-  if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
-  const existing = await db.from("staffProfiles").eq("userId", ctx.user.id).first<StaffProfile>();
-  if (existing) return { staff: existing, user: ctx.user };
-  const name = ctx.user.name ?? ctx.user.email ?? "Staff";
+/** Statuses that may use the staff app. "pending" and "left" are locked out. */
+export const ACTIVE_STAFF_STATUSES = ["active", "onboarding"] as const;
+
+const staffCache = new WeakMap<object, Promise<StaffCtx>>();
+
+/**
+ * Resolve the signed-in user's staff profile.
+ * - Already linked: return it.
+ * - A profile created by HR (e.g. on hire) with the same email: link it.
+ * - Otherwise create one. Named super admins (and the very first user) become
+ *   the Registered Manager; everyone else waits as "pending" until an admin
+ *   approves them in the staff directory.
+ */
+export function getStaff(ctx: TrpcContext): Promise<StaffCtx> {
+  const user = ctx.user;
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED" });
+  let pending = staffCache.get(user);
+  if (!pending) {
+    pending = resolveStaff(user);
+    staffCache.set(user, pending);
+    pending.catch(() => staffCache.delete(user));
+  }
+  return pending;
+}
+
+async function resolveStaff(user: User): Promise<StaffCtx> {
+  const existing = await db.from("staffProfiles").eq("userId", user.id).first<StaffProfile>();
+  if (existing) return { staff: existing, user };
+
+  const email = user.email?.trim().toLowerCase();
+  if (email) {
+    const unlinked = await db.from("staffProfiles").isNull("userId").isNull("deletedAt").many<StaffProfile>();
+    const match = unlinked.find((s) => s.email?.trim().toLowerCase() === email);
+    if (match) {
+      await db.from("staffProfiles").eq("id", match.id).update({ userId: user.id });
+      return { staff: { ...match, userId: user.id }, user };
+    }
+  }
+
+  const name = user.name ?? user.email ?? "Staff";
   const managers = await db.from("staffProfiles").eq("role", "super_admin").isNull("deletedAt").count();
-  const isManager = isNamedSuperAdmin(ctx.user.email) || managers === 0;
+  const isManager = isNamedSuperAdmin(user.email) || managers === 0;
   const [created] = await db.from("staffProfiles").insert<StaffProfile>({
-    userId: ctx.user.id,
+    userId: user.id,
     fullName: name,
-    email: ctx.user.email,
+    email: user.email,
     role: isManager ? "super_admin" : "care_worker",
-    jobTitle: isManager ? "Registered Manager" : "Care Worker",
-    status: isManager ? "active" : "onboarding",
+    jobTitle: isManager ? "Registered Manager" : null,
+    status: isManager ? "active" : "pending",
     contractedHours: "37.5",
     avatarColor: "#0A2E5C",
   });
-  return { staff: created, user: ctx.user };
+  if (!isManager) {
+    await notifyRoles(["super_admin", "admin"], {
+      type: "staff_pending",
+      title: "New account awaiting approval",
+      body: `${name} (${user.email ?? "no email"}) signed up and needs a role before they can use the app.`,
+      link: "/staff",
+    });
+  }
+  return { staff: created, user };
+}
+
+export function canUseApp(staff: StaffProfile): boolean {
+  return !staff.deletedAt && (ACTIVE_STAFF_STATUSES as readonly string[]).includes(staff.status);
 }
 
 const ROLE_RANK: Record<StaffRole, number> = {
@@ -114,6 +160,12 @@ export async function notifyRoles(
       await notify({ ...opts, staffId: Number(member.id) });
     }
   }
+}
+
+/** Automation switch from Settings. A rule with no row is treated as on. */
+export async function ruleEnabled(key: string): Promise<boolean> {
+  const rule = await db.from("automationRules").eq("key", key).first<{ enabled: boolean | null }>();
+  return rule?.enabled !== false;
 }
 
 export async function nextTicketNo(): Promise<string> {

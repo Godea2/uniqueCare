@@ -233,6 +233,158 @@ export function validateSubmission(schema: FormSchemaDoc, answers: FormAnswers) 
   return errors;
 }
 
+/** A screening requirement on a job posting (job_postings.requirements). */
+export const jobRequirementSchema = z.object({
+  key: z.string().min(1).max(50).regex(/^[a-z][a-z0-9_]*$/, "lowercase_snake_case"),
+  label: z.string().min(2).max(200),
+  weight: z.number().min(0).max(100),
+  type: z.string().max(20).default("scored"),
+  /** Must-have: candidates without it go to human review instead of being shortlisted. */
+  required: z.boolean().default(false),
+});
+export type JobRequirement = z.infer<typeof jobRequirementSchema>;
+
+/** Section that holds the questions generated from a job's screening requirements. */
+export const REQUIREMENT_SECTION_ID = "job_questions";
+/** Prefix of generated requirement question ids. */
+export const REQUIREMENT_FIELD_PREFIX = "rq_";
+
+export const requirementFieldId = (key: string) => `${REQUIREMENT_FIELD_PREFIX}${key}`.slice(0, 60);
+export const isRequirementField = (f: Pick<FormField, "id">) => f.id.startsWith(REQUIREMENT_FIELD_PREFIX);
+
+/** Turn a label into a requirement key that is unique within `taken`. */
+export function requirementKeyFromLabel(label: string, taken: Iterable<string>): string {
+  const used = new Set(taken);
+  const base = (label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "requirement")
+    .replace(/^(\d)/, "r_$1");
+  let key = base;
+  for (let n = 2; used.has(key); n++) key = `${base}_${n}`;
+  return key;
+}
+
+/**
+ * Make the form ask about every screening requirement.
+ * A requirement already covered by a template field (same requirementKey) reuses that field;
+ * every other requirement gets one generated question in the job-questions section.
+ * Generated questions for removed requirements are dropped. Pure: returns a new document.
+ */
+export function syncRequirementQuestions(schema: FormSchemaDoc, requirements: JobRequirement[]): FormSchemaDoc {
+  const doc: FormSchemaDoc = JSON.parse(JSON.stringify(schema));
+  const byKey = new Map(requirements.map((r) => [r.key, r]));
+
+  const coveredByTemplate = new Set<string>();
+  for (const s of doc.sections) {
+    for (const f of s.fields) {
+      if (isRequirementField(f) || !f.requirementKey) continue;
+      const req = byKey.get(f.requirementKey);
+      if (!req) continue;
+      coveredByTemplate.add(req.key);
+      f.useInAi = true;
+      if (req.required) f.required = true;
+    }
+  }
+
+  const existing = new Map<string, FormField>();
+  for (const s of doc.sections) {
+    s.fields = s.fields.filter((f) => {
+      if (!isRequirementField(f)) return true;
+      const key = f.requirementKey ?? "";
+      if (!byKey.has(key) || coveredByTemplate.has(key) || existing.has(key)) return false;
+      existing.set(key, f);
+      return true;
+    });
+  }
+
+  const missing = requirements.filter((r) => !coveredByTemplate.has(r.key) && !existing.has(r.key));
+  for (const r of requirements) {
+    const f = existing.get(r.key);
+    if (!f) continue;
+    f.label = r.label;
+    f.required = r.required;
+    f.locked = true;
+    f.useInAi = true;
+    f.requirementKey = r.key;
+  }
+  if (missing.length === 0) return doc;
+
+  let section = doc.sections.find((s) => s.id === REQUIREMENT_SECTION_ID);
+  if (!section) {
+    section = {
+      id: REQUIREMENT_SECTION_ID,
+      title: "About this role",
+      description: "Tell us how you meet what this role needs.",
+      fields: [],
+    };
+    const consentAt = doc.sections.findIndex((s) => s.fields.some((f) => f.type === "consent"));
+    doc.sections.splice(consentAt >= 0 ? consentAt : doc.sections.length, 0, section);
+  }
+  for (const r of missing) {
+    section.fields.push({
+      id: requirementFieldId(r.key),
+      type: "long_text",
+      label: r.label,
+      help: "Tell us how you meet this. A short example helps.",
+      required: r.required,
+      locked: true,
+      useInAi: true,
+      requirementKey: r.key,
+      validation: { maxChars: 1500 },
+    });
+  }
+  return doc;
+}
+
+/** Plain-text rendering of an answer for reviewers and the AI. */
+export function answerText(field: FormField, value: unknown): string {
+  if (value === undefined || value === null || value === "") return "";
+  const optLabel = (v: unknown) => field.options?.find((o) => o.value === String(v))?.label ?? String(v);
+  if (Array.isArray(value)) return value.map(optLabel).join(", ");
+  if (field.type === "file_upload" && typeof value === "object") return String((value as { fileName?: string }).fileName ?? "file uploaded");
+  if (field.type === "availability_grid" && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([day, slots]) => `${day}: ${Array.isArray(slots) ? slots.join("/") : String(slots)}`)
+      .join("; ");
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (field.type === "yes_no") return value === "yes" ? "Yes" : value === "no" ? "No" : String(value);
+  return field.options ? optLabel(value) : String(value);
+}
+
+/** Build the default "General role — Standard" template for roles outside front-line care. */
+export function defaultGeneralForm(): FormSchemaDoc {
+  const care = defaultCareWorkerForm();
+  const pick = (sectionId: string) => care.sections.find((s) => s.id === sectionId)!;
+  const rightToWork = pick("practical").fields.find((f) => f.id === "right_to_work")!;
+  const earliestStart = pick("practical").fields.find((f) => f.id === "earliest_start")!;
+  return formSchemaDoc.parse({
+    introText:
+      "Thank you for your interest in joining Unique Care UK. This short application takes about 5 minutes — your progress is saved automatically on this device.",
+    thankYouText: care.thankYouText,
+    sections: [
+      pick("about_you"),
+      pick("cv"),
+      {
+        id: "experience",
+        title: "Your experience",
+        fields: [
+          { id: "current_employer", type: "short_text", label: "Current or most recent employer", required: false, useInAi: true },
+          { id: "current_role", type: "short_text", label: "Your role there", required: false, useInAi: true },
+          {
+            id: "experience_statement", type: "long_text",
+            label: "Tell us about your relevant experience and why you want this role",
+            required: true, useInAi: true,
+            validation: { minChars: 200, maxChars: 2000 },
+            help: "Between 200 and 2000 characters.",
+          },
+        ],
+      },
+      { id: "practical", title: "Practical details", fields: [rightToWork, earliestStart] },
+      { id: REQUIREMENT_SECTION_ID, title: "About this role", description: "Tell us how you meet what this role needs.", fields: [] },
+      pick("consent"),
+    ],
+  });
+}
+
 /** Build the default "Care Worker — Standard" template (fully editable; core fields locked). */
 export function defaultCareWorkerForm(): FormSchemaDoc {
   return formSchemaDoc.parse({

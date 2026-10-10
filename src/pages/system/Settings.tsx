@@ -24,18 +24,20 @@ export default function Settings() {
   return (
     <div className="max-w-4xl space-y-6">
       <PageHeader title="Settings" subtitle="Organisation, document templates and automation rules" />
-      <OrgSection org={orgQ.data!} />
+      <OrgSection org={orgQ.data ?? null} />
       <TemplatesSection templates={tplQ.data ?? []} onChanged={() => utils.cqc.templates.invalidate()} />
       <AutomationsSection rules={rulesQ.data ?? []} />
     </div>
   );
 }
 
-function OrgSection({ org }: { org: NonNullable<RouterOutputs["core"]["organisation"]> }) {
+function OrgSection({ org }: { org: RouterOutputs["core"]["organisation"] }) {
   const utils = trpc.useUtils();
+  const settings = (org?.settings ?? null) as { screeningThreshold?: number; signatoryName?: string; signatoryTitle?: string } | null;
   const [f, setF] = useState({
-    name: org.name, address: org.address ?? "", cqcLocationId: org.cqcLocationId ?? "",
-    screeningThreshold: (org.settings as { screeningThreshold?: number } | null)?.screeningThreshold ?? 85,
+    name: org?.name ?? "Unique Care UK", address: org?.address ?? "", cqcLocationId: org?.cqcLocationId ?? "",
+    screeningThreshold: settings?.screeningThreshold ?? 85,
+    signatoryName: settings?.signatoryName ?? "", signatoryTitle: settings?.signatoryTitle ?? "",
   });
   const save = trpc.core.updateOrganisation.useMutation({
     onSuccess: () => { utils.core.organisation.invalidate(); toast.success("Saved"); },
@@ -56,9 +58,24 @@ function OrgSection({ org }: { org: NonNullable<RouterOutputs["core"]["organisat
             className="w-full accent-[--brand-600]" />
           <p className="text-[11px] text-muted-foreground">Used when a job doesn't set its own threshold. Candidates are never auto-rejected at any threshold.</p>
         </div>
+        <div />
+        <div>
+          <Label htmlFor="o-sig">Letters and emails signed by</Label>
+          <Input id="o-sig" value={f.signatoryName} placeholder="Registered Manager's name"
+            onChange={(e) => setF((s) => ({ ...s, signatoryName: e.target.value }))} />
+        </div>
+        <div>
+          <Label htmlFor="o-sigt">Their job title</Label>
+          <Input id="o-sigt" value={f.signatoryTitle} placeholder="Registered Manager"
+            onChange={(e) => setF((s) => ({ ...s, signatoryTitle: e.target.value }))} />
+        </div>
       </div>
-      <Button className="mt-3" size="sm" disabled={save.isPending}
-        onClick={() => save.mutate({ name: f.name, address: f.address || undefined, cqcLocationId: f.cqcLocationId || undefined, screeningThreshold: f.screeningThreshold })}>
+      {!org && <p className="mt-3 text-xs text-amber-700">No organisation is saved yet. Saving creates it.</p>}
+      <Button className="mt-3" size="sm" disabled={save.isPending || f.name.trim().length < 2}
+        onClick={() => save.mutate({
+          name: f.name.trim(), address: f.address || undefined, cqcLocationId: f.cqcLocationId || undefined,
+          screeningThreshold: f.screeningThreshold, signatoryName: f.signatoryName, signatoryTitle: f.signatoryTitle,
+        })}>
         Save organisation
       </Button>
     </section>

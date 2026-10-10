@@ -255,6 +255,7 @@ export interface ComplianceDocuments {
   ownerId: number;
   requirementKey: string;
   fileName: string | null;
+  fileKey: string | null;
   status: string;
   verifiedBy: string | null;
   verifiedAt: string | null;
@@ -605,6 +606,7 @@ export interface StaffProfiles {
   wtdOptOut: boolean | null;
   status: string;
   avatarColor: string | null;
+  homeRole: string | null;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;

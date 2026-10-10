@@ -22,7 +22,7 @@ function apiKey(): string {
   return key;
 }
 
-function modelName(): string {
+export function modelName(): string {
   return process.env.GEMINI_MODEL || DEFAULT_MODEL;
 }
 

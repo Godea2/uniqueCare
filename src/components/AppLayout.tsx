@@ -120,7 +120,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   const meQ = trpc.core.me.useQuery(undefined, { enabled: !!user, retry: 1 });
   const notifQ = trpc.core.myNotifications.useQuery(undefined, {
-    enabled: !!user && !!meQ.data, refetchInterval: 30000,
+    enabled: !!user && (meQ.data?.status === "active" || meQ.data?.status === "onboarding") && !meQ.data?.deletedAt,
+    refetchInterval: 30000,
   });
   const setRole = trpc.core.setRole.useMutation({
     onSuccess: () => utils.invalidate(),
@@ -173,7 +174,31 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   if (isLoading || (user && meQ.isLoading)) return <AuthLayoutSkeleton />;
   if (!user) return null;
   const staff = meQ.data;
-  const canSwitchRole = staff?.role === "super_admin" || staff?.role === "admin";
+  const realRole = staff?.homeRole ?? staff?.role;
+  const canSwitchRole = realRole === "super_admin" || realRole === "admin";
+
+  if (staff && (staff.status === "pending" || staff.status === "left" || staff.deletedAt)) {
+    const pendingApproval = staff.status === "pending";
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6" style={{ backgroundColor: "var(--frame-bg)" }}>
+        <div className="uc-card max-w-md p-8 text-center">
+          <img src="/logo.png" alt="Unique Care UK" className="mx-auto mb-6 h-10 w-auto" />
+          <h1 className="text-lg font-semibold text-[--brand-900]">
+            {pendingApproval ? "Your account is awaiting approval" : "Your account is no longer active"}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {pendingApproval
+              ? `You're signed in as ${user.email}. A manager has been notified and will give you access shortly.`
+              : "Please contact the office if you think this is a mistake."}
+          </p>
+          <div className="mt-6 flex justify-center gap-2">
+            {pendingApproval && <Button variant="outline" onClick={() => meQ.refetch()}>Check again</Button>}
+            <Button onClick={logout}>Sign out</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Shared sidebar body — used by the desktop rail and the mobile drawer.
   // onNavigate is passed by the drawer so tapping a link closes it.
@@ -312,7 +337,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               <DropdownMenuContent align="end" className="w-56 rounded-xl">
                 <DropdownMenuLabel>View app as role</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {(Object.keys(ROLE_LABELS) as StaffRole[]).map((r) => (
+                {(Object.keys(ROLE_LABELS) as StaffRole[]).filter((r) => realRole === "super_admin" || r !== "super_admin").map((r) => (
                   <DropdownMenuItem key={r} onClick={() => setRole.mutate({ role: r })} className="cursor-pointer rounded-lg">
                     <span className={cn("flex-1", r === role && "font-semibold text-[--brand-700]")}>{ROLE_LABELS[r]}</span>
                     {r === role && <span className="text-[--brand-600]">●</span>}
@@ -470,7 +495,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               {search.data.candidates.length > 0 && (
                 <CommandGroup heading="Candidates">
                   {search.data.candidates.map((c) => (
-                    <CommandItem key={c.id} onSelect={() => { navigate(`/recruitment/pipeline`); setSearchOpen(false); }}>
+                    <CommandItem key={c.id} onSelect={() => { navigate(c.applicationId ? `/recruitment/pipeline/${c.applicationId}` : "/recruitment/pipeline"); setSearchOpen(false); }}>
                       {c.firstName} {c.lastName} <span className="ml-2 text-xs text-muted-foreground">{c.email}</span>
                     </CommandItem>
                   ))}

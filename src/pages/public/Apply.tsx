@@ -78,7 +78,9 @@ function Wizard({ slug, src, info }: { slug: string; src?: string; info: Extract
   }, [answers, storageKey]);
 
   const visibleSections = useMemo(
-    () => schema.sections.map((s) => ({ ...s, fields: s.fields.filter((f) => conditionMet(f, answers)) })),
+    () => schema.sections
+      .filter((s) => s.fields.length > 0)
+      .map((s) => ({ ...s, fields: s.fields.filter((f) => conditionMet(f, answers)) })),
     [schema, answers],
   );
   const section = visibleSections[step];

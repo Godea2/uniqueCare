@@ -33,7 +33,11 @@ export default function CandidateDetail() {
   const inv = () => utils.hr.applicationDetail.invalidate({ id: Number(id) });
 
   const screen = trpc.hr.runScreening.useMutation({
-    onSuccess: (r) => { inv(); utils.hr.pipeline.invalidate(); toast.success(`AI screening complete — score ${r.score}`); },
+    onSuccess: (r) => {
+      inv(); utils.hr.pipeline.invalidate();
+      const next = r.outcome === "shortlisted" ? " Shortlisted and invited." : r.outcome === "review" ? " Moved to Review." : "";
+      toast.success(`Screening complete — score ${r.score}.${next}`);
+    },
   });
   const move = trpc.hr.moveStage.useMutation({
     onSuccess: () => { inv(); utils.hr.pipeline.invalidate(); toast.success("Stage updated"); },
@@ -58,8 +62,16 @@ export default function CandidateDetail() {
   const cand = d.candidate;
   const stage = app.stage;
   const history = (app.stageHistory as { from: string | null; to: string; actor: string; at: string; reason?: string }[]) ?? [];
-  const breakdown = ((app.aiBreakdown as { key?: string; requirement_key?: string; met: string; evidence?: string; evidence_quote?: string; points?: number; source?: "cv" | "form" }[] | null) ?? null)
-    ?.map((b) => ({ key: b.key ?? b.requirement_key ?? "—", met: b.met, evidence: b.evidence ?? b.evidence_quote ?? "", points: b.points, source: b.source })) ?? null;
+  const jobReqs = (Array.isArray(d.job?.requirements) ? d.job.requirements : []) as { key: string; label: string; required?: boolean }[];
+  const breakdown = ((app.aiBreakdown as { key?: string; requirement_key?: string; label?: string; required?: boolean; met: string; evidence?: string; evidence_quote?: string; source?: "cv" | "form" | "none" }[] | null) ?? null)
+    ?.map((b) => {
+      const key = b.key ?? b.requirement_key ?? "—";
+      const req = jobReqs.find((r) => r.key === key);
+      return {
+        key, label: b.label ?? req?.label ?? key.replace(/_/g, " "), required: b.required ?? req?.required ?? false,
+        met: b.met, evidence: b.evidence ?? b.evidence_quote ?? "", source: b.source,
+      };
+    }) ?? null;
   const flags = (app.aiFlags as string[] | null) ?? [];
   const latestCv = (d.cvVersions ?? [])[0] ?? null;
   const cvKey = latestCv?.fileKey ?? app.cvFileKey ?? null;
@@ -175,10 +187,13 @@ export default function CandidateDetail() {
                     <tbody>
                       {breakdown.map((b) => (
                         <tr key={b.key} className="border-b last:border-0" style={{ borderColor: "var(--line)" }}>
-                          <td className="py-1.5 pr-2">{b.key.replace(/_/g, " ")}</td>
+                          <td className="py-1.5 pr-2">
+                            {b.label}
+                            {b.required && <span className="ml-1 text-[10px] font-semibold text-red-700">MUST</span>}
+                          </td>
                           <td className="py-1.5 pr-2"><Chip value={b.met === "yes" ? "verified" : b.met === "partial" ? "pending" : b.met === "unknown" ? "requested" : "rejected"} label={b.met} /></td>
                           <td className="py-1.5 pr-2 text-xs">
-                            <mark className="bg-yellow-100 rounded px-1">{b.evidence}</mark>
+                            {b.evidence ? <mark className="bg-yellow-100 rounded px-1">{b.evidence}</mark> : <span className="text-muted-foreground">No evidence found</span>}
                           </td>
                           <td className="py-1.5 text-xs text-muted-foreground">{b.source === "cv" ? "CV" : b.source === "form" ? "Form" : "—"}</td>
                         </tr>
@@ -207,7 +222,7 @@ export default function CandidateDetail() {
             <h2 className="uc-label mb-3">Interview</h2>
             {d.slot && d.booking ? (
               <p className="text-sm mb-3">
-                {fmtDate(d.slot.startsAt)} {fmtTime(d.slot.startsAt)}–{fmtTime(d.slot.endsAt)} · {d.slot.locationText ?? "Microsoft Teams"}
+                {fmtDate(d.slot.startsAt)} {fmtTime(d.slot.startsAt)}–{fmtTime(d.slot.endsAt)} · {d.slot.locationText ?? "Interview"}
                 {" "}<Chip value={d.booking.status} />
               </p>
             ) : (
@@ -470,6 +485,10 @@ function DocChecklist({ docs, onDone }: { docs: NonNullable<Detail>["docs"]; onD
     onSuccess: () => { toast.success("Document rejected — candidate will be asked to re-upload"); onDone(); },
     onError: (e) => toast.error(e.message),
   });
+  const openDoc = trpc.hr2.documentUrl.useMutation({
+    onSuccess: ({ url }) => window.open(url, "_blank", "noopener,noreferrer"),
+    onError: (e) => toast.error(e.message),
+  });
   const [expiry, setExpiry] = useState<Record<number, string>>({});
   const [rejectId, setRejectId] = useState<number | null>(null);
   const [reason, setReason] = useState("");
@@ -482,7 +501,13 @@ function DocChecklist({ docs, onDone }: { docs: NonNullable<Detail>["docs"]; onD
             <div className="flex-1 min-w-40">
               <p className="text-sm font-medium">{doc.requirementKey.replace(/_/g, " ")}</p>
               <p className="text-xs text-muted-foreground">
-                {doc.fileName ?? "No file yet"}{doc.expiresAt ? ` · expires ${fmtDate(doc.expiresAt)}` : ""}
+                {doc.fileKey ? (
+                  <button className="underline text-[--brand-700] hover:text-[--brand-900]" disabled={openDoc.isPending}
+                    onClick={() => openDoc.mutate({ id: Number(doc.id) })}>
+                    {doc.fileName ?? "Open file"}
+                  </button>
+                ) : (doc.fileName ?? "No file yet")}
+                {doc.expiresAt ? ` · expires ${fmtDate(doc.expiresAt)}` : ""}
               </p>
             </div>
             <Chip value={doc.status} />
