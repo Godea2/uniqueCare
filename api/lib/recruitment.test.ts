@@ -99,6 +99,13 @@ describe("enforceEvidence", () => {
     expect(flags[0]).toMatch(/rules this out/);
   });
 
+  it("lets a structured form answer decide the requirement over the model", () => {
+    const { results } = enforceEvidence(reqs, [
+      { requirement_key: "driving", met: "yes", evidence: "Full UK licence", source: "cv" },
+    ], ctx({ structured: new Map([["driving", { met: "no" as const, evidence: "Do you hold a full UK driving licence?: No" }]]) }));
+    expect(results.find((r) => r.requirement_key === "driving")).toMatchObject({ met: "no", source: "form" });
+  });
+
   it("treats a requirement the model skipped as unknown", () => {
     const { results } = enforceEvidence(reqs, [], ctx());
     expect(results.map((r) => r.met)).toEqual(["unknown", "unknown", "unknown"]);

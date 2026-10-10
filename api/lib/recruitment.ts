@@ -11,7 +11,7 @@ import { readCv } from "./cv-store";
 import { orgProfile, portalUrl } from "./app-url";
 import { jobRequirements } from "./job-form";
 import {
-  answerText, conditionMet, formSchemaDoc, trippedKnockouts, DISPLAY_TYPES,
+  answerText, conditionMet, formSchemaDoc, structuredMet, trippedKnockouts, DISPLAY_TYPES,
   type FormAnswers, type JobRequirement,
 } from "@contracts/form-schema";
 
@@ -210,6 +210,7 @@ async function evidenceFromForm(app: Applications, reqs: JobRequirement[]) {
   const other: string[] = [];
   let knockouts: { fieldId: string; label: string; message: string }[] = [];
   const knockoutRequirements = new Set<string>();
+  const structured = new Map<string, { met: "yes" | "no"; evidence: string }>();
   const ver = app.formVersionId
     ? await db.from("applicationFormVersions").eq("id", app.formVersionId).first<ApplicationFormVersions>()
     : null;
@@ -227,6 +228,11 @@ async function evidenceFromForm(app: Applications, reqs: JobRequirement[]) {
         if (DISPLAY_TYPES.includes(f.type) || f.type === "file_upload" || f.type === "consent") continue;
         if (!conditionMet(f, answers)) continue;
         const text = answerText(f, answers[f.id]);
+        const req = f.requirementKey ? reqs.find((r) => r.key === f.requirementKey) : undefined;
+        const decided = req ? structuredMet(req, f, answers[f.id]) : null;
+        if (req && decided && structured.get(req.key)?.met !== "no") {
+          structured.set(req.key, { met: decided, evidence: text ? `${f.label}: ${text}` : `${f.label}: not ticked` });
+        }
         if (!text) continue;
         const line = `- ${f.label}: ${text.slice(0, 1500)}`;
         if (f.requirementKey && reqKeys.has(f.requirementKey)) {
@@ -242,7 +248,7 @@ async function evidenceFromForm(app: Applications, reqs: JobRequirement[]) {
     }
   }
   const formText = [...[...byRequirement.values()].flat(), ...other].join("\n");
-  return { byRequirement, other, knockouts, knockoutRequirements, formText };
+  return { byRequirement, other, knockouts, knockoutRequirements, structured, formText };
 }
 
 /** Lower-case words only, so quotes match regardless of punctuation, quote marks or spacing. */
@@ -260,6 +266,8 @@ function quoteFound(quote: string, source: string): boolean {
 /**
  * Hold the model to its own rules, in code:
  * - a knockout answer on the form means the requirement is not met, whatever else the model read;
+ * - a structured answer (yes/no, dropdown, multiple choice, checkbox) with accepted answers set
+ *   decides the requirement outright: the candidate's own answer beats the model's reading;
  * - "yes" needs a quote that really is in the application. A quote that can't be found is
  *   downgraded to "partial" and flagged. CV quotes are only checked when the CV text was extracted;
  *   a PDF the model read directly can't be checked here.
@@ -267,7 +275,10 @@ function quoteFound(quote: string, source: string): boolean {
 export function enforceEvidence(
   reqs: JobRequirement[],
   results: { requirement_key: string; met: AiResult["met"]; evidence: string; source: AiResult["source"] }[],
-  ctx: { knockoutRequirements: Set<string>; formText: string; cvText: string },
+  ctx: {
+    knockoutRequirements: Set<string>; formText: string; cvText: string;
+    structured?: Map<string, { met: "yes" | "no"; evidence: string }>;
+  },
 ) {
   const flags: string[] = [];
   const checked = reqs.map((r) => {
@@ -279,6 +290,10 @@ export function enforceEvidence(
     if (ctx.knockoutRequirements.has(r.key)) {
       if (met !== "no") flags.push(`${r.label}: the form answer rules this out, so it is marked not met.`);
       return { requirement_key: r.key, met: "no" as const, evidence, source: "form" as const };
+    }
+    const answered = ctx.structured?.get(r.key);
+    if (answered) {
+      return { requirement_key: r.key, met: answered.met, evidence: answered.evidence, source: "form" as const };
     }
     if (met === "yes" || met === "partial") {
       const source_text = source === "form" ? ctx.formText : source === "cv" ? ctx.cvText : "";
@@ -319,14 +334,16 @@ export async function screenApplication(appId: number, actor: string, baseUrl: s
     throw new TRPCError({ code: "BAD_REQUEST", message: "This job has no screening requirements. Add them on the job first." });
   }
 
-  const { byRequirement, other, knockouts, knockoutRequirements, formText } = await evidenceFromForm(app, reqs);
+  const { byRequirement, other, knockouts, knockoutRequirements, structured, formText } = await evidenceFromForm(app, reqs);
   const cvFile = app.cvFileKey && (app.cvFileName ?? "").toLowerCase().endsWith(".pdf") ? await readCv(app.cvFileKey) : null;
   const cvText = (app.cvText ?? "").slice(0, 6000);
   const org = await orgProfile();
 
   const requirementBlock = reqs.map((r) => {
     const answers = byRequirement.get(r.key);
-    return `### ${r.key}${r.required ? " (MUST-HAVE)" : ""} — weight ${r.weight}\n${r.label}\nCandidate's answers about this:\n${answers?.join("\n") ?? "- (no direct question answered)"}`;
+    const decided = structured.get(r.key);
+    const note = decided ? `\nDecided from the candidate's form answer: ${decided.met === "yes" ? "met" : "not met"}.` : "";
+    return `### ${r.key}${r.required ? " (MUST-HAVE)" : ""} — weight ${r.weight}\n${r.label}\nCandidate's answers about this:\n${answers?.join("\n") ?? "- (no direct question answered)"}${note}`;
   }).join("\n\n");
 
   const result = await callAI({
@@ -357,7 +374,7 @@ export async function screenApplication(appId: number, actor: string, baseUrl: s
     ].filter(Boolean).join("\n\n"),
   });
 
-  const enforced = enforceEvidence(reqs, result.requirement_results, { knockoutRequirements, formText, cvText: app.cvText ?? "" });
+  const enforced = enforceEvidence(reqs, result.requirement_results, { knockoutRequirements, structured, formText, cvText: app.cvText ?? "" });
   const { score, mustHaveGaps } = computeScore(reqs, enforced.results);
   const breakdown: BreakdownRow[] = reqs.map((r) => {
     const hit = enforced.results.find((x) => x.requirement_key === r.key)!;

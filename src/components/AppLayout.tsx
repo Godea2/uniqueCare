@@ -135,7 +135,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQ, setSearchQ] = useState("");
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Groups start collapsed; the one holding the current page opens until the user toggles it.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [mobileNav, setMobileNav] = useState(false);
   const search = trpc.core.globalSearch.useQuery({ q: searchQ }, { enabled: searchQ.length > 1 });
 
@@ -236,14 +237,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </div>
       <nav className="flex-1 px-3 pb-4" aria-label="Main">
         {groups.map((g) => {
-          const isCollapsed = collapsed[g.group] ?? false;
           const singleton = g.group === "Overview";
+          const holdsCurrentPage = g.items.some((item) =>
+            location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path)));
+          const isCollapsed = !singleton && !(expanded[g.group] ?? holdsCurrentPage);
           const groupKey = g.group.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
           return (
             <div key={g.group} className="mt-1 first:mt-0" data-tour-group={groupKey}>
               {!singleton && (
                 <button
-                  onClick={() => setCollapsed((s) => ({ ...s, [g.group]: !isCollapsed }))}
+                  onClick={() => setExpanded((s) => ({ ...s, [g.group]: isCollapsed }))}
                   className="uc-focus uc-side-group flex w-full items-center justify-between rounded-full px-3 py-2 text-[12px] font-medium transition-colors"
                   aria-expanded={!isCollapsed}
                 >

@@ -11,11 +11,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Briefcase, Plus, Globe, Copy, Check, QrCode, ExternalLink, RefreshCw, Trash2, BarChart3, Link2, FileText, Pencil } from "lucide-react";
+import {
+  Briefcase, Plus, Globe, Copy, Check, QrCode, ExternalLink, RefreshCw, Trash2, BarChart3, Link2, FileText, Pencil,
+  AlignLeft, ToggleRight, ChevronsUpDown, ListChecks, SquareCheck, Sparkles, Zap, X, LayoutTemplate, type LucideIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import QRCode from "qrcode";
 import type { RouterOutputs } from "@/lib/router-types";
-import { formSchemaDoc, requirementKeyFromLabel, syncRequirementQuestions } from "@contracts/form-schema";
+import {
+  formSchemaDoc, isRequirementField, optionValueFromLabel, requirementKeyFromLabel, suggestRequirementSetup, syncRequirementQuestions,
+  REQUIREMENT_ANSWER_LABELS, REQUIREMENT_ANSWER_TYPES,
+  type FormField, type JobRequirement, type RequirementAnswerType,
+} from "@contracts/form-schema";
 
 type JobRow = RouterOutputs["hr"]["jobs"][number];
 
@@ -266,7 +273,15 @@ function QrMenu({ url, name, small }: { url: string; name: string; small?: boole
   );
 }
 
-type Req = { uid: string; key: string; label: string; weight: number; required: boolean };
+type ReqOption = { value: string; label: string; ok: boolean };
+type Req = {
+  uid: string; key: string; label: string; weight: number; required: boolean;
+  answerType: RequirementAnswerType; question: string; options: ReqOption[];
+  /** Accepted answers for yes/no, or for a template question that asks this requirement. */
+  accepted: string[];
+  /** Still following the suggestion from the wording; any manual change to how it's asked turns this off. */
+  auto: boolean;
+};
 type EmploymentType = "full_time" | "part_time" | "zero_hours" | "bank";
 
 const EMPTY_JOB = {
@@ -278,43 +293,103 @@ const CARE_TEMPLATE = "Care Worker — Standard";
 let uidSeq = 0;
 const uid = () => `r${++uidSeq}`;
 
+function newReq(over: Partial<Req> = {}): Req {
+  return {
+    uid: uid(), key: "", label: "", weight: 10, required: false,
+    answerType: "text", question: "", options: [], accepted: [], auto: true, ...over,
+  };
+}
+
+/** How the wording suggests asking it, in editor shape. */
+function suggestedSetup(label: string): Pick<Req, "answerType" | "question" | "options" | "accepted"> {
+  const s = suggestRequirementSetup(label);
+  const accepted = s.accepted ?? [];
+  return {
+    answerType: s.answerType ?? "text",
+    question: s.question ?? "",
+    options: (s.options ?? []).map((o) => ({ ...o, ok: accepted.includes(o.value) })),
+    accepted: s.answerType === "yes_no" ? accepted : [],
+  };
+}
+
 function starterRequirements(templateName: string | undefined): Req[] {
-  const rtw = { uid: uid(), key: "right_to_work", label: "Right to work in the UK", weight: 20, required: true };
+  const rtw = newReq({ key: "right_to_work", label: "Right to work in the UK", weight: 20, required: true, accepted: ["yes"], auto: false });
   if (templateName !== CARE_TEMPLATE) return [rtw];
   return [
     rtw,
-    { uid: uid(), key: "experience", label: "Care experience (paid or voluntary)", weight: 25, required: false },
-    { uid: uid(), key: "values", label: "Person-centred values and communication", weight: 20, required: false },
+    newReq({ key: "experience", label: "Care experience (paid or voluntary)", weight: 25, auto: false }),
+    newReq({ key: "values", label: "Person-centred values and communication", weight: 20, auto: false }),
   ];
 }
 
-/** Which question each requirement becomes on the application form (requirement uid → question text). */
-function previewQuestions(schemaJson: unknown, reqs: Req[]): Map<string, string> {
-  const out = new Map<string, string>();
+/** The requirement as the server stores it. Option values are made from labels when new. */
+function toRequirement(r: Req, key = r.key) {
+  const base = {
+    key: key || undefined, label: r.label.trim(), weight: r.weight, required: r.required,
+    question: r.question.trim() || undefined,
+  };
+  if (r.answerType === "single_choice" || r.answerType === "multiple_choice") {
+    const filled = r.options.filter((o) => o.label.trim());
+    const taken = filled.map((o) => o.value).filter(Boolean);
+    const options = filled.map((o) => {
+      const value = o.value || optionValueFromLabel(o.label, taken);
+      if (!o.value) taken.push(value);
+      return { value, label: o.label.trim(), ok: o.ok };
+    });
+    return {
+      ...base, answerType: r.answerType,
+      options: options.map(({ value, label }) => ({ value, label })),
+      accepted: options.filter((o) => o.ok).map((o) => o.value),
+    };
+  }
+  if (r.answerType === "yes_no") return { ...base, answerType: r.answerType, accepted: r.accepted.length ? r.accepted : ["yes"] };
+  if (r.answerType === "checkbox") return { ...base, answerType: r.answerType };
+  return { ...base, answerType: "text" as const, accepted: r.accepted };
+}
+
+type Preview = { field: FormField; fromTemplate: boolean };
+
+/** The question each requirement becomes on the application form (requirement uid → field). */
+function previewQuestions(schemaJson: unknown, reqs: Req[]): Map<string, Preview> {
+  const out = new Map<string, Preview>();
   const parsed = formSchemaDoc.safeParse(schemaJson);
   if (!parsed.success) return out;
   const taken = new Set(reqs.map((r) => r.key).filter(Boolean));
   const keyed = reqs.map((r) => {
     const key = r.key || requirementKeyFromLabel(r.label, taken);
     taken.add(key);
-    return { uid: r.uid, key, label: r.label.trim(), weight: r.weight || 1, type: "scored", required: r.required };
+    return { uid: r.uid, req: { ...toRequirement(r, key), key, weight: r.weight || 1, type: "scored" } };
   });
-  const doc = syncRequirementQuestions(parsed.data, keyed);
+  const doc = syncRequirementQuestions(parsed.data, keyed.map((k) => k.req));
   const fields = doc.sections.flatMap((s) => s.fields);
-  for (const r of keyed) {
-    const field = fields.find((f) => f.requirementKey === r.key);
-    if (field) out.set(r.uid, field.label);
+  for (const { uid: id, req } of keyed) {
+    const field = fields.find((f) => f.requirementKey === req.key);
+    if (field) out.set(id, { field, fromTemplate: !isRequirementField(field) });
   }
   return out;
 }
 
 function jobRequirementsOf(job: JobRow): Req[] {
-  const raw = Array.isArray(job.requirements) ? (job.requirements as Partial<Req>[]) : [];
-  return raw.map((r) => ({
-    uid: uid(), key: String(r.key ?? ""), label: String(r.label ?? ""),
-    weight: Number(r.weight ?? 10), required: Boolean(r.required),
-  }));
+  const raw = Array.isArray(job.requirements) ? (job.requirements as Partial<JobRequirement>[]) : [];
+  return raw.map((r) => {
+    const accepted = (r.accepted ?? []).map(String);
+    return newReq({
+      key: String(r.key ?? ""), label: String(r.label ?? ""),
+      weight: Number(r.weight ?? 10), required: Boolean(r.required),
+      answerType: r.answerType ?? "text",
+      question: String(r.question ?? ""),
+      options: (r.options ?? []).map((o) => ({ value: o.value, label: o.label, ok: accepted.includes(o.value) })),
+      accepted: r.answerType === "single_choice" || r.answerType === "multiple_choice" ? [] : accepted,
+      auto: false,
+    });
+  });
 }
+
+/** Choice requirements need two answers to pick from. */
+const reqProblem = (r: Req) =>
+  (r.answerType === "single_choice" || r.answerType === "multiple_choice") && r.options.filter((o) => o.label.trim()).length < 2
+    ? `"${r.label.trim()}" needs at least two answers to choose from.`
+    : null;
 
 function Field({
   label, htmlFor, hint, children, className,
@@ -343,6 +418,239 @@ function FormSection({ title, lede, children }: { title: string; lede?: string; 
       </div>
       {children}
     </section>
+  );
+}
+
+const ANSWER_ICONS: Record<RequirementAnswerType, LucideIcon> = {
+  text: AlignLeft,
+  yes_no: ToggleRight,
+  single_choice: ChevronsUpDown,
+  multiple_choice: ListChecks,
+  checkbox: SquareCheck,
+};
+
+const BLANK_OPTIONS: ReqOption[] = [{ value: "", label: "", ok: true }, { value: "", label: "", ok: false }];
+
+/** What kind of question a form field is, in the editor's words. */
+function fieldKind(type: FormField["type"]): string {
+  if (type === "yes_no") return REQUIREMENT_ANSWER_LABELS.yes_no;
+  if (type === "single_choice") return REQUIREMENT_ANSWER_LABELS.single_choice;
+  if (type === "multiple_choice") return REQUIREMENT_ANSWER_LABELS.multiple_choice;
+  return REQUIREMENT_ANSWER_LABELS.text;
+}
+
+function PillToggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={on}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${on ? "border-[--brand-600] bg-[--brand-600] text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+      style={on ? undefined : { borderColor: "var(--card-line)" }}>
+      {on && <Check className="h-3.5 w-3.5" />}
+      {children}
+    </button>
+  );
+}
+
+function RequirementCard({ r, index, preview, onChange, onRemove }: {
+  r: Req;
+  index: number;
+  preview?: Preview;
+  onChange: (patch: Partial<Req>) => void;
+  onRemove: () => void;
+}) {
+  const n = index + 1;
+  const named = r.label.trim().length > 0;
+  const fromTemplate = preview?.fromTemplate ?? false;
+  const field = preview?.field;
+  const suggestion = named && !fromTemplate && !r.auto && r.answerType === "text" ? suggestedSetup(r.label) : null;
+  const choice = r.answerType === "single_choice" || r.answerType === "multiple_choice";
+
+  const templateOptions = field?.type === "yes_no"
+    ? [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]
+    : field?.type === "single_choice" || field?.type === "multiple_choice" ? field.options ?? [] : [];
+  const templateAccepted = r.accepted.length ? r.accepted : field?.type === "yes_no" ? ["yes"] : [];
+  const scoredInCode = fromTemplate
+    ? templateOptions.length > 0 && templateAccepted.length > 0
+    : r.answerType === "yes_no" || r.answerType === "checkbox" || (choice && r.options.some((o) => o.ok && o.label.trim()));
+
+  const chooseType = (t: RequirementAnswerType) => {
+    if (t === r.answerType) return;
+    const s = suggestedSetup(r.label);
+    const fits = s.answerType === t;
+    const patch: Partial<Req> = { answerType: t, auto: false };
+    if (t === "yes_no") patch.accepted = fits ? s.accepted : ["yes"];
+    if ((t === "single_choice" || t === "multiple_choice") && r.options.length < 2) patch.options = fits ? s.options : BLANK_OPTIONS;
+    if (!r.question.trim() && fits) patch.question = s.question;
+    onChange(patch);
+  };
+  const setOption = (k: number, o: Partial<ReqOption>) =>
+    onChange({ auto: false, options: r.options.map((x, j) => (j === k ? { ...x, ...o } : x)) });
+  const toggleTemplateAnswer = (value: string) =>
+    onChange({ accepted: templateAccepted.includes(value) ? templateAccepted.filter((v) => v !== value) : [...templateAccepted, value] });
+
+  return (
+    <li className="rounded-2xl border bg-white p-4" style={{ borderColor: "var(--card-line)" }}>
+      <div className="flex items-start gap-2">
+        <Input value={r.label} placeholder="For example: Full UK driving licence"
+          onChange={(e) => onChange({ label: e.target.value })} aria-label={`Requirement ${n}`} maxLength={200} />
+        <Button size="sm" variant="ghost" className="h-9 w-9 shrink-0" aria-label={`Remove requirement ${n}`} onClick={onRemove}>
+          <Trash2 className="h-4 w-4 text-red-500" />
+        </Button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          Weight
+          <Input type="number" min={1} max={100} value={r.weight} className="h-8 w-16"
+            onChange={(e) => onChange({ weight: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
+            aria-label={`Weight for requirement ${n}`} />
+        </label>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <Checkbox checked={r.required} onCheckedChange={(v) => onChange({ required: v === true })} />
+          Must have
+        </label>
+        <div className="flex items-center gap-2 sm:ml-auto">
+          {fromTemplate ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-slate-600" style={{ background: "var(--tint-slate)" }}>
+              <LayoutTemplate className="h-3.5 w-3.5" /> Asked by the form template
+            </span>
+          ) : (
+            <>
+              {r.auto && named && r.answerType !== "text" && (
+                <span className="inline-flex items-center gap-1 text-xs text-[--brand-700]"><Sparkles className="h-3.5 w-3.5" /> Suggested</span>
+              )}
+              <Select value={r.answerType} onValueChange={(v) => chooseType(v as RequirementAnswerType)}>
+                <SelectTrigger className="h-8 w-[236px] text-sm" aria-label={`Answer type for requirement ${n}`}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {REQUIREMENT_ANSWER_TYPES.map((t) => {
+                    const Icon = ANSWER_ICONS[t];
+                    return (
+                      <SelectItem key={t} value={t}>
+                        <span className="flex items-center gap-2"><Icon className="h-4 w-4 text-slate-500" />{REQUIREMENT_ANSWER_LABELS[t]}</span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </>
+          )}
+        </div>
+      </div>
+
+      {suggestion && suggestion.answerType !== "text" && (
+        <button type="button" onClick={() => onChange({ ...suggestion, auto: false })}
+          className="mt-3 flex w-full items-center gap-2 rounded-xl border border-dashed px-3 py-2 text-left text-xs text-slate-600 transition-colors hover:bg-slate-50"
+          style={{ borderColor: "var(--card-line)" }}>
+          <Sparkles className="h-3.5 w-3.5 shrink-0 text-[--brand-600]" />
+          <span className="flex-1">This reads like a {REQUIREMENT_ANSWER_LABELS[suggestion.answerType].toLowerCase()} question, which can be scored straight from the answer.</span>
+          <span className="font-medium text-[--brand-700]">Use it</span>
+        </button>
+      )}
+
+      {named && (
+        <div className="mt-3 space-y-3 rounded-xl p-3" style={{ background: "var(--tint-slate)" }}>
+          {fromTemplate && field ? (
+            <>
+              <div>
+                <p className="text-xs text-muted-foreground">{fieldKind(field.type)} question on the form</p>
+                <p className="mt-0.5 text-sm text-slate-800">“{field.label}”</p>
+              </div>
+              {templateOptions.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs font-medium text-slate-600">Answers that meet it</p>
+                  <div className="flex flex-wrap gap-2">
+                    {templateOptions.map((o) => (
+                      <PillToggle key={o.value} on={templateAccepted.includes(o.value)} onClick={() => toggleTemplateAnswer(o.value)}>{o.label}</PillToggle>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">To change the question itself, edit this job's form in the form builder.</p>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor={`rq-${r.uid}`} className="text-xs text-slate-600">
+                  {r.answerType === "checkbox" ? "Statement candidates tick" : "Question candidates see"}
+                </Label>
+                <Input id={`rq-${r.uid}`} className="h-9 bg-white" value={r.question} maxLength={300}
+                  placeholder={r.answerType === "checkbox" ? `I confirm: ${r.label.trim()}` : r.label.trim()}
+                  onChange={(e) => onChange({ question: e.target.value, auto: false })} />
+              </div>
+
+              {r.answerType === "yes_no" && (
+                <div>
+                  <p className="mb-2 text-xs font-medium text-slate-600">Meets the requirement when they answer</p>
+                  <div className="flex gap-2">
+                    {(["yes", "no"] as const).map((v) => (
+                      <PillToggle key={v} on={(r.accepted[0] ?? "yes") === v} onClick={() => onChange({ accepted: [v], auto: false })}>
+                        {v === "yes" ? "Yes" : "No"}
+                      </PillToggle>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {choice && (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-slate-600">Answers to choose from</p>
+                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <span className="grid h-4 w-4 place-items-center rounded-full bg-emerald-600 text-white"><Check className="h-2.5 w-2.5" /></span>
+                      meets the requirement
+                    </p>
+                  </div>
+                  <ul className="space-y-2">
+                    {r.options.map((o, k) => (
+                      <li key={k} className="flex items-center gap-2">
+                        <button type="button" onClick={() => setOption(k, { ok: !o.ok })} aria-pressed={o.ok}
+                          aria-label={`${o.label || `Answer ${k + 1}`} meets the requirement`}
+                          title={o.ok ? "Meets the requirement" : "Does not meet the requirement"}
+                          className={`grid h-7 w-7 shrink-0 place-items-center rounded-full border transition-colors ${o.ok ? "border-emerald-600 bg-emerald-600 text-white" : "bg-white text-slate-300 hover:text-slate-500"}`}
+                          style={o.ok ? undefined : { borderColor: "var(--card-line)" }}>
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                        <Input className="h-8 bg-white" value={o.label} placeholder={`Answer ${k + 1}`} maxLength={200}
+                          onChange={(e) => setOption(k, { label: e.target.value })} aria-label={`Answer ${k + 1}`} />
+                        <Button size="sm" variant="ghost" className="h-8 w-8 shrink-0" aria-label={`Remove answer ${k + 1}`}
+                          onClick={() => onChange({ auto: false, options: r.options.filter((_, j) => j !== k) })}>
+                          <X className="h-4 w-4 text-slate-400" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                  <Button size="sm" variant="ghost" className="mt-1 h-8 px-2 text-[--brand-700]" disabled={r.options.length >= 20}
+                    onClick={() => onChange({ auto: false, options: [...r.options, { value: "", label: "", ok: false }] })}>
+                    <Plus className="mr-1 h-3.5 w-3.5" /> Add an answer
+                  </Button>
+                  {!r.options.some((o) => o.ok && o.label.trim()) && (
+                    <p className="mt-1 text-xs text-amber-700">No answer is marked as meeting the requirement, so AI will judge it instead.</p>
+                  )}
+                </div>
+              )}
+
+              {r.answerType === "checkbox" && (
+                <div className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm text-slate-700">
+                  <Checkbox checked disabled aria-hidden />
+                  {r.question.trim() || `I confirm: ${r.label.trim()}`}
+                </div>
+              )}
+
+              {r.answerType === "text" && (
+                <p className="text-xs text-muted-foreground">Candidates write a short answer, with an example if they can.</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {named && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+          {scoredInCode
+            ? <><Zap className="h-3.5 w-3.5 text-emerald-600" /> Scored straight from the answer{r.answerType === "checkbox" && !fromTemplate ? ". Left unticked counts as not met." : "."}</>
+            : <><Sparkles className="h-3.5 w-3.5 text-[--brand-600]" /> Scored by AI from the answer and the CV.</>}
+        </p>
+      )}
+    </li>
   );
 }
 
@@ -402,16 +710,22 @@ function JobDialog({ open, onClose, job }: { open: boolean; onClose: () => void;
   const saving = create.isPending || update.isPending;
 
   const set = (k: string, v: unknown) => setF((s) => ({ ...s, [k]: v }));
-  const setReq = (i: number, k: keyof Req, v: unknown) => {
+  const patchReq = (id: string, patch: Partial<Req>) => {
     setReqsTouched(true);
-    setReqs((rs) => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+    setReqs((rs) => rs.map((r) => {
+      if (r.uid !== id) return r;
+      const next = { ...r, ...patch };
+      return next.auto && patch.label !== undefined ? { ...next, ...suggestedSetup(next.label) } : next;
+    }));
   };
   const filledReqs = reqs.filter((r) => r.label.trim());
-  const ready = f.title.trim().length >= 3 && f.descriptionMd.trim().length >= 10 && f.location.trim().length >= 2
-    && filledReqs.every((r) => r.weight > 0);
   const reviewTop = f.screeningThreshold - 1;
   const questions = previewQuestions(template?.schemaJson, filledReqs);
   const templateChanged = editing && templateId !== (job?.formTemplateId ?? null);
+  const askedByTemplate = (r: Req) => questions.get(r.uid)?.fromTemplate ?? false;
+  const problem = filledReqs.map((r) => (askedByTemplate(r) ? null : reqProblem(r))).find(Boolean) ?? null;
+  const ready = f.title.trim().length >= 3 && f.descriptionMd.trim().length >= 10 && f.location.trim().length >= 2
+    && filledReqs.every((r) => r.weight > 0) && !problem;
 
   const submit = () => {
     const payload = {
@@ -419,7 +733,7 @@ function JobDialog({ open, onClose, job }: { open: boolean; onClose: () => void;
       salaryText: f.salaryText.trim() || undefined, employmentType: f.employmentType,
       descriptionMd: f.descriptionMd.trim(), screeningThreshold: f.screeningThreshold,
       closesAt: f.closesAt || "",
-      requirements: filledReqs.map((r) => ({ key: r.key || undefined, label: r.label.trim(), weight: r.weight, required: r.required })),
+      requirements: filledReqs.map((r) => toRequirement(askedByTemplate(r) ? { ...r, answerType: "text" } : r)),
       formTemplateId: templateId ?? undefined,
     };
     if (job) update.mutate({ ...payload, id: Number(job.id), formTemplateId: templateChanged ? templateId ?? undefined : undefined });
@@ -526,44 +840,17 @@ function JobDialog({ open, onClose, job }: { open: boolean; onClose: () => void;
 
           <FormSection
             title="Screening Requirements"
-            lede="What this role needs. Each one is asked on the application form and scored. Tick Must have for anything a candidate cannot do the job without."
+            lede="What this role needs, and how each one is asked on the application form. Yes / No, dropdown, multiple choice and checkbox answers are scored straight from the answer. Written answers are judged by AI. Tick Must have for anything a candidate cannot do the job without."
           >
             <ul className="space-y-3">
-              {reqs.map((r, i) => {
-                const q = questions.get(r.uid);
-                return (
-                  <li key={r.uid} className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--card-line)" }}>
-                    <div className="flex items-start gap-2">
-                      <Input value={r.label} placeholder="For example: Full UK driving licence"
-                        onChange={(e) => setReq(i, "label", e.target.value)} aria-label={`Requirement ${i + 1}`} maxLength={200} />
-                      <Button size="sm" variant="ghost" className="h-9 w-9 shrink-0" aria-label={`Remove requirement ${i + 1}`}
-                        onClick={() => { setReqsTouched(true); setReqs((rs) => rs.filter((_, j) => j !== i)); }}>
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
-                      <label className="flex items-center gap-2 text-sm text-slate-600">
-                        Weight
-                        <Input type="number" min={1} max={100} value={r.weight} className="h-8 w-16"
-                          onChange={(e) => setReq(i, "weight", Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
-                          aria-label={`Weight for requirement ${i + 1}`} />
-                      </label>
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
-                        <Checkbox checked={r.required} onCheckedChange={(v) => setReq(i, "required", v === true)} />
-                        Must have
-                      </label>
-                    </div>
-                    {q && (
-                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                        Asked on the form: <span className="text-slate-700">“{q}”</span>
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
+              {reqs.map((r, i) => (
+                <RequirementCard key={r.uid} r={r} index={i} preview={r.label.trim() ? questions.get(r.uid) : undefined}
+                  onChange={(patch) => patchReq(r.uid, patch)}
+                  onRemove={() => { setReqsTouched(true); setReqs((rs) => rs.filter((x) => x.uid !== r.uid)); }} />
+              ))}
             </ul>
             <Button size="sm" variant="outline"
-              onClick={() => { setReqsTouched(true); setReqs((rs) => [...rs, { uid: uid(), key: "", label: "", weight: 10, required: false }]); }}>
+              onClick={() => { setReqsTouched(true); setReqs((rs) => [...rs, newReq()]); }}>
               <Plus className="h-3.5 w-3.5 mr-1" /> Add a requirement
             </Button>
           </FormSection>
@@ -574,6 +861,7 @@ function JobDialog({ open, onClose, job }: { open: boolean; onClose: () => void;
             {ready
               ? editing ? "Ready to save." : "Ready to save as a draft."
               : filledReqs.some((r) => r.weight <= 0) ? "Every requirement needs a weight above 0."
+              : problem ? problem
               : "Add a title, location and a short description to continue."}
           </p>
           <div className="flex justify-end gap-2">

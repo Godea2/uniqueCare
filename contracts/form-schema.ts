@@ -233,6 +233,19 @@ export function validateSubmission(schema: FormSchemaDoc, answers: FormAnswers) 
   return errors;
 }
 
+/** How a requirement is asked on the form. Structured answers are scored in code; written answers are judged by the AI. */
+export const REQUIREMENT_ANSWER_TYPES = ["text", "yes_no", "single_choice", "multiple_choice", "checkbox"] as const;
+export type RequirementAnswerType = (typeof REQUIREMENT_ANSWER_TYPES)[number];
+export const REQUIREMENT_ANSWER_LABELS: Record<RequirementAnswerType, string> = {
+  text: "Written answer",
+  yes_no: "Yes / No",
+  single_choice: "Dropdown (pick one)",
+  multiple_choice: "Multiple choice (pick any)",
+  checkbox: "Checkbox (tick to confirm)",
+};
+/** The single option value a checkbox requirement records when ticked. */
+export const CHECKBOX_CONFIRMED = "confirmed";
+
 /** A screening requirement on a job posting (job_postings.requirements). */
 export const jobRequirementSchema = z.object({
   key: z.string().min(1).max(50).regex(/^[a-z][a-z0-9_]*$/, "lowercase_snake_case"),
@@ -241,8 +254,166 @@ export const jobRequirementSchema = z.object({
   type: z.string().max(20).default("scored"),
   /** Must-have: candidates without it go to human review instead of being shortlisted. */
   required: z.boolean().default(false),
+  /** Missing means a written answer (requirements saved before answer types existed). */
+  answerType: z.enum(REQUIREMENT_ANSWER_TYPES).optional(),
+  /** Question applicants see; defaults to the label. */
+  question: z.string().max(300).optional(),
+  /** Choices for dropdown and multiple choice. */
+  options: z.array(fieldOptionSchema).max(20).optional(),
+  /** Answers that meet the requirement (option values, "yes"/"no", or "confirmed"). */
+  accepted: z.array(z.string()).max(20).optional(),
 });
 export type JobRequirement = z.infer<typeof jobRequirementSchema>;
+
+/** The answers that meet a requirement, with sensible defaults for yes/no and checkbox. */
+export function acceptedAnswers(req: Pick<JobRequirement, "answerType" | "accepted">, field?: Pick<FormField, "type">): string[] {
+  if (req.accepted?.length) return req.accepted;
+  const type = field?.type ?? req.answerType;
+  if (type === "yes_no") return ["yes"];
+  if (req.answerType === "checkbox") return [CHECKBOX_CONFIRMED];
+  return [];
+}
+
+/**
+ * For a structured answer, whether it meets the requirement: "yes", "no", or null when it
+ * can't be decided in code (written answer, unanswered, or no accepted answers set).
+ */
+export function structuredMet(
+  req: Pick<JobRequirement, "answerType" | "accepted">,
+  field: Pick<FormField, "type">,
+  value: unknown,
+): "yes" | "no" | null {
+  if (!["yes_no", "single_choice", "multiple_choice"].includes(field.type)) return null;
+  const accepted = acceptedAnswers(req, field);
+  if (accepted.length === 0) return null;
+  const given = Array.isArray(value) ? value.map(String) : value === undefined || value === null || value === "" ? [] : [String(value)];
+  if (given.length === 0) return req.answerType === "checkbox" ? "no" : null;
+  return given.some((v) => accepted.includes(v)) ? "yes" : "no";
+}
+
+/** Option value from a label, unique within `taken`. */
+export function optionValueFromLabel(label: string, taken: Iterable<string>): string {
+  const used = new Set(taken);
+  const base = label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "option";
+  let value = base;
+  for (let n = 2; used.has(value); n++) value = `${base}_${n}`;
+  return value;
+}
+
+/** The form question generated for a requirement that no template field already asks. */
+export function requirementField(r: JobRequirement): FormField {
+  const base = {
+    id: requirementFieldId(r.key),
+    label: r.question?.trim() || r.label,
+    required: r.required,
+    locked: true,
+    useInAi: true,
+    requirementKey: r.key,
+  };
+  switch (r.answerType) {
+    case "yes_no":
+      return { ...base, type: "yes_no" };
+    case "single_choice":
+      return { ...base, type: "single_choice", options: r.options ?? [] };
+    case "multiple_choice":
+      return { ...base, type: "multiple_choice", options: r.options ?? [] };
+    case "checkbox":
+      return {
+        ...base, type: "multiple_choice", label: r.label, required: false,
+        options: [{ value: CHECKBOX_CONFIRMED, label: r.question?.trim() || `I confirm: ${r.label}` }],
+      };
+    default:
+      return {
+        ...base, type: "long_text",
+        help: "Tell us how you meet this. A short example helps.",
+        validation: { maxChars: 1500 },
+      };
+  }
+}
+
+type Suggestion = Pick<JobRequirement, "answerType" | "question" | "options" | "accepted">;
+
+const YEAR_BANDS = [
+  { value: "none", label: "None yet", years: 0 },
+  { value: "under_1", label: "Less than 1 year", years: 0.5 },
+  { value: "1_2", label: "1–2 years", years: 1 },
+  { value: "3_5", label: "3–5 years", years: 3 },
+  { value: "5_plus", label: "More than 5 years", years: 5 },
+];
+
+/**
+ * Best guess at how to ask a requirement, from its wording. The admin can change everything;
+ * this only saves typing for the common cases (licences, DBS, experience, availability, languages).
+ */
+export function suggestRequirementSetup(label: string): Suggestion {
+  const text = label.trim();
+  const l = text.toLowerCase();
+  const asQuestion = /\?$/.test(text) && /^(do|does|are|is|have|has|can|will|would|how|what|which|when)\b/i.test(text) ? text : null;
+
+  if (/right to work/.test(l)) return { answerType: "yes_no", question: asQuestion ?? "Do you have the right to work in the UK?", accepted: ["yes"] };
+  if (/driv|licen[cs]e/.test(l)) return { answerType: "yes_no", question: asQuestion ?? "Do you hold a full UK driving licence?", accepted: ["yes"] };
+  if (/\bcar\b|vehicle|own transport/.test(l)) return { answerType: "yes_no", question: asQuestion ?? "Do you have access to a car for work?", accepted: ["yes"] };
+  if (/\bdbs\b/.test(l)) {
+    return { answerType: "yes_no", question: asQuestion ?? "Do you have a current enhanced DBS check, or are you on the DBS Update Service?", accepted: ["yes"] };
+  }
+
+  const years = l.match(/(\d+)\s*\+?\s*(?:years?|yrs?)/);
+  if (years || (/experience/.test(l) && !/describe|tell|explain/.test(l))) {
+    const min = years ? Number(years[1]) : 1;
+    const topic = l.replace(/\(.*?\)/g, "").replace(/[?.!]+$/, "").trim();
+    return {
+      answerType: "single_choice",
+      question: asQuestion ?? (years ? "How many years of relevant experience do you have?" : `How much ${topic} do you have?`),
+      options: YEAR_BANDS.map(({ value, label: optionLabel }) => ({ value, label: optionLabel })),
+      accepted: YEAR_BANDS.filter((b) => b.years >= min).map((b) => b.value),
+    };
+  }
+
+  if (/availab|weekend|night|evening|shift|days? a week/.test(l)) {
+    const options = [
+      { value: "weekdays", label: "Weekdays" },
+      { value: "weekends", label: "Weekends" },
+      { value: "early_mornings", label: "Early mornings" },
+      { value: "evenings", label: "Evenings" },
+      { value: "nights", label: "Nights" },
+    ];
+    const wanted = options.filter((o) => l.includes(o.value.replace("_", " ").replace(/s$/, ""))).map((o) => o.value);
+    return {
+      answerType: "multiple_choice",
+      question: asQuestion ?? "When are you available to work?",
+      options,
+      accepted: wanted.length ? wanted : options.map((o) => o.value),
+    };
+  }
+
+  if (/english|language|speak|fluen/.test(l)) {
+    return {
+      answerType: "single_choice",
+      question: asQuestion ?? (/english/.test(l) ? "How well do you speak English?" : `How well do you speak ${text}?`),
+      options: [
+        { value: "basic", label: "Basic" },
+        { value: "conversational", label: "Conversational" },
+        { value: "fluent", label: "Fluent" },
+        { value: "native", label: "Native speaker" },
+      ],
+      accepted: ["fluent", "native"],
+    };
+  }
+
+  if (/certificate|qualification|nvq|qcf|level \d|diploma|degree|first aid|registered|registration|\bpin\b/.test(l)) {
+    return { answerType: "yes_no", question: asQuestion ?? `Do you hold ${text.replace(/^(a|an|the)\s+/i, "")}?`, accepted: ["yes"] };
+  }
+  if (/^(willing|able|happy|prepared|available) to/.test(l)) {
+    return { answerType: "yes_no", question: asQuestion ?? `Are you ${l}?`, accepted: ["yes"] };
+  }
+  if (asQuestion && /^(do|does|are|is|have|has|can|will|would)\b/i.test(text)) {
+    return { answerType: "yes_no", question: asQuestion, accepted: ["yes"] };
+  }
+  if (/\?$/.test(text) && text.split(/\s+/).length <= 8) {
+    return { answerType: "yes_no", question: text, accepted: ["yes"] };
+  }
+  return { answerType: "text", question: asQuestion ?? undefined };
+}
 
 /** Section that holds the questions generated from a job's screening requirements. */
 export const REQUIREMENT_SECTION_ID = "job_questions";
@@ -296,14 +467,12 @@ export function syncRequirementQuestions(schema: FormSchemaDoc, requirements: Jo
   }
 
   const missing = requirements.filter((r) => !coveredByTemplate.has(r.key) && !existing.has(r.key));
-  for (const r of requirements) {
-    const f = existing.get(r.key);
-    if (!f) continue;
-    f.label = r.label;
-    f.required = r.required;
-    f.locked = true;
-    f.useInAi = true;
-    f.requirementKey = r.key;
+  for (const s of doc.sections) {
+    s.fields = s.fields.map((f) => {
+      if (!isRequirementField(f)) return f;
+      const r = byKey.get(f.requirementKey ?? "");
+      return r ? { ...requirementField(r), id: f.id, condition: f.condition } : f;
+    });
   }
   if (missing.length === 0) return doc;
 
@@ -318,19 +487,7 @@ export function syncRequirementQuestions(schema: FormSchemaDoc, requirements: Jo
     const consentAt = doc.sections.findIndex((s) => s.fields.some((f) => f.type === "consent"));
     doc.sections.splice(consentAt >= 0 ? consentAt : doc.sections.length, 0, section);
   }
-  for (const r of missing) {
-    section.fields.push({
-      id: requirementFieldId(r.key),
-      type: "long_text",
-      label: r.label,
-      help: "Tell us how you meet this. A short example helps.",
-      required: r.required,
-      locked: true,
-      useInAi: true,
-      requirementKey: r.key,
-      validation: { maxChars: 1500 },
-    });
-  }
+  for (const r of missing) section.fields.push(requirementField(r));
   return doc;
 }
 

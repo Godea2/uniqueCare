@@ -2,9 +2,9 @@ import { TRPCError } from "@trpc/server";
 import { db } from "../db";
 import type { ApplicationForms, ApplicationFormTemplates, ApplicationFormVersions, JobPostings } from "@db/schema";
 import {
-  defaultCareWorkerForm, defaultGeneralForm, formSchemaDoc, jobRequirementSchema, requirementKeyFromLabel,
-  syncRequirementQuestions, LOCKED_FIELD_IDS,
-  type FormSchemaDoc, type JobRequirement,
+  defaultCareWorkerForm, defaultGeneralForm, formSchemaDoc, jobRequirementSchema, optionValueFromLabel, requirementKeyFromLabel,
+  syncRequirementQuestions, CHECKBOX_CONFIRMED, LOCKED_FIELD_IDS,
+  type FormSchemaDoc, type JobRequirement, type RequirementAnswerType,
 } from "@contracts/form-schema";
 
 export const CARE_TEMPLATE_NAME = "Care Worker — Standard";
@@ -37,10 +37,45 @@ export function enforceLocked(schema: FormSchemaDoc): FormSchemaDoc {
   return schema;
 }
 
+type RequirementInput = {
+  key?: string; label: string; weight: number; type?: string; required: boolean;
+  answerType?: RequirementAnswerType; question?: string;
+  options?: { value?: string; label: string }[]; accepted?: string[];
+};
+
+/** How the requirement is asked, cleaned up: choice types keep their options and accepted answers. */
+function answerSetup(r: RequirementInput, label: string): Partial<JobRequirement> {
+  const answerType = r.answerType ?? "text";
+  const question = r.question?.trim() && r.question.trim() !== label ? r.question.trim().slice(0, 300) : undefined;
+  if (answerType === "text") {
+    // Accepted answers here apply to a template question that asks this requirement (for example a dropdown).
+    const accepted = (r.accepted ?? []).map((v) => v.trim()).filter(Boolean);
+    return { ...(question ? { answerType, question } : {}), ...(accepted.length ? { accepted } : {}) };
+  }
+  if (answerType === "yes_no") {
+    const accepted = (r.accepted ?? []).filter((v) => v === "yes" || v === "no");
+    return { answerType, question, accepted: accepted.length ? accepted : ["yes"] };
+  }
+  if (answerType === "checkbox") return { answerType, question, accepted: [CHECKBOX_CONFIRMED] };
+
+  const options: { value: string; label: string }[] = [];
+  for (const o of r.options ?? []) {
+    const optionLabel = o.label.trim();
+    if (!optionLabel || options.some((x) => x.label.toLowerCase() === optionLabel.toLowerCase())) continue;
+    const wanted = (o.value ?? "").trim();
+    const value = /^[a-z0-9_]+$/.test(wanted) && !options.some((x) => x.value === wanted)
+      ? wanted : optionValueFromLabel(optionLabel, options.map((x) => x.value));
+    options.push({ value, label: optionLabel });
+  }
+  if (options.length < 2) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `"${label}" needs at least two answers to choose from.` });
+  }
+  const accepted = (r.accepted ?? []).filter((v) => options.some((o) => o.value === v));
+  return { answerType, question, options, accepted: accepted.length ? accepted : undefined };
+}
+
 /** Validate requirements from the client and give every one a stable, readable key. */
-export function normaliseRequirements(
-  input: { key?: string; label: string; weight: number; type?: string; required: boolean }[],
-): JobRequirement[] {
+export function normaliseRequirements(input: RequirementInput[]): JobRequirement[] {
   const taken = new Set<string>();
   const out: JobRequirement[] = [];
   for (const r of input) {
@@ -53,6 +88,7 @@ export function normaliseRequirements(
     out.push(jobRequirementSchema.parse({
       key, label, weight: Math.max(0, Math.min(100, Math.round(r.weight))),
       type: r.required ? "hard" : "scored", required: r.required,
+      ...answerSetup(r, label),
     }));
   }
   return out;

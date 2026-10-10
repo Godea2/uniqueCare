@@ -40,7 +40,7 @@ import {
   ALLOW_PAST_INTERVIEW_SLOTS, canTransition, emailCandidate, emailCandidatesSlotsOpen, inviteToInterviewStage, pushStage, screenApplication, screenInBackground,
 } from "../lib/recruitment";
 import {
-  validateSubmission, trippedKnockouts,
+  validateSubmission, trippedKnockouts, suggestRequirementSetup, REQUIREMENT_ANSWER_TYPES,
   formSchemaDoc, type FormSchemaDoc, type FormAnswers,
 } from "@contracts/form-schema";
 import { extractCvText } from "../lib/cv-text";
@@ -67,6 +67,10 @@ const newApplySlug = (title: string) => `${slugify(title).slice(0, 60)}-${crypto
 const requirementInput = z.object({
   key: z.string().optional(), label: z.string().max(200), weight: z.number().min(0).max(100),
   type: z.string().optional(), required: z.boolean(),
+  answerType: z.enum(REQUIREMENT_ANSWER_TYPES).optional(),
+  question: z.string().max(300).optional(),
+  options: z.array(z.object({ value: z.string().max(60).optional(), label: z.string().max(200) })).max(20).optional(),
+  accepted: z.array(z.string().max(60)).max(20).optional(),
 });
 
 const jobInput = z.object({
@@ -601,7 +605,9 @@ export const hrRouter = createRouter({
         system: `You extract screening requirements from job descriptions for a UK care provider. The role may be front-line care or an office, management or support role — use only what the description asks for. Return strict JSON only.`,
         user: `Job title: ${input.title}\n\nJob description:\n${input.descriptionMd.slice(0, 6000)}\n\nExtract 4-8 screenable requirements. For each: key (lowercase_snake), label (short, reviewable by a human), weight (1-40, importance), required (true only for genuine must-haves such as right to work), rationale. Weights should sum to roughly 100.`,
       });
-      const reqs = result.requirements.map((r) => ({ key: r.key, label: r.label, weight: r.weight, type: "scored", required: r.required }));
+      const reqs = result.requirements.map((r) => ({
+        key: r.key, label: r.label, weight: r.weight, type: "scored", required: r.required, ...suggestRequirementSetup(r.label),
+      }));
       if (input.jobId) {
         await audit(sc.staff.fullName, "ai_requirements_suggested", "job_postings", input.jobId, { count: reqs.length });
       }
