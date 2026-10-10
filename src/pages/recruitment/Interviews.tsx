@@ -39,7 +39,9 @@ export default function Interviews() {
               <div key={s.id} className="uc-card p-4">
                 <div className="flex items-center justify-between">
                   <p className="font-semibold text-[--brand-900]">{fmtDate(s.startsAt)}</p>
-                  <Chip value={s.bookedCount >= (s.capacity ?? 1) ? "booked" : "open"} label={`${s.bookedCount}/${s.capacity ?? 1} booked`} />
+                  {new Date(s.startsAt).getTime() <= Date.now()
+                    ? <Chip value="closed" label={`Past · ${s.bookedCount}/${s.capacity ?? 1} booked`} />
+                    : <Chip value={s.bookedCount >= (s.capacity ?? 1) ? "booked" : "open"} label={`${s.bookedCount}/${s.capacity ?? 1} booked`} />}
                 </div>
                 <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1">
                   <Video className="h-3.5 w-3.5" aria-hidden />
@@ -132,6 +134,7 @@ function CreateSlotDialog({ open, onClose, jobs, staff, onCreated }: {
 
   const togglePanel = (id: number) =>
     setPanel((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const startsInPast = !!date && new Date(`${date}T${start}:00`).getTime() <= Date.now();
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -151,6 +154,10 @@ function CreateSlotDialog({ open, onClose, jobs, staff, onCreated }: {
             <Input id="sl-end" type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
           </div>
         </div>
+        {startsInPast && (
+          <p className="mt-2 text-xs text-amber-700">This start time has already passed. While the system is being built, candidates can still see and book it.</p>
+        )}
+        <p className="mt-1 text-[11px] text-muted-foreground">Each slot is one interview. Create one slot per interview time.</p>
         <div className="mt-3">
           <Label>Job (optional)</Label>
           <Select value={jobId} onValueChange={setJobId}>

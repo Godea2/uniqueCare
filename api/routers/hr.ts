@@ -37,7 +37,7 @@ import { cvDownloadUrl, documentDownloadUrl, saveCv } from "../lib/cv-store";
 import { appUrl, orgProfile, portalUrl } from "../lib/app-url";
 import { jobRequirements, liveApplicationSchema, normaliseRequirements, syncJobForm } from "../lib/job-form";
 import {
-  canTransition, emailCandidate, emailCandidatesSlotsOpen, inviteToInterviewStage, pushStage, screenApplication, screenInBackground,
+  ALLOW_PAST_INTERVIEW_SLOTS, canTransition, emailCandidate, emailCandidatesSlotsOpen, inviteToInterviewStage, pushStage, screenApplication, screenInBackground,
 } from "../lib/recruitment";
 import {
   validateSubmission, trippedKnockouts,
@@ -660,6 +660,9 @@ export const hrRouter2 = createRouter({
       const endsAt = new Date(input.endsAt);
       if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "The interview must end after it starts." });
+      }
+      if (!ALLOW_PAST_INTERVIEW_SLOTS && startsAt.getTime() <= Date.now()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a start time in the future. Candidates can only book interviews that haven't started yet." });
       }
       const meetingUrl = input.meetingUrl || null;
       const [row] = await db.from("interviewSlots").insert<InterviewSlots>({

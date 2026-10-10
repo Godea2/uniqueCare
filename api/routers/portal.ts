@@ -10,10 +10,11 @@ import type {
 import { audit, notifyRoles } from "../util";
 import { saveDocument, sniffDocument } from "../lib/cv-store";
 import { appUrl } from "../lib/app-url";
-import { emailCandidate } from "../lib/recruitment";
+import { ALLOW_PAST_INTERVIEW_SLOTS, emailCandidate } from "../lib/recruitment";
 
 const slotOpen = (s: InterviewSlots, jobId: number) =>
-  (s.jobPostingId == null || s.jobPostingId === jobId) && new Date(s.startsAt).getTime() > Date.now();
+  (s.jobPostingId == null || Number(s.jobPostingId) === jobId) &&
+  (ALLOW_PAST_INTERVIEW_SLOTS || new Date(s.startsAt).getTime() > Date.now());
 
 async function appByToken(portalToken: string) {
   const app = await db.from("applications").eq("portalToken", portalToken).first<Applications>();
@@ -35,7 +36,7 @@ export const portalRouter = createRouter({
       const formsComplete = ["pre_interview_forms_complete", "interview_booked", "interviewed", "approved", "compliance_docs_requested", "compliance_docs_complete", "offer_sent", "offer_accepted", "training_booked", "online_training_in_progress", "dbs_verified", "training_complete", "hired"].includes(app.stage);
       const slotBookings = await db.from("interviewBookings").eq("status", "booked").many<InterviewBookings>();
       const openSlots = formsComplete
-        ? (await db.from("interviewSlots").gt("startsAt", new Date()).order("startsAt", "asc").many<InterviewSlots>())
+        ? (await db.from("interviewSlots").order("startsAt", "asc").many<InterviewSlots>())
           .filter((s) => slotOpen(s, Number(job.id)))
           .filter((s) => s.id === slot?.id || slotBookings.filter((b) => b.slotId === s.id).length < (s.capacity ?? 1))
         : [];

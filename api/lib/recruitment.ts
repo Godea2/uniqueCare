@@ -15,6 +15,9 @@ import {
   type FormAnswers, type JobRequirement,
 } from "@contracts/form-schema";
 
+/** While the system is being built, past interview slots stay visible and bookable. Set to false before go-live. */
+export const ALLOW_PAST_INTERVIEW_SLOTS = true;
+
 // Allowed stage transitions (state machine). Admins can override with a reason.
 const ALLOWED: Record<ApplicationStage, ApplicationStage[]> = {
   applied: ["screened_out", "shortlisted", "review", "withdrawn"],
