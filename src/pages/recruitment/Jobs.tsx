@@ -321,13 +321,6 @@ function CreateJobDialog({ open, onClose }: { open: boolean; onClose: () => void
     },
     onError: (e) => toast.error(e.message),
   });
-  const suggest = trpc.hr.extractRequirementsFromJD.useMutation({
-    onSuccess: (r) => {
-      setReqs(r.requirements.map((x) => ({ key: x.key, label: x.label, weight: x.weight, type: x.type, required: x.required })));
-      toast.success("Suggestions added. Read them before you publish.");
-    },
-    onError: (e) => toast.error(e.message),
-  });
 
   const set = (k: string, v: unknown) => setF((s) => ({ ...s, [k]: v }));
   const setReq = (i: number, k: keyof Req, v: unknown) =>
@@ -380,7 +373,7 @@ function CreateJobDialog({ open, onClose }: { open: boolean; onClose: () => void
               </Field>
             </div>
             <Field label="Pay, as applicants should read it" htmlFor="j-sal" hint="This exact wording appears on the careers page.">
-              <Input id="j-sal" value={f.salaryText} onChange={(e) => set("salaryText", e.target.value)} placeholder="£12.85–£13.40 per hour" />
+              <Input id="j-sal" value={f.salaryText} onChange={(e) => set("salaryText", e.target.value)} placeholder="£15 per hour" />
             </Field>
           </FormSection>
 
@@ -411,23 +404,12 @@ function CreateJobDialog({ open, onClose }: { open: boolean; onClose: () => void
             </div>
           </FormSection>
 
-          <FormSection
-            title="What to look for"
-            lede="A draft can be saved without these. It cannot go live without them. If a must-have is missing, the score is capped at 50 and cannot shortlist."
-          >
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline"
-                disabled={f.descriptionMd.trim().length < 10 || suggest.isPending}
-                onClick={() => suggest.mutate({ title: f.title || "Care role", descriptionMd: f.descriptionMd })}>
-                {suggest.isPending ? "Reading the description…" : "Suggest from the description"}
-              </Button>
+          <FormSection title="Screening Requirements">
+            <div className="flex justify-end">
               <Button size="sm" variant="outline" onClick={() => setReqs((rs) => [...rs, { key: `req_${rs.length + 1}`, label: "", weight: 10, type: "scored", required: false }])}>
                 <Plus className="h-3.5 w-3.5 mr-1" /> Add one
               </Button>
             </div>
-            {f.descriptionMd.trim().length < 10 && (
-              <p className="text-xs text-muted-foreground">Write the description first if you want suggestions.</p>
-            )}
             <ul className="space-y-3">
               {reqs.map((r, i) => (
                 <li key={r.key} className="rounded-2xl border bg-white p-3" style={{ borderColor: "var(--card-line)" }}>

@@ -31,7 +31,7 @@ import {
 import { getStaff, requireRole, audit, notifyRoles } from "../util";
 import { callAI } from "../ai/provider";
 import { sendEmail } from "../lib/mailer";
-import { storage } from "../lib/storage";
+import { cvDownloadUrl, saveCv } from "../lib/cv-store";
 import {
   defaultCareWorkerForm, validateSubmission, trippedKnockouts, conditionMet,
   formSchemaDoc, DISPLAY_TYPES, type FormSchemaDoc, type FormAnswers,
@@ -359,11 +359,13 @@ export const hrRouter = createRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only PDF, DOC or DOCX files are accepted." });
       }
       const mime = isPdf ? "application/pdf" : isZip ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/msword";
-      const saved = await storage.uploadFile({
-        fileContent: bytes,
-        fileName: `cvs/${Date.now()}-${input.fileName.replace(/[^\w.\- ]/g, "_")}`,
-        contentType: mime,
-      });
+      let saved: { key: string };
+      try {
+        saved = await saveCv(bytes, input.fileName, mime);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "We could not store your CV. Please try again.";
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message });
+      }
       const { text, readable } = await extractCvText(bytes, input.fileName);
       return {
         key: saved.key, fileName: input.fileName, size: bytes.length, mimeType: mime,
@@ -617,7 +619,7 @@ export const hrRouter = createRouter({
       const row = await db.from("cvVersions").eq("applicationId", input.applicationId).eq("fileKey", input.key).first<CvVersions>();
       const app = await db.from("applications").eq("id", input.applicationId).first<Applications>();
       if (!row && app?.cvFileKey !== input.key) throw new TRPCError({ code: "NOT_FOUND", message: "CV not found" });
-      const { url } = await storage.getPresignedUrl({ key: input.key });
+      const url = await cvDownloadUrl(input.key);
       return { url };
     }),
 

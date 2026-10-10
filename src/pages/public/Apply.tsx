@@ -60,7 +60,9 @@ function Wizard({ slug, src, info }: { slug: string; src?: string; info: Extract
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState<{ portalToken: string; duplicate: boolean } | null>(null);
 
-  const uploadCv = trpc.hr.uploadCv.useMutation({ onError: (e) => setErrors((er) => ({ ...er, cv_upload: e.message })) });
+  const uploadCv = trpc.hr.uploadCv.useMutation({
+    onError: (e) => setErrors((er) => ({ ...er, cv_upload: friendlyUploadError(e.message) })),
+  });
   const submit = trpc.hr.submitApplication.useMutation({
     onSuccess: (r) => {
       localStorage.removeItem(storageKey);
@@ -125,7 +127,7 @@ function Wizard({ slug, src, info }: { slug: string; src?: string; info: Extract
     );
   }
 
-  const progress = Math.round(((step) / visibleSections.length) * 100);
+  const progress = Math.round(((step + 1) / visibleSections.length) * 100);
 
   return (
     <div>
@@ -143,28 +145,29 @@ function Wizard({ slug, src, info }: { slug: string; src?: string; info: Extract
         <div className="mt-3 text-sm text-slate-700"><Markdown text={info.job.descriptionMd ?? ""} /></div>
       </details>
 
-      {schema.introText && step === 0 && (
-        <p className="mt-4 rounded-2xl border bg-white p-4 text-sm text-slate-600" style={{ borderColor: "var(--card-line)" }}>{schema.introText}</p>
-      )}
-
-      {/* progress bar */}
       <div className="mt-5">
-        <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
+        <div className="mb-1.5 flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
           <span>Step {step + 1} of {visibleSections.length}: {section.title}</span>
           <span>{progress}%</span>
         </div>
-        <div className="h-2 rounded-full bg-white border overflow-hidden" style={{ borderColor: "var(--card-line)" }} role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+        <div className="h-1.5 overflow-hidden rounded-full bg-white" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
           <div className="h-full rounded-full bg-[--brand-500] transition-all" style={{ width: `${progress}%` }} />
         </div>
       </div>
 
       <div className="mt-4 uc-card p-5 sm:p-6">
-        <h2 className="font-semibold text-[--brand-900]">{section.title}</h2>
-        {section.description && <p className="mt-1 text-sm text-muted-foreground">{section.description}</p>}
-        <div className="mt-4 space-y-5">
+        <h2 className="text-lg font-semibold text-[--brand-900]">{section.title}</h2>
+        {schema.introText && step === 0 && (
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">{schema.introText}</p>
+        )}
+        {section.description && !section.fields.every((f) => f.type === "file_upload") && (
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{section.description}</p>
+        )}
+        <div className="mt-6 grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2">
           {section.fields.map((f) => (
+            <div key={f.id} className={wideField(f) ? "sm:col-span-2" : undefined}>
             <FieldRenderer
-              key={f.id} field={f}
+              field={f}
               value={answers[f.id]}
               error={errors[f.id]}
               onChange={(v) => set(f.id, v)}
@@ -186,6 +189,7 @@ function Wizard({ slug, src, info }: { slug: string; src?: string; info: Extract
               }}
               onCvRemove={() => { setCv(null); setCvName(""); localStorage.removeItem(`${storageKey}-cvname`); }}
             />
+            </div>
           ))}
           {section.fields.length === 0 && (
             <p className="text-sm text-muted-foreground">Nothing to answer in this section — continue to the next step.</p>
@@ -200,8 +204,8 @@ function Wizard({ slug, src, info }: { slug: string; src?: string; info: Extract
           <p className="mt-4 rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{submit.error.message}</p>
         )}
 
-        <div className="mt-6 flex items-center justify-between gap-3">
-          <Button variant="outline" disabled={step === 0} onClick={() => setStep((s) => s - 1)}>
+        <div className="mt-8 flex items-center justify-between gap-3 border-t pt-4" style={{ borderColor: "var(--card-line)" }}>
+          <Button variant="outline" disabled={step === 0} onClick={() => { setStep((s) => s - 1); window.scrollTo({ top: 0 }); }}>
             <ChevronLeft className="h-4 w-4 mr-1" /> Back
           </Button>
           {step < visibleSections.length - 1 ? (
@@ -212,10 +216,14 @@ function Wizard({ slug, src, info }: { slug: string; src?: string; info: Extract
             </Button>
           )}
         </div>
-        <p className="mt-3 text-center text-[11px] text-muted-foreground">Your progress is saved on this device as you go.</p>
+        <p className="mt-3 text-center text-xs text-muted-foreground">Your progress is saved on this device as you go.</p>
       </div>
     </div>
   );
+}
+
+function wideField(f: FormField): boolean {
+  return f.type !== "short_text" && f.type !== "uk_phone" && f.type !== "uk_postcode" && f.type !== "number" && f.type !== "date";
 }
 
 function FieldRenderer({ field: f, value, error, onChange, cv, cvName, uploading, onCvFile, onCvRemove }: {
@@ -228,8 +236,8 @@ function FieldRenderer({ field: f, value, error, onChange, cv, cvName, uploading
   const id = `f-${f.id}`;
   const req = f.required ? " *" : "";
 
-  const err = error ? <p className="mt-1 text-xs text-red-600" role="alert">{error}</p> : null;
-  const help = f.help ? <p className="mt-1 text-[11px] text-muted-foreground">{f.help}</p> : null;
+  const err = error ? <p className="text-sm text-red-700" role="alert">{error}</p> : null;
+  const help = f.help ? <p className="text-sm leading-relaxed text-muted-foreground">{f.help}</p> : null;
 
   switch (f.type) {
     case "heading":
@@ -245,9 +253,9 @@ function FieldRenderer({ field: f, value, error, onChange, cv, cvName, uploading
     case "uk_phone":
     case "uk_postcode":
       return (
-        <div>
+        <div className="flex flex-col gap-1.5">
           <Label htmlFor={id}>{f.label}{req}</Label>
-          <Input id={id} type={f.type === "email" ? "email" : f.type === "uk_phone" ? "tel" : "text"}
+          <Input id={id} className="h-11" type={f.type === "email" ? "email" : f.type === "uk_phone" ? "tel" : "text"}
             value={String(value ?? "")} placeholder={f.placeholder}
             autoComplete={f.id === "email" ? "email" : f.id === "mobile" ? "tel" : f.id === "postcode" ? "postal-code" : f.id === "first_name" ? "given-name" : f.id === "last_name" ? "family-name" : undefined}
             onChange={(e) => onChange(e.target.value)} aria-invalid={!!error} />
@@ -256,7 +264,7 @@ function FieldRenderer({ field: f, value, error, onChange, cv, cvName, uploading
       );
     case "number":
       return (
-        <div>
+        <div className="flex flex-col gap-1.5">
           <Label htmlFor={id}>{f.label}{req}</Label>
           <Input id={id} type="number" value={value === undefined || value === null ? "" : String(value)}
             min={f.validation?.min} max={f.validation?.max}
@@ -266,7 +274,7 @@ function FieldRenderer({ field: f, value, error, onChange, cv, cvName, uploading
       );
     case "date":
       return (
-        <div>
+        <div className="flex flex-col gap-1.5">
           <Label htmlFor={id}>{f.label}{req}</Label>
           <Input id={id} type="date" value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} aria-invalid={!!error} />
           {help}{err}
@@ -275,7 +283,7 @@ function FieldRenderer({ field: f, value, error, onChange, cv, cvName, uploading
     case "long_text": {
       const len = String(value ?? "").length;
       return (
-        <div>
+        <div className="flex flex-col gap-1.5">
           <Label htmlFor={id}>{f.label}{req}</Label>
           <Textarea id={id} rows={5} value={String(value ?? "")} placeholder={f.placeholder}
             onChange={(e) => onChange(e.target.value)} aria-invalid={!!error} />
@@ -291,7 +299,7 @@ function FieldRenderer({ field: f, value, error, onChange, cv, cvName, uploading
     }
     case "single_choice":
       return (
-        <div>
+        <div className="flex flex-col gap-1.5">
           <Label>{f.label}{req}</Label>
           <Select value={String(value ?? "")} onValueChange={(v) => onChange(v)}>
             <SelectTrigger aria-invalid={!!error}><SelectValue placeholder="Select…" /></SelectTrigger>
@@ -417,9 +425,7 @@ function FieldRenderer({ field: f, value, error, onChange, cv, cvName, uploading
       const maxMb = f.validation?.maxMb ?? 10;
       const shown = cv?.fileName ?? cvName;
       return (
-        <div>
-          <Label>{f.label}{req}</Label>
-          {help}
+        <div className="flex flex-col gap-2">
           {shown ? (
             <div className="mt-2 flex items-center gap-3 rounded-xl border bg-white p-3" style={{ borderColor: "var(--card-line)" }}>
               <FileText className="h-8 w-8 text-[--brand-500] shrink-0" aria-hidden />
@@ -435,6 +441,7 @@ function FieldRenderer({ field: f, value, error, onChange, cv, cvName, uploading
             </div>
           ) : (
             <button type="button"
+              disabled={uploading}
               onClick={() => fileRef.current?.click()}
               onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
               onDragLeave={() => setDrag(false)}
@@ -446,11 +453,10 @@ function FieldRenderer({ field: f, value, error, onChange, cv, cvName, uploading
                   onCvFile(file);
                 }
               }}
-              className={`mt-2 flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-8 text-sm transition-colors ${drag ? "border-[--brand-500] bg-[--brand-50]" : "bg-slate-50/50 hover:bg-slate-50"}`}
-              style={{ borderColor: drag ? undefined : "var(--card-line)" }}>
-              <UploadCloud className="h-8 w-8 text-[--brand-400]" aria-hidden />
-              <span className="font-medium text-[--brand-700]">{uploading ? "Uploading…" : "Tap to choose your CV, or drag it here"}</span>
-              <span className="text-[11px] text-muted-foreground">PDF, DOC or DOCX · max {maxMb} MB</span>
+              className={`flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-colors disabled:opacity-70 ${drag ? "border-[--brand-500] bg-[--brand-50]" : "border-[--card-line] bg-[--brand-50]/40 hover:bg-[--brand-50]"}`}>
+              <UploadCloud className="h-8 w-8 text-[--brand-600]" aria-hidden />
+              <span className="text-sm font-medium text-[--brand-900]">{uploading ? "Uploading your CV…" : "Choose your CV, or drop it here"}</span>
+              <span className="text-xs text-muted-foreground">PDF, DOC or DOCX, up to {maxMb} MB</span>
             </button>
           )}
           <input ref={fileRef} type="file" accept={accept} className="hidden"
@@ -462,11 +468,20 @@ function FieldRenderer({ field: f, value, error, onChange, cv, cvName, uploading
               }
               e.target.value = "";
             }} />
-          {err}
+          {error && (
+            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">{error}</p>
+          )}
         </div>
       );
     }
   }
+}
+
+function friendlyUploadError(message: string): string {
+  if (/KIMI_|存储|网站未完成|STORAGE_NOT_PROVISIONED/i.test(message)) {
+    return "We could not store your CV. Please try again.";
+  }
+  return message;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
@@ -477,7 +492,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           <Link to="/careers"><img src="/logo.png" alt="Unique Care UK" className="h-9 w-auto" /></Link>
         </div>
       </header>
-      <main className="mx-auto max-w-xl px-4 py-6 pb-16">{children}</main>
+      <main className="mx-auto max-w-xl px-4 py-8">{children}</main>
     </div>
   );
 }
