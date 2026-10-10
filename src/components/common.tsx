@@ -221,12 +221,12 @@ export function AiError({ error, onRetry }: { error: unknown; onRetry?: () => vo
   return (
     <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
       <p className="font-medium">
-        {quota ? "AI quota exhausted" : "The AI service is unavailable right now"}
+        {quota ? "AI quota exhausted" : "Screening did not finish"}
       </p>
       <p className="mt-1 text-amber-800">
         {quota
           ? "AI features need quota topped up by the site owner. You can continue manually — nothing is blocked."
-          : "This is usually temporary. Your inputs are kept — try again in a moment."}
+          : msg || "This is usually temporary. Your inputs are kept — try again in a moment."}
       </p>
       {onRetry && (
         <Button size="sm" variant="outline" className="mt-2" onClick={onRetry}>

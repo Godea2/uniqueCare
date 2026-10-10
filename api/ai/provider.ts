@@ -4,7 +4,7 @@ import { z, type ZodType } from "zod";
 import { AiMisconfigured, classifyAiError } from "./ai-client";
 import { db } from "../db";
 
-const DEFAULT_MODEL = "gemini-2.5-flash";
+const DEFAULT_MODEL = "gemini-3.8-flash";
 
 export type AiFile = {
   data: Uint8Array;
