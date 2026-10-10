@@ -28,14 +28,17 @@ import {
   type TrainingEnrolments,
   type TrainingSessions,
 } from "@db/schema";
-import { getStaff, requireRole, audit, notifyRoles, ruleEnabled } from "../util";
+import { getStaff, requireRole, audit, notifyRoles, ruleEnabled, canUseApp } from "../util";
+import type { TrpcContext } from "../context";
 import { geocodePostcode } from "../lib/geo";
 import { callAI } from "../ai/provider";
 import { sendEmail } from "../lib/mailer";
 import { cvDownloadUrl, documentDownloadUrl, saveCv } from "../lib/cv-store";
 import { appUrl, orgProfile, portalUrl } from "../lib/app-url";
 import { jobRequirements, liveApplicationSchema, normaliseRequirements, syncJobForm } from "../lib/job-form";
-import { canTransition, emailCandidate, inviteToInterviewStage, pushStage, screenApplication, screenInBackground } from "../lib/recruitment";
+import {
+  canTransition, emailCandidate, emailCandidatesSlotsOpen, inviteToInterviewStage, pushStage, screenApplication, screenInBackground,
+} from "../lib/recruitment";
 import {
   validateSubmission, trippedKnockouts,
   formSchemaDoc, type FormSchemaDoc, type FormAnswers,
@@ -45,6 +48,17 @@ import { waitUntil } from "@vercel/functions";
 import crypto from "crypto";
 
 const RECRUITMENT_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader", "interview_panel"];
+
+const REAPPLY_AFTER_DAYS = 30;
+
+/** Admins and Registered Managers may apply repeatedly to test the form: signed in, or applying with their staff email. */
+async function isAdminApplicant(ctx: TrpcContext, email: string): Promise<boolean> {
+  const staff = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+  return staff.some((s) =>
+    canUseApp(s) &&
+    ["admin", "super_admin"].includes(s.homeRole ?? s.role) &&
+    ((!!ctx.user && s.userId === ctx.user.id) || (!!email && s.email?.trim().toLowerCase() === email)));
+}
 
 const token = () => crypto.randomBytes(24).toString("hex");
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -339,11 +353,13 @@ export const hrRouter = createRouter({
         if (!vres.success) throw new TRPCError({ code: "BAD_REQUEST", message: "Spam check failed. Please try again." });
       }
 
+      const applicantIsAdmin = await isAdminApplicant(ctx, String(input.answers.email ?? "").trim().toLowerCase());
+
       // Rate limit: 5 submissions per IP per hour
       const ip = (ctx.req?.headers.get("cf-connecting-ip") ?? ctx.req?.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown").trim();
       const since = new Date(Date.now() - 3600_000);
       const recent = await db.from("rateLimitEvents").eq("bucket", "apply").eq("rlKey", ip).gt("createdAt", since).count();
-      if (recent >= 5) {
+      if (recent >= 5 && !applicantIsAdmin) {
         throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many submissions from this connection. Please try again later." });
       }
       // Load the SAME published schema the renderer used and validate server-side
@@ -375,12 +391,29 @@ export const hrRouter = createRouter({
         if (src) sourceChannel = src.slug;
       }
 
-      // Duplicate detection: same email or phone re-applying to the same job
+      // One application per email per job every 30 days. Admins are exempt so they can test the form.
       let cand = await db.from("candidates").eq("email", email).first<Candidates>();
-      if (!cand && phone) {
-        cand = await db.from("candidates").eq("phone", phone).first<Candidates>();
+      if (cand && !applicantIsAdmin) {
+        const previous = await db.from("applications").eq("candidateId", cand.id).eq("jobPostingId", job.id)
+          .order("createdAt", "desc").first<Applications>();
+        const appliedAt = previous?.createdAt ? new Date(previous.createdAt) : null;
+        if (appliedAt && Date.now() - appliedAt.getTime() < REAPPLY_AFTER_DAYS * 86_400_000) {
+          const again = new Date(appliedAt.getTime() + REAPPLY_AFTER_DAYS * 86_400_000);
+          const fmt = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/London" });
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `You applied for ${job.title} on ${fmt(appliedAt)}. You can apply again from ${fmt(again)}. To follow your application, use the candidate portal link in your confirmation email.`,
+          });
+        }
       }
-      if (!cand) {
+      if (cand) {
+        await db.from("candidates").eq("id", cand.id).update({
+          firstName, lastName, phone, postcode,
+          rightToWorkStatus: rtw,
+          hasDrivingLicence: answers.driving_licence === "yes",
+          hasVehicle: answers.own_car === "yes",
+        });
+      } else {
         const [created] = await db.from("candidates").insert<Candidates>({
           firstName, lastName, email, phone, postcode,
           rightToWorkStatus: rtw,
@@ -391,55 +424,31 @@ export const hrRouter = createRouter({
         cand = created;
       }
 
-      const existingApp = await db.from("applications").eq("candidateId", cand.id).eq("jobPostingId", job.id).first<Applications>();
-
       const knockoutHits = trippedKnockouts(schema, answers);
 
-      let appId: number;
-      let portalTokenValue: string;
-      const isDuplicate = !!existingApp && !["withdrawn", "rejected", "screened_out"].includes(existingApp.stage);
-      if (existingApp && isDuplicate) {
-        // Duplicate: link to the existing application, keep the newer CV as a new version
-        appId = Number(existingApp.id);
-        portalTokenValue = existingApp.portalToken;
-        await db.from("applications").eq("id", existingApp.id).update({
-          cvText: input.cv.extractedText || existingApp.cvText,
-          cvFileName: input.cv.fileName, cvFileKey: input.cv.key,
-          cvUnreadable: !input.cv.readable,
-          answers: answers as never,
-          formVersionId: formVersionId ?? existingApp.formVersionId,
-          sourceChannel,
-        });
-        await db.from("cvVersions").insert({
-          applicationId: appId, fileKey: input.cv.key, fileName: input.cv.fileName,
-          sizeBytes: input.cv.size, mimeType: input.cv.mimeType,
-          extractedText: input.cv.extractedText || null,
-          extractStatus: input.cv.readable ? "ok" : "unreadable",
-        });
-        await audit("System", "application_duplicate_updated", "applications", appId, { job: job.title, email });
-      } else {
-        const [ar] = await db.from("applications").insert<Applications>({
-          jobPostingId: job.id, candidateId: cand.id,
-          cvText: input.cv.extractedText || null,
-          cvFileName: input.cv.fileName, cvFileKey: input.cv.key,
-          cvUnreadable: !input.cv.readable,
-          answers: answers as never,
-          formVersionId,
-          sourceChannel,
-          stage: "applied",
-          stageHistory: [{ from: null, to: "applied", actor: "Candidate (self-service)", at: new Date().toISOString() }] as never,
-          portalToken: token(),
-        });
-        appId = ar.id;
-        portalTokenValue = (await db.from("applications").eq("id", appId).first<Applications>())!.portalToken;
-        await db.from("cvVersions").insert({
-          applicationId: appId, fileKey: input.cv.key, fileName: input.cv.fileName,
-          sizeBytes: input.cv.size, mimeType: input.cv.mimeType,
-          extractedText: input.cv.extractedText || null,
-          extractStatus: input.cv.readable ? "ok" : "unreadable",
-        });
-        await audit("System", "application_received", "applications", appId, { job: job.title, source: sourceChannel });
-      }
+      const [ar] = await db.from("applications").insert<Applications>({
+        jobPostingId: job.id, candidateId: cand.id,
+        cvText: input.cv.extractedText || null,
+        cvFileName: input.cv.fileName, cvFileKey: input.cv.key,
+        cvUnreadable: !input.cv.readable,
+        answers: answers as never,
+        formVersionId,
+        sourceChannel,
+        stage: "applied",
+        stageHistory: [{ from: null, to: "applied", actor: "Candidate (self-service)", at: new Date().toISOString() }] as never,
+        portalToken: token(),
+      });
+      const appId = Number(ar.id);
+      const portalTokenValue = (await db.from("applications").eq("id", appId).first<Applications>())!.portalToken;
+      await db.from("cvVersions").insert({
+        applicationId: appId, fileKey: input.cv.key, fileName: input.cv.fileName,
+        sizeBytes: input.cv.size, mimeType: input.cv.mimeType,
+        extractedText: input.cv.extractedText || null,
+        extractStatus: input.cv.readable ? "ok" : "unreadable",
+      });
+      await audit("System", "application_received", "applications", appId, {
+        job: job.title, source: sourceChannel, ...(applicantIsAdmin ? { adminTest: true } : {}),
+      });
 
       const flags: string[] = [...knockoutHits.map((h) => `Knockout: ${h.message}`)];
       if (!input.cv.readable && !input.cv.fileName.toLowerCase().endsWith(".pdf")) flags.push("CV could not be read — check it manually");
@@ -461,8 +470,7 @@ export const hrRouter = createRouter({
         body: `${firstName} ${lastName} applied via ${sourceChannel}.`,
         occurredAt: new Date(), loggedBy: "System", outcome: "application_received",
       });
-      const stillScreenable = !isDuplicate || ["applied", "review"].includes(existingApp!.stage);
-      const canScreen = jobRequirements(job).length > 0 && stillScreenable && await ruleEnabled("application_submitted");
+      const canScreen = jobRequirements(job).length > 0 && await ruleEnabled("application_submitted");
       await notifyRoles(["admin", "super_admin"], {
         type: "hr", title: `New application — ${firstName} ${lastName}`,
         body: `Applied for ${job.title} (${sourceChannel}).${canScreen ? " Screening is running now." : ""}`,
@@ -479,7 +487,7 @@ export const hrRouter = createRouter({
         relatedId: appId,
       });
       if (canScreen) waitUntil(screenInBackground(appId, base));
-      return { applicationId: appId, portalToken: portalTokenValue, duplicate: isDuplicate };
+      return { applicationId: appId, portalToken: portalTokenValue };
     }),
 
   // ── Applications / pipeline ──
@@ -572,6 +580,9 @@ export const hrRouter = createRouter({
       if (input.to === "shortlisted" || input.to === "pre_interview_forms_sent") {
         await inviteToInterviewStage(input.applicationId, "System (automation)", base);
       }
+      if (input.to === "rejected" || input.to === "screened_out" || input.to === "withdrawn") {
+        await db.from("interviewBookings").eq("applicationId", input.applicationId).eq("status", "booked").update({ status: "cancelled" });
+      }
       if (input.to === "rejected" || input.to === "screened_out") {
         await emailCandidate(input.applicationId, "unsuccessful", base);
       }
@@ -659,6 +670,7 @@ export const hrRouter2 = createRouter({
         teamsMeetingUrl: meetingUrl,
       });
       await audit(sc.staff.fullName, "interview_slot_created", "interview_slots", row.id);
+      waitUntil(emailCandidatesSlotsOpen(input.jobPostingId ?? null, appUrl(ctx.req)).catch(() => {}));
       return { id: row.id };
     }),
 

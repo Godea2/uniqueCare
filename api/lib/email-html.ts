@@ -8,6 +8,7 @@
 const ACTION_LABELS: Record<string, string> = {
   application_confirmation: "Open your candidate portal",
   interview_invitation: "Complete form and book interview",
+  interview_slots_open: "Choose an interview time",
   interview_booked: "View your booking",
   compliance_requested: "Upload your documents",
   document_rejected: "Upload the document again",

@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { computeScore, enforceEvidence } from "./recruitment";
+import { APPLICATION_STAGES } from "@db/schema";
+import { canTransition, computeScore, enforceEvidence } from "./recruitment";
+
+describe("stage rules", () => {
+  const closed = ["hired", "rejected", "withdrawn", "screened_out"];
+  const beforeShortlist = ["applied", "review"];
+
+  it("lets a candidate be rejected at every active stage after shortlisting", () => {
+    for (const stage of APPLICATION_STAGES) {
+      if (closed.includes(stage) || beforeShortlist.includes(stage)) continue;
+      expect(canTransition(stage, "rejected"), stage).toBe(true);
+    }
+  });
+
+  it("screens out (not rejects) before shortlisting", () => {
+    for (const stage of beforeShortlist) {
+      expect(canTransition(stage as never, "screened_out")).toBe(true);
+    }
+  });
+
+  it("never reopens closed applications except a screened-out one", () => {
+    expect(canTransition("hired", "rejected")).toBe(false);
+    expect(canTransition("rejected", "applied")).toBe(false);
+    expect(canTransition("withdrawn", "applied")).toBe(false);
+  });
+});
 import type { JobRequirement } from "@contracts/form-schema";
 
 const reqs: JobRequirement[] = [

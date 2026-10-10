@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { db } from "../db";
 import type {
-  ApplicationStage, ApplicationFormVersions, Applications, Candidates, JobPostings, PreInterviewForms,
+  ApplicationStage, ApplicationFormVersions, Applications, Candidates, EmailOutbox, JobPostings, PreInterviewForms,
 } from "@db/schema";
 import { audit, notifyRoles, ruleEnabled } from "../util";
 import { callAI } from "../ai/provider";
@@ -21,19 +21,19 @@ const ALLOWED: Record<ApplicationStage, ApplicationStage[]> = {
   review: ["screened_out", "shortlisted", "withdrawn"],
   screened_out: ["applied"],
   shortlisted: ["pre_interview_forms_sent", "rejected", "withdrawn"],
-  pre_interview_forms_sent: ["pre_interview_forms_complete", "withdrawn"],
-  pre_interview_forms_complete: ["interview_booked", "withdrawn"],
-  interview_booked: ["interviewed", "withdrawn"],
+  pre_interview_forms_sent: ["pre_interview_forms_complete", "rejected", "withdrawn"],
+  pre_interview_forms_complete: ["interview_booked", "rejected", "withdrawn"],
+  interview_booked: ["interviewed", "rejected", "withdrawn"],
   interviewed: ["approved", "rejected", "withdrawn"],
   approved: ["compliance_docs_requested", "rejected", "withdrawn"],
-  compliance_docs_requested: ["compliance_docs_complete", "withdrawn"],
-  compliance_docs_complete: ["offer_sent", "withdrawn"],
-  offer_sent: ["offer_accepted", "withdrawn"],
-  offer_accepted: ["training_booked", "withdrawn"],
-  training_booked: ["online_training_in_progress", "withdrawn"],
-  online_training_in_progress: ["dbs_verified", "withdrawn"],
-  dbs_verified: ["training_complete", "withdrawn"],
-  training_complete: ["hired"],
+  compliance_docs_requested: ["compliance_docs_complete", "rejected", "withdrawn"],
+  compliance_docs_complete: ["offer_sent", "rejected", "withdrawn"],
+  offer_sent: ["offer_accepted", "rejected", "withdrawn"],
+  offer_accepted: ["training_booked", "rejected", "withdrawn"],
+  training_booked: ["online_training_in_progress", "rejected", "withdrawn"],
+  online_training_in_progress: ["dbs_verified", "rejected", "withdrawn"],
+  dbs_verified: ["training_complete", "rejected", "withdrawn"],
+  training_complete: ["hired", "rejected"],
   hired: [],
   rejected: [],
   withdrawn: [],
@@ -82,7 +82,7 @@ async function loadParties(appId: number) {
 }
 
 export type CandidateEmailKind =
-  | "interview_invitation" | "interview_booked" | "compliance_requested" | "document_rejected"
+  | "interview_invitation" | "interview_slots_open" | "interview_booked" | "compliance_requested" | "document_rejected"
   | "offer_sent" | "unsuccessful" | "hired";
 
 /** Email the candidate about a step in their application, always with their portal link. */
@@ -100,6 +100,10 @@ export async function emailCandidate(
     interview_invitation: {
       subject: `Next steps for ${p.job.title} at ${org.name}`,
       body: `${hi}\n\nThank you for applying for ${p.job.title}. We would like to invite you to the next stage.\n\nPlease open your candidate portal to complete your pre-interview form and book an interview slot:\n${link}\n\n${sign}`,
+    },
+    interview_slots_open: {
+      subject: `Book your interview for ${p.job.title}`,
+      body: `${hi}\n\nThank you for completing your pre-interview form. Interview times for ${p.job.title} are now available.\n\nPlease choose a time that suits you in your candidate portal:\n${link}\n\n${sign}`,
     },
     interview_booked: {
       subject: `Your interview for ${p.job.title}`,
@@ -128,6 +132,20 @@ export async function emailCandidate(
   };
   const msg = content[kind];
   await sendEmail({ to: p.cand.email, subject: msg.subject, body: msg.body, kind, relatedType: "application", relatedId: appId });
+}
+
+/** Tell candidates waiting to book that interview times are open. At most one email per application per day. */
+export async function emailCandidatesSlotsOpen(jobPostingId: number | null, baseUrl: string) {
+  const waiting = await db.from("applications").eq("stage", "pre_interview_forms_complete").many<Applications>();
+  const dayAgo = Date.now() - 86_400_000;
+  for (const app of waiting) {
+    if (jobPostingId != null && Number(app.jobPostingId) !== jobPostingId) continue;
+    const last = await db.from("emailOutbox")
+      .eq("relatedType", "application").eq("relatedId", String(app.id)).eq("kind", "interview_slots_open")
+      .order("id", "desc").first<EmailOutbox>();
+    if (last && new Date(last.createdAt).getTime() > dayAgo) continue;
+    await emailCandidate(Number(app.id), "interview_slots_open", baseUrl);
+  }
 }
 
 /** Shortlisted → pre-interview form opened in the portal and the candidate invited. */

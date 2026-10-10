@@ -21,7 +21,7 @@ const JOURNEY = [
   { key: "hired", label: "Welcome aboard" },
 ];
 const JOURNEY_INDEX: Record<string, number> = {
-  applied: 0, review: 0, shortlisted: 0, pre_interview_forms_sent: 1, pre_interview_forms_complete: 1,
+  applied: 0, review: 0, shortlisted: 0, pre_interview_forms_sent: 1, pre_interview_forms_complete: 2,
   interview_booked: 2, interviewed: 2, approved: 3, compliance_docs_requested: 4,
   compliance_docs_complete: 4, offer_sent: 5, offer_accepted: 5, training_booked: 6,
   online_training_in_progress: 6, dbs_verified: 6, training_complete: 6, hired: 7,
@@ -265,9 +265,9 @@ function BookingSection({ token, slots, booking, slot }: {
           )}
           <p className="mt-2 text-xs text-muted-foreground">Need to change? Pick a different slot below — your old booking is released automatically.</p>
         </div>
-      ) : (
+      ) : slots.length > 0 ? (
         <p className="mt-1 text-sm text-muted-foreground">Choose a time that suits you:</p>
-      )}
+      ) : null}
       <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
         {slots.map((s) => {
           const full = s.bookedCount >= (s.capacity ?? 1);
@@ -286,7 +286,11 @@ function BookingSection({ token, slots, booking, slot }: {
             </button>
           );
         })}
-        {slots.length === 0 && <p className="text-sm text-muted-foreground">New slots are added regularly — check back soon.</p>}
+        {slots.length === 0 && !booking && (
+          <p className="text-sm text-muted-foreground">
+            Interview times aren't open yet. We'll email you as soon as they are, so there's nothing you need to do for now.
+          </p>
+        )}
       </div>
     </section>
   );

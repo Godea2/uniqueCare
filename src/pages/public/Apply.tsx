@@ -58,7 +58,7 @@ function Wizard({ slug, src, info }: { slug: string; src?: string; info: Extract
   const [cv, setCv] = useState<CvPayload | null>(null);
   const [cvName, setCvName] = useState<string>(() => localStorage.getItem(`${storageKey}-cvname`) ?? "");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [submitted, setSubmitted] = useState<{ portalToken: string; duplicate: boolean } | null>(null);
+  const [submitted, setSubmitted] = useState<{ portalToken: string } | null>(null);
 
   const uploadCv = trpc.hr.uploadCv.useMutation({
     onError: (e) => setErrors((er) => ({ ...er, cv_upload: friendlyUploadError(e.message) })),
@@ -116,11 +116,6 @@ function Wizard({ slug, src, info }: { slug: string; src?: string; info: Extract
         <div className="mt-3 text-sm text-slate-700 leading-relaxed mx-auto max-w-md">
           <Markdown text={schema.thankYouText ?? "Thank you for your application."} />
         </div>
-        {submitted.duplicate && (
-          <p className="mt-3 text-xs text-muted-foreground mx-auto max-w-md">
-            You had already applied for this role — we have updated your application with your new CV instead of creating a duplicate.
-          </p>
-        )}
         <Link to={`/portal/${submitted.portalToken}?welcome=1`}>
           <Button className="mt-6">Open your candidate portal</Button>
         </Link>
