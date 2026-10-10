@@ -163,7 +163,7 @@ async function emailStaff(staffId: number, opts: { title: string; body?: string;
   await sendEmail({
     to: staff.email,
     subject: opts.title,
-    body: `Hello ${firstName},\n\n${opts.title}${opts.body ? `\n\n${opts.body}` : ""}\n\nOpen UniqueCare Connect:\n${link}\n\n${org.name}`,
+    body: `Hello ${firstName},${opts.body ? `\n\n${opts.body}` : ""}\n\nOpen it in UniqueCare Connect:\n${link}\n\n${org.name}`,
     kind: "staff_notification",
     relatedType: "staff",
     relatedId: staffId,

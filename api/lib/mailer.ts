@@ -2,6 +2,8 @@ import nodemailer, { type Transporter } from "nodemailer";
 import type { EmailOutbox } from "@db/schema";
 import { db } from "../db";
 import { audit } from "../util";
+import { orgProfile } from "./app-url";
+import { renderEmailHtml } from "./email-html";
 
 /**
  * Outbound email. Every message is recorded in email_outbox.
@@ -68,11 +70,11 @@ function smtpTransport(cfg: NonNullable<ReturnType<typeof smtpSettings>>): Trans
   return transport.transporter;
 }
 
-async function smtpSend(to: string, subject: string, bodyText: string): Promise<SendResult> {
+async function smtpSend(to: string, subject: string, bodyText: string, html: string): Promise<SendResult> {
   const cfg = smtpSettings();
   if (!cfg) return { ok: false, error: "SMTP is not configured" };
   try {
-    await smtpTransport(cfg).sendMail({ from: cfg.from, to, subject, text: bodyText });
+    await smtpTransport(cfg).sendMail({ from: cfg.from, to, subject, text: bodyText, html });
     return { ok: true };
   } catch (err) {
     transport = null;
@@ -80,7 +82,7 @@ async function smtpSend(to: string, subject: string, bodyText: string): Promise<
   }
 }
 
-async function graphSend(to: string, subject: string, bodyText: string): Promise<SendResult> {
+async function graphSend(to: string, subject: string, html: string): Promise<SendResult> {
   const cfg = graphSettings();
   if (!cfg) return { ok: false, error: "No email provider is configured (set the SMTP_* variables)" };
   try {
@@ -100,7 +102,7 @@ async function graphSend(to: string, subject: string, bodyText: string): Promise
       body: JSON.stringify({
         message: {
           subject,
-          body: { contentType: "Text", content: bodyText },
+          body: { contentType: "HTML", content: html },
           toRecipients: [{ emailAddress: { address: to } }],
         },
       }),
@@ -112,8 +114,10 @@ async function graphSend(to: string, subject: string, bodyText: string): Promise
   }
 }
 
-function deliver(to: string, subject: string, bodyText: string): Promise<SendResult> {
-  return smtpSettings() ? smtpSend(to, subject, bodyText) : graphSend(to, subject, bodyText);
+async function deliver(to: string, subject: string, bodyText: string, kind: string): Promise<SendResult> {
+  const org = await orgProfile();
+  const html = renderEmailHtml({ orgName: org.name, subject, text: bodyText, kind });
+  return smtpSettings() ? smtpSend(to, subject, bodyText, html) : graphSend(to, subject, html);
 }
 
 export async function sendEmail(opts: {
@@ -124,7 +128,7 @@ export async function sendEmail(opts: {
   relatedType?: string;
   relatedId?: number | string;
 }) {
-  const result = await deliver(opts.to, opts.subject, opts.body);
+  const result = await deliver(opts.to, opts.subject, opts.body, opts.kind);
   const [row] = await db.from("emailOutbox").insert<EmailOutbox>({
     toEmail: opts.to,
     subject: opts.subject,
@@ -150,7 +154,7 @@ export async function resendQueued(actor: string, ids?: number[]) {
   let failed = 0;
   let lastError: string | undefined;
   for (const email of queued) {
-    const result = await deliver(email.toEmail, email.subject, email.bodyText ?? "");
+    const result = await deliver(email.toEmail, email.subject, email.bodyText ?? "", email.kind);
     if (result.ok) {
       await db.from("emailOutbox").eq("id", email.id).update({ status: "sent" });
       await audit(actor, "email_resent", "email_outbox", email.id, { to: email.toEmail, kind: email.kind });
@@ -169,7 +173,8 @@ export async function sendTestEmail(to: string, actor: string) {
   const result = await deliver(
     to,
     "UniqueCare Connect test email",
-    `This is a test email from UniqueCare Connect, sent by ${actor}.\n\nIf you can read this, outgoing email is working.`,
+    `Hello,\n\nThis is a test email from UniqueCare Connect, sent by ${actor}.\n\nIf you can read this, outgoing email is working.`,
+    "test",
   );
   await audit(actor, result.ok ? "email_test_sent" : "email_test_failed", "email_outbox", undefined, {
     to, ...(result.ok ? {} : { error: result.error }),

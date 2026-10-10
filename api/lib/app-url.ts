@@ -16,13 +16,14 @@ export function appUrl(req?: Request | null): string {
 export const portalUrl = (base: string, token: string) => `${base}/portal/${token}`;
 
 /** Organisation details used in candidate-facing text. */
-export async function orgProfile(): Promise<{ name: string; signatory: string; signatoryTitle: string }> {
+export async function orgProfile(): Promise<{ name: string; signatory: string; signatoryTitle: string; signOff: string }> {
   const org = await db.from("organisations").first<Organisations>();
   const settings = (org?.settings ?? {}) as { signatoryName?: string; signatoryTitle?: string };
   const name = org?.name || "Unique Care UK";
-  return {
-    name,
-    signatory: settings.signatoryName || `${name} recruitment team`,
-    signatoryTitle: settings.signatoryTitle || "",
-  };
+  const signatory = settings.signatoryName?.trim() || `${name} recruitment team`;
+  const signatoryTitle = settings.signatoryTitle?.trim() || "";
+  const signOff = settings.signatoryName?.trim()
+    ? `Kind regards,\n${signatory}${signatoryTitle ? `\n${signatoryTitle}` : ""}\n${name}`
+    : `Kind regards,\n${signatory}`;
+  return { name, signatory, signatoryTitle, signOff };
 }

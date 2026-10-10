@@ -470,11 +470,10 @@ export const hrRouter = createRouter({
       });
       const base = appUrl(ctx.req);
       const org = await orgProfile();
-      const ty = schema.thankYouText ?? "Thank you for your application.";
       await sendEmail({
         to: email,
         subject: `Your application — ${job.title} at ${org.name}`,
-        body: `Dear ${firstName},\n\n${ty}\n\nRole: ${job.title}\nLocation: ${job.location ?? ""}\n\nTrack your application, complete forms and book interviews in your candidate portal:\n${portalUrl(base, portalTokenValue)}\n\nKind regards,\n${org.signatory}\n${org.name}`,
+        body: `Dear ${firstName},\n\nThank you for applying to ${org.name}. We have received your application and our team will review it shortly.\n\nRole: ${job.title}${job.location ? `\nLocation: ${job.location}` : ""}\n\nYou can track your application, complete forms and book interviews in your candidate portal:\n${portalUrl(base, portalTokenValue)}\n\n${org.signOff}`,
         kind: "application_confirmation",
         relatedType: "application",
         relatedId: appId,

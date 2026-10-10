@@ -94,7 +94,7 @@ export async function emailCandidate(
   if (!p) return;
   const org = await orgProfile();
   const link = portalUrl(baseUrl, p.app.portalToken);
-  const sign = `Kind regards,\n${org.signatory}${org.signatoryTitle ? `\n${org.signatoryTitle}` : ""}\n${org.name}`;
+  const sign = org.signOff;
   const hi = `Dear ${p.cand.firstName},`;
   const content: Record<CandidateEmailKind, { subject: string; body: string }> = {
     interview_invitation: {
