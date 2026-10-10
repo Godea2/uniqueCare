@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   CheckCircle2, Circle, Upload, PenLine, GraduationCap, CalendarDays,
-  AlertTriangle, Camera, ChevronDown, Clock, FileText, Lightbulb, Loader2, Lock, PartyPopper, RefreshCw, ShieldCheck, UploadCloud,
+  AlertTriangle, Camera, ChevronDown, Clock, FileText, Lightbulb, Loader2, Lock, MapPin, PartyPopper, RefreshCw, ShieldCheck, UploadCloud, Video,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -576,7 +576,10 @@ function OfferSection({ token, content }: { token: string; content: string }) {
 function TrainingSection({ token, enrolments, sessions }: {
   token: string;
   enrolments: { id: number | bigint; courseId: number | bigint; sessionId: number | bigint | null; status: string; course?: { id: number | bigint; title: string; delivery?: string; type?: string } }[];
-  sessions: { id: number | bigint; courseId: number | bigint; startsAt: string | Date; endsAt: string | Date; location: string | null; capacity: number | null }[];
+  sessions: {
+    id: number | bigint; courseId: number | bigint; startsAt: string | Date; endsAt: string | Date; location: string | null;
+    capacity: number | null; courseTitle: string; delivery: string; meetingUrl: string | null; notes: string | null; placesLeft: number;
+  }[];
 }) {
   const utils = trpc.useUtils();
   const register = trpc.portal.registerTraining.useMutation({
@@ -590,6 +593,9 @@ function TrainingSection({ token, enrolments, sessions }: {
 
   const onlineEnrolments = enrolments.filter((e) => !e.sessionId);
   const sessionEnrolments = enrolments.filter((e) => e.sessionId);
+  const attended = sessionEnrolments.some((e) => e.status === "completed");
+  const upcomingBooking = sessionEnrolments.find((e) => e.status === "registered" && sessions.some((s) => Number(s.id) === Number(e.sessionId)));
+  const missed = !upcomingBooking && sessionEnrolments.some((e) => e.status === "no_show");
 
   return (
     <section className="uc-card p-5">
@@ -619,31 +625,52 @@ function TrainingSection({ token, enrolments, sessions }: {
 
       <div className="mt-4">
         <p className="uc-label mb-2">Classroom induction</p>
-        {sessionEnrolments.length > 0 && (
+        {attended ? (
+          <p className="mb-2 flex items-center gap-2 text-sm text-green-800"><CheckCircle2 className="h-4 w-4" aria-hidden /> Induction attended. Thank you.</p>
+        ) : upcomingBooking ? (
           <p className="mb-2 text-sm text-green-800">
-            You're registered — bring your original DBS certificate and photo ID for check-in.
+            You have a place. Bring your original DBS certificate and photo ID; we check them when you arrive.
           </p>
-        )}
+        ) : missed ? (
+          <p className="mb-2 text-sm text-amber-800">We missed you at your last induction. Please book another date below.</p>
+        ) : null}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {sessions.map((s) => {
             const booked = sessionEnrolments.some((e) => Number(e.sessionId) === Number(s.id));
+            const full = !booked && s.placesLeft <= 0;
+            const online = s.delivery === "online";
             return (
-              <div key={s.id} className={`rounded-lg border p-3 text-sm ${booked ? "border-green-500 bg-green-50" : "bg-white"}`} style={{ borderColor: booked ? undefined : "var(--line)" }}>
-                <p className="font-semibold">{fmtDate(s.startsAt)}</p>
-                <p>{fmtTime(s.startsAt)} – {fmtTime(s.endsAt)}</p>
-                <p className="text-xs text-muted-foreground">{s.location ?? "Unique Care UK office"}</p>
-                {booked ? (
-                  <Chip value="registered" label="Registered" />
-                ) : (
-                  <Button size="sm" variant="outline" className="mt-2 h-7" disabled={register.isPending}
-                    onClick={() => register.mutate({ token, sessionId: Number(s.id) })}>
-                    Register
-                  </Button>
+              <div key={s.id} className={`rounded-xl border p-3 text-sm ${booked ? "border-green-500 bg-green-50" : "bg-white"}`} style={{ borderColor: booked ? undefined : "var(--line)" }}>
+                <p className="text-xs font-medium text-[--brand-700]">{s.courseTitle}</p>
+                <p className="mt-0.5 font-semibold">{new Date(s.startsAt).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</p>
+                <p className="flex items-center gap-1 text-slate-700"><Clock className="h-3.5 w-3.5" aria-hidden /> {fmtTime(s.startsAt)} – {fmtTime(s.endsAt)}</p>
+                <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                  {online ? <Video className="h-3 w-3" aria-hidden /> : <MapPin className="h-3 w-3" aria-hidden />}
+                  {online ? "Live online" : s.location ?? "Unique Care UK office"}
+                </p>
+                {booked && s.meetingUrl && (
+                  <a href={s.meetingUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-[--brand-700] hover:underline">
+                    <Video className="h-3 w-3" aria-hidden /> Join the session
+                  </a>
                 )}
+                {s.notes && <p className="mt-1.5 text-xs text-slate-600">{s.notes}</p>}
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  {booked ? (
+                    <Chip value="registered" label="You have a place" />
+                  ) : (
+                    <Button size="sm" variant={full ? "ghost" : "outline"} className="h-7" disabled={full || register.isPending || !!upcomingBooking}
+                      onClick={() => register.mutate({ token, sessionId: Number(s.id) })}>
+                      {full ? "Full" : "Book this date"}
+                    </Button>
+                  )}
+                  {!booked && !full && <span className="text-[11px] text-muted-foreground">{s.placesLeft} place{s.placesLeft === 1 ? "" : "s"} left</span>}
+                </div>
               </div>
             );
           })}
-          {sessions.length === 0 && <p className="text-sm text-muted-foreground">New induction dates are added regularly.</p>}
+          {sessions.length === 0 && !attended && (
+            <p className="text-sm text-muted-foreground">There are no dates open yet. We'll email you as soon as one is added.</p>
+          )}
         </div>
       </div>
     </section>

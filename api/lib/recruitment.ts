@@ -106,7 +106,8 @@ async function loadParties(appId: number) {
 
 export type CandidateEmailKind =
   | "interview_invitation" | "interview_slots_open" | "interview_booked" | "compliance_requested" | "documents_received"
-  | "document_rejected" | "offer_sent" | "unsuccessful" | "hired";
+  | "document_rejected" | "offer_sent" | "training_invite" | "training_dates_open" | "training_booked"
+  | "unsuccessful" | "hired";
 
 /** Email the candidate about a step in their application, always with their portal link. */
 export async function emailCandidate(
@@ -147,6 +148,18 @@ export async function emailCandidate(
     offer_sent: {
       subject: `Your offer for ${p.job.title}`,
       body: `${hi}\n\nWe are delighted to offer you the position of ${p.job.title}.\n\nPlease read and accept your offer letter in your candidate portal:\n${link}\n\n${sign}`,
+    },
+    training_invite: {
+      subject: `Your training for ${p.job.title}`,
+      body: `${hi}\n\nThank you for accepting your offer for ${p.job.title}. Welcome aboard.\n\nBefore your first shift there are two things to do:\n1. Complete your online courses and mark each one done in your portal.\n2. Book a place on a classroom induction.${extra?.note ? `\n\n${extra.note}` : ""}\n\nBring your original DBS certificate and photo ID to the induction. We check them at the door.\n\nEverything is in your candidate portal:\n${link}\n\n${sign}`,
+    },
+    training_dates_open: {
+      subject: `Induction dates are open — ${p.job.title}`,
+      body: `${hi}\n\nA new classroom induction is available${extra?.when ? `: ${extra.when}` : ""}.${extra?.where ? `\n\nWhere: ${extra.where}` : ""}\n\nPlaces are limited. Please book in your candidate portal:\n${link}\n\n${sign}`,
+    },
+    training_booked: {
+      subject: `You're booked: ${extra?.note ?? "induction"}`,
+      body: `${hi}\n\nYour place is booked${extra?.when ? ` for ${extra.when}` : ""}.${extra?.where ? `\n\nWhere: ${extra.where}` : ""}\n\nPlease bring your original DBS certificate and photo ID. We check them when you arrive.\n\nYou can see the details in your candidate portal:\n${link}\n\n${sign}`,
     },
     unsuccessful: {
       subject: `Your application for ${p.job.title}`,

@@ -12,6 +12,7 @@ import { audit, notifyRoles } from "../util";
 import { documentUploadTarget, inspectDocument, removeDocument, saveDocument, sniffDocument } from "../lib/cv-store";
 import { appUrl } from "../lib/app-url";
 import { complianceApplication, emailCandidate, emailSlotsOpenIfAny, slotOpenForJob as slotOpen } from "../lib/recruitment";
+import { sessionWhen, sessionWhere } from "../lib/training";
 
 async function appByToken(portalToken: string) {
   const app = await db.from("applications").eq("portalToken", portalToken).first<Applications>();
@@ -19,6 +20,24 @@ async function appByToken(portalToken: string) {
   const candidate = await db.from("candidates").eq("id", app.candidateId).first<Candidates>();
   const job = await db.from("jobPostings").eq("id", app.jobPostingId).first<JobPostings>();
   return { app, candidate: candidate!, job: job! };
+}
+
+/** Upcoming sessions as a candidate sees them; the joining link only once they have a place. */
+async function portalSessions(sessions: TrainingSessions[], courses: TrainingCourses[], mine: TrainingEnrolments[]) {
+  const ids = sessions.map((s) => s.id);
+  const booked = ids.length ? await db.from("trainingEnrolments").in("sessionId", ids).many<TrainingEnrolments>() : [];
+  return sessions
+    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+    .map((s) => {
+      const hasPlace = mine.some((e) => Number(e.sessionId) === Number(s.id));
+      return {
+        id: s.id, courseId: s.courseId, startsAt: s.startsAt, endsAt: s.endsAt, location: s.location,
+        capacity: s.capacity, courseTitle: courses.find((c) => c.id === s.courseId)?.title ?? "Induction",
+        delivery: s.delivery ?? "in_person", trainerName: s.trainerName, notes: s.notes ?? null,
+        meetingUrl: hasPlace ? s.meetingUrl ?? null : null,
+        placesLeft: Math.max(0, (s.capacity ?? 12) - booked.filter((e) => e.sessionId === s.id).length),
+      };
+    });
 }
 
 const MAX_DOC_BYTES = 10 * 1024 * 1024;
@@ -110,7 +129,7 @@ export const portalRouter = createRouter({
         docs: docs.map((d) => ({ ...d, requirement: reqs.find((r) => r.key === d.requirementKey) })),
         offer, complianceDone, offerAccepted,
         enrolments: enrolments.map((e) => ({ ...e, course: courses.find((c) => c.id === e.courseId) })),
-        sessions: offerAccepted ? sessions : [],
+        sessions: offerAccepted ? await portalSessions(sessions, courses, enrolments) : [],
         stageIndex: APPLICATION_STAGE_ORDER.indexOf(app.stage),
       };
     }),
@@ -279,17 +298,28 @@ export const portalRouter = createRouter({
         }
       }
       await audit("Candidate (portal)", "offer_accepted", "applications", app.id);
+      const upcoming = (await db.from("trainingSessions").gt("startsAt", new Date()).many<TrainingSessions>())
+        .filter((s) => courses.some((c) => c.id === s.courseId));
       await notifyRoles(["admin", "super_admin"], {
         type: "hr", title: `Offer accepted — ${candidate.firstName} ${candidate.lastName}`,
-        body: "Online training has been assigned. Book them onto a classroom session.",
-        link: `/recruitment/pipeline/${app.id}`,
+        body: upcoming.length
+          ? "Online training has been assigned. They have been asked to book a classroom induction."
+          : "Online training has been assigned. There are no induction dates yet. Add one in Training so they can book.",
+        link: upcoming.length ? `/recruitment/pipeline/${app.id}` : "/recruitment/training",
       });
+      const online = courses.filter((c) => c.type === "online").length;
+      waitUntil(emailCandidate(Number(app.id), "training_invite", appUrl(ctx.req), {
+        note: [
+          online ? `You have ${online} online course${online === 1 ? "" : "s"} to complete.` : "",
+          upcoming.length ? "Induction dates are open now." : "We will email you as soon as an induction date is available.",
+        ].filter(Boolean).join(" "),
+      }).catch(() => {}));
       return { ok: true };
     }),
 
   registerTraining: publicQuery
     .input(z.object({ token: z.string(), sessionId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { app, candidate } = await appByToken(input.token);
       if (!["offer_accepted", "training_booked", "online_training_in_progress"].includes(app.stage))
         throw new TRPCError({ code: "BAD_REQUEST", message: "Training registration opens after you accept your offer." });
@@ -299,6 +329,13 @@ export const portalRouter = createRouter({
         .eq("sessionId", session.id).eq("personType", "candidate")
         .eq("personId", candidate.id).first<TrainingEnrolments>();
       if (!has) {
+        const mine = await db.from("trainingEnrolments").eq("personType", "candidate").eq("personId", candidate.id)
+          .eq("status", "registered").many<TrainingEnrolments>();
+        const mineIds = mine.filter((e) => e.sessionId != null).map((e) => e.sessionId!);
+        const upcoming = mineIds.length
+          ? (await db.from("trainingSessions").in("id", mineIds).many<TrainingSessions>()).filter((s) => new Date(s.endsAt).getTime() > Date.now())
+          : [];
+        if (upcoming.length) throw new TRPCError({ code: "CONFLICT", message: "You already have a place on an induction. Contact the office to change the date." });
         if (new Date(session.startsAt).getTime() <= Date.now()) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "That session has already started. Please pick another date." });
         }
@@ -310,6 +347,16 @@ export const portalRouter = createRouter({
           sessionId: session.id, courseId: session.courseId, personType: "candidate",
           personId: candidate.id, status: "registered",
         });
+        const course = await db.from("trainingCourses").eq("id", session.courseId).first<TrainingCourses>();
+        const name = `${candidate.firstName} ${candidate.lastName}`;
+        await notifyRoles(["admin", "super_admin"], {
+          type: "hr", title: `Induction booked — ${name}`,
+          body: `${course?.title ?? "Training"}, ${sessionWhen(session)}.`,
+          link: "/recruitment/training",
+        });
+        waitUntil(emailCandidate(Number(app.id), "training_booked", appUrl(ctx.req), {
+          when: sessionWhen(session), where: sessionWhere(session), note: course?.title,
+        }).catch(() => {}));
       }
       if (app.stage === "offer_accepted") {
         const history = [...((app.stageHistory as never[]) ?? []), {

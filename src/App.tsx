@@ -48,6 +48,7 @@ import AuditLog from "./pages/system/AuditLog";
 import Careers from "./pages/public/Careers";
 import Apply from "./pages/public/Apply";
 import Portal from "./pages/public/Portal";
+import TrainingRegister from "./pages/public/TrainingRegister";
 
 function P({ children }: { children: React.ReactNode }) {
   return <AppLayout>{children}</AppLayout>;
@@ -65,6 +66,7 @@ export default function App() {
       <Route path="/apply/:slug" element={<Apply />} />
       <Route path="/careers/apply/:slug" element={<Apply />} />
       <Route path="/portal/:token" element={<Portal />} />
+      <Route path="/training/register/:token" element={<TrainingRegister />} />
 
       {/* Authenticated app */}
       <Route path="/" element={<P><Dashboard /></P>} />

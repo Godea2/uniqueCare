@@ -14,6 +14,10 @@ const ACTION_LABELS: Record<string, string> = {
   documents_received: "See your documents",
   document_rejected: "Upload the document again",
   offer_sent: "View your offer",
+  training_invite: "Start your training",
+  training_dates_open: "Book your induction",
+  training_booked: "View your booking",
+  trainer_session: "Open the attendance register",
   staff_notification: "Open UniqueCare Connect",
 };
 

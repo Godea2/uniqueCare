@@ -45,6 +45,9 @@ import {
   formSchemaDoc, type FormSchemaDoc, type FormAnswers,
 } from "@contracts/form-schema";
 import { extractCvText } from "../lib/cv-text";
+import {
+  emailInductionOpen, emailTrainer, inductionAudience, markAttendance, newRegisterToken, registerUrl, sessionAttendees,
+} from "../lib/training";
 import { waitUntil } from "@vercel/functions";
 import crypto from "crypto";
 
@@ -984,8 +987,15 @@ export const hrRouter2 = createRouter({
     .input(z.object({
       courseId: z.number(),
       startsAt: z.string(), endsAt: z.string(),
-      location: z.string().optional(), capacity: z.number().int().min(1).max(100).optional(),
-      trainerName: z.string().optional(),
+      delivery: z.enum(["in_person", "online"]).default("in_person"),
+      location: z.string().trim().max(200).optional(),
+      meetingUrl: z.string().trim().url().max(500).optional(),
+      capacity: z.number().int().min(1).max(100).optional(),
+      trainerStaffId: z.number().optional(),
+      trainerName: z.string().trim().max(120).optional(),
+      trainerEmail: z.string().trim().email().optional(),
+      notes: z.string().trim().max(1000).optional(),
+      notifyCandidates: z.boolean().default(true),
     }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
@@ -997,41 +1007,105 @@ export const hrRouter2 = createRouter({
       if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime()) || ends <= starts) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "The session must end after it starts." });
       }
+      if (starts.getTime() < Date.now()) throw new TRPCError({ code: "BAD_REQUEST", message: "Pick a date and time in the future." });
+      let trainerName = input.trainerName || null;
+      let trainerEmail = input.trainerEmail || null;
+      if (input.trainerStaffId) {
+        const t = await db.from("staffProfiles").eq("id", input.trainerStaffId).first<StaffProfiles>();
+        if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "That trainer is not on the staff list." });
+        trainerName = t.fullName;
+        trainerEmail = t.email ?? trainerEmail;
+      }
       const [row] = await db.from("trainingSessions").insert<TrainingSessions>({
-        courseId: input.courseId, startsAt: new Date(input.startsAt), endsAt: new Date(input.endsAt),
-        location: input.location ?? null, capacity: input.capacity ?? 12, trainerName: input.trainerName ?? null,
+        courseId: input.courseId, startsAt: starts, endsAt: ends,
+        location: input.delivery === "online" ? "Online" : input.location || null,
+        capacity: input.capacity ?? 12, trainerName,
       });
-      await audit(sc.staff.fullName, "training_session_created", "training_sessions", row.id, { course: course.title });
-      return { ok: true, id: row.id };
+      const extras = {
+        delivery: input.delivery, meetingUrl: input.delivery === "online" ? input.meetingUrl ?? null : null,
+        trainerStaffId: input.trainerStaffId ?? null, trainerEmail, notes: input.notes || null,
+        registerToken: newRegisterToken(),
+      };
+      let session: TrainingSessions = row;
+      let extrasSaved = true;
+      try {
+        await db.from("trainingSessions").eq("id", row.id).update(extras);
+        session = { ...row, ...extras };
+      } catch {
+        extrasSaved = false;
+      }
+      await audit(sc.staff.fullName, "training_session_created", "training_sessions", row.id, {
+        course: course.title, delivery: input.delivery, trainer: trainerName, notifyCandidates: input.notifyCandidates,
+      });
+      const baseUrl = appUrl(ctx.req);
+      const waiting = input.notifyCandidates ? (await inductionAudience()).length : 0;
+      const trainerEmailed = extrasSaved && !!trainerEmail;
+      waitUntil((async () => {
+        if (trainerEmailed) await emailTrainer(session, course, baseUrl).catch(() => {});
+        if (input.notifyCandidates) await emailInductionOpen(session, baseUrl).catch(() => {});
+      })());
+      return { ok: true, id: row.id, extrasSaved, trainerEmailed, emailingCandidates: waiting };
     }),
 
   sessions: authedQuery.query(async ({ ctx }) => {
     requireRole(await getStaff(ctx), "super_admin", "admin", "team_leader");
     const sessions = await db.from("trainingSessions").order("startsAt", "asc").many<TrainingSessions>();
-    const enrolments = await db.from("trainingEnrolments").many<TrainingEnrolments>();
     const courses = await db.from("trainingCourses").many<TrainingCourses>();
-    const cands = await db.from("candidates").many<Candidates>();
-    const staff = await db.from("staffProfiles").many<StaffProfiles>();
-    const apps = await db.from("applications").order("id", "desc").many<Applications>();
-    const dbsChecks = await db.from("dbsVerifications").many<DbsVerifications>();
-    const latestApp = (candidateId: number) => apps.find((a) => a.candidateId === candidateId);
+    const attendees = await sessionAttendees(sessions);
+    const baseUrl = appUrl(ctx.req);
     return sessions.map((se) => ({
       ...se,
+      registerToken: undefined,
+      registerUrl: se.registerToken ? registerUrl(baseUrl, se.registerToken) : null,
       course: courses.find((c) => c.id === se.courseId),
-      attendees: enrolments.filter((e) => e.sessionId === se.id).map((e) => {
-        const app = e.personType === "candidate" ? latestApp(e.personId) : undefined;
-        return {
-          ...e,
-          name: e.personType === "candidate"
-            ? (() => { const c = cands.find((x) => x.id === e.personId); return c ? `${c.firstName} ${c.lastName}` : "?"; })()
-            : staff.find((x) => x.id === e.personId)?.fullName ?? "?",
-          applicationId: app?.id ?? null,
-          stage: app?.stage ?? null,
-          dbsVerified: !!app && dbsChecks.some((d) => d.applicationId === app.id),
-        };
-      }),
+      attendees: attendees.get(Number(se.id)) ?? [],
     }));
   }),
+
+  /** People who can run a session: staff with an email address, plus outside trainers used before. */
+  trainerOptions: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), "super_admin", "admin");
+    const staff = await db.from("staffProfiles").eq("status", "active").order("fullName", "asc").many<StaffProfiles>();
+    const sessions = await db.from("trainingSessions").order("id", "desc").many<TrainingSessions>();
+    const external = new Map<string, { name: string; email: string }>();
+    for (const s of sessions) {
+      if (s.trainerStaffId || !s.trainerName || !s.trainerEmail) continue;
+      const key = s.trainerEmail.toLowerCase();
+      if (!external.has(key)) external.set(key, { name: s.trainerName, email: s.trainerEmail });
+    }
+    const locations = [...new Set(sessions.filter((s) => s.delivery !== "online" && s.location).map((s) => s.location!))].slice(0, 8);
+    return {
+      staff: staff.filter((s) => s.email).map((s) => ({ id: Number(s.id), name: s.fullName, email: s.email!, jobTitle: s.jobTitle })),
+      external: [...external.values()],
+      locations,
+      waitingForInduction: (await inductionAudience()).length,
+    };
+  }),
+
+  markAttendance: authedQuery
+    .input(z.object({ enrolmentId: z.number(), mark: z.enum(["present", "absent", "booked"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin", "team_leader");
+      const e = await db.from("trainingEnrolments").eq("id", input.enrolmentId).first<TrainingEnrolments>();
+      if (!e?.sessionId) throw new TRPCError({ code: "NOT_FOUND", message: "That booking no longer exists." });
+      return { status: await markAttendance(e, input.mark, sc.staff.fullName) };
+    }),
+
+  resendTrainerEmail: authedQuery
+    .input(z.object({ sessionId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      const s = await db.from("trainingSessions").eq("id", input.sessionId).first<TrainingSessions>();
+      if (!s) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!s.trainerEmail) throw new TRPCError({ code: "BAD_REQUEST", message: "This session has no trainer email." });
+      if (!s.registerToken) throw new TRPCError({ code: "BAD_REQUEST", message: "Run migration 0005 in Supabase first." });
+      const course = await db.from("trainingCourses").eq("id", s.courseId).first<TrainingCourses>();
+      await emailTrainer(s, course!, appUrl(ctx.req));
+      await audit(sc.staff.fullName, "trainer_email_resent", "training_sessions", s.id);
+      return { ok: true };
+    }),
 
   dbsCheckIn: authedQuery
     .input(z.object({

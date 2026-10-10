@@ -754,6 +754,13 @@ export interface TrainingSessions {
   location: string | null;
   capacity: number | null;
   trainerName: string | null;
+  delivery?: string | null;
+  meetingUrl?: string | null;
+  trainerStaffId?: number | null;
+  trainerEmail?: string | null;
+  notes?: string | null;
+  registerToken?: string | null;
+  createdAt?: string | null;
 }
 
 export interface TravelCache {
