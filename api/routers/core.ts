@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createRouter, authedQuery, signedInQuery } from "../middleware";
 import { db } from "../db";
 import { geocodePostcode } from "../lib/geo";
+import { mailProvider, resendQueued, sendTestEmail } from "../lib/mailer";
 import {
   STAFF_ROLES,
   type Applications,
@@ -11,6 +12,7 @@ import {
   type Candidates,
   type Clients,
   type CrmContacts,
+  type EmailOutbox,
   type Notifications,
   type Organisations,
   type StaffProfiles,
@@ -93,7 +95,10 @@ export const coreRouter = createRouter({
         after: patch,
       });
       if (target.status === "pending" && input.status === "active") {
-        await notify({ staffId: target.id, type: "account_approved", title: "Your account has been approved", link: "/" });
+        await notify({
+          staffId: target.id, type: "account_approved", title: "Your account has been approved",
+          body: "You can now sign in to UniqueCare Connect with your email and password.", link: "/",
+        });
       }
       return { ok: true };
     }),
@@ -295,4 +300,48 @@ export const coreRouter = createRouter({
       await audit(sc.staff.fullName, input.enabled ? "automation_enabled" : "automation_disabled", "automation_rules", input.id);
       return { ok: true };
     }),
+
+  emailStatus: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), "super_admin", "admin");
+    const queued = await db.from("emailOutbox").eq("status", "queued").order("id", "desc").limit(50).many<EmailOutbox>();
+    const recent = await db.from("emailOutbox").order("id", "desc").limit(15).many<EmailOutbox>();
+    const lastFailure = await db.from("auditLog").eq("action", "email_queued").order("id", "desc").limit(1).first<AuditLog>();
+    const failureDetail = (lastFailure?.detail ?? null) as { error?: string; to?: string } | null;
+    return {
+      ...mailProvider(),
+      queued,
+      recent,
+      lastError: failureDetail?.error
+        ? { message: failureDetail.error, to: failureDetail.to ?? null, at: lastFailure!.at }
+        : null,
+    };
+  }),
+
+  resendQueuedEmails: authedQuery
+    .input(z.object({ ids: z.array(z.number()).max(50).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      return resendQueued(sc.staff.fullName, input.ids);
+    }),
+
+  discardQueuedEmail: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      await db.from("emailOutbox").eq("id", input.id).eq("status", "queued").update({ status: "discarded" });
+      await audit(sc.staff.fullName, "email_discarded", "email_outbox", input.id);
+      return { ok: true };
+    }),
+
+  sendTestEmail: authedQuery.mutation(async ({ ctx }) => {
+    const sc = await getStaff(ctx);
+    requireRole(sc, "super_admin", "admin");
+    const to = sc.staff.email ?? sc.user.email;
+    if (!to) throw new TRPCError({ code: "BAD_REQUEST", message: "Your account has no email address." });
+    const result = await sendTestEmail(to, sc.staff.fullName);
+    if (!result.ok) throw new TRPCError({ code: "BAD_REQUEST", message: `Test email to ${to} failed: ${result.error}` });
+    return { to };
+  }),
 });

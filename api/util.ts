@@ -1,5 +1,8 @@
 import { TRPCError } from "@trpc/server";
+import { waitUntil } from "@vercel/functions";
 import { db } from "./db";
+import { appUrl, orgProfile } from "./lib/app-url";
+import { sendEmail } from "./lib/mailer";
 import type { StaffProfile, StaffRole, User } from "@db/schema";
 import type { TrpcContext } from "./context";
 
@@ -147,6 +150,24 @@ export async function notify(opts: {
       link: opts.link,
     })
     .catch(() => {});
+  if (opts.staffId) waitUntil(emailStaff(opts.staffId, opts).catch(() => {}));
+}
+
+/** Email copy of an in-app notification, sent in the background so the request isn't held up by SMTP. */
+async function emailStaff(staffId: number, opts: { title: string; body?: string; link?: string }) {
+  const staff = await db.from("staffProfiles").eq("id", staffId).first<StaffProfile>();
+  if (!staff?.email || !canUseApp(staff)) return;
+  const org = await orgProfile();
+  const firstName = staff.fullName?.split(" ")[0] || "there";
+  const link = opts.link ? `${appUrl()}${opts.link.startsWith("/") ? "" : "/"}${opts.link}` : appUrl();
+  await sendEmail({
+    to: staff.email,
+    subject: opts.title,
+    body: `Hello ${firstName},\n\n${opts.title}${opts.body ? `\n\n${opts.body}` : ""}\n\nOpen UniqueCare Connect:\n${link}\n\n${org.name}`,
+    kind: "staff_notification",
+    relatedType: "staff",
+    relatedId: staffId,
+  });
 }
 
 /** Notify every staff member holding one of the given roles. */

@@ -25,6 +25,7 @@ export default function Settings() {
     <div className="max-w-4xl space-y-6">
       <PageHeader title="Settings" subtitle="Organisation, document templates and automation rules" />
       <OrgSection org={orgQ.data ?? null} />
+      <EmailSection />
       <TemplatesSection templates={tplQ.data ?? []} onChanged={() => utils.cqc.templates.invalidate()} />
       <AutomationsSection rules={rulesQ.data ?? []} />
     </div>
@@ -78,6 +79,100 @@ function OrgSection({ org }: { org: RouterOutputs["core"]["organisation"] }) {
         })}>
         Save organisation
       </Button>
+    </section>
+  );
+}
+
+function EmailSection() {
+  const utils = trpc.useUtils();
+  const statusQ = trpc.core.emailStatus.useQuery();
+  const refresh = () => utils.core.emailStatus.invalidate();
+  const resend = trpc.core.resendQueuedEmails.useMutation({
+    onSuccess: (r) => {
+      refresh();
+      if (r.attempted === 0) toast.info("Nothing is waiting to send.");
+      else if (r.failed === 0) toast.success(`Sent ${r.sent} email${r.sent === 1 ? "" : "s"}.`);
+      else toast.error(`Sent ${r.sent}, ${r.remaining} still waiting. ${r.lastError ?? ""}`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const discard = trpc.core.discardQueuedEmail.useMutation({
+    onSuccess: () => { refresh(); toast.success("Email discarded"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const test = trpc.core.sendTestEmail.useMutation({
+    onSuccess: (r) => { refresh(); toast.success(`Test email sent to ${r.to}. Check the inbox (and spam).`); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const s = statusQ.data;
+  const providerText = !s ? "" : s.provider === "smtp"
+    ? `Sending from ${s.from} (SMTP)`
+    : s.provider === "graph" ? `Sending from ${s.from} (Microsoft 365)`
+    : "No email provider is set. Add the SMTP_* variables on Vercel and redeploy.";
+
+  return (
+    <section className="uc-card p-5" aria-label="Email">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h2 className="uc-label">Email</h2>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" disabled={test.isPending || s?.provider === "none"} onClick={() => test.mutate()}>
+            {test.isPending ? "Sending…" : "Send test email to me"}
+          </Button>
+          <Button size="sm" disabled={resend.isPending || !s?.queued.length || s?.provider === "none"} onClick={() => resend.mutate({})}>
+            {resend.isPending ? "Sending…" : `Send all waiting (${s?.queued.length ?? 0})`}
+          </Button>
+        </div>
+      </div>
+      {statusQ.isLoading ? <Loading rows={2} /> : statusQ.error ? (
+        <ErrorState message={statusQ.error.message} onRetry={() => statusQ.refetch()} />
+      ) : s && (
+        <>
+          <p className={`text-sm ${s.provider === "none" ? "text-amber-700" : "text-muted-foreground"}`}>{providerText}</p>
+          {s.lastError && s.queued.length > 0 && (
+            <p className="mt-2 rounded-xl border border-red-300 bg-red-50 p-2.5 text-xs text-red-800">
+              Last failure{s.lastError.to ? ` (to ${s.lastError.to})` : ""}, {fmtDateTime(s.lastError.at)}: {s.lastError.message}
+            </p>
+          )}
+          <h3 className="mt-4 text-xs font-semibold text-muted-foreground">
+            Waiting to send ({s.queued.length})
+          </h3>
+          {s.queued.length === 0 ? (
+            <p className="text-xs text-muted-foreground mt-1">Nothing is waiting.</p>
+          ) : (
+            <ul className="divide-y mt-1" style={{ borderColor: "var(--line)" }}>
+              {s.queued.map((m) => (
+                <li key={m.id} className="py-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{m.subject}</p>
+                    <p className="text-xs text-muted-foreground">
+                      To {m.toEmail} · {m.kind.replace(/_/g, " ")} · {fmtDateTime(m.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Button size="sm" variant="outline" className="h-7" disabled={resend.isPending || s.provider === "none"}
+                      onClick={() => resend.mutate({ ids: [Number(m.id)] })}>Send</Button>
+                    <Button size="sm" variant="ghost" className="h-7" disabled={discard.isPending}
+                      onClick={() => discard.mutate({ id: Number(m.id) })}>Discard</Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <h3 className="mt-4 text-xs font-semibold text-muted-foreground">Recent emails</h3>
+          <ul className="divide-y mt-1" style={{ borderColor: "var(--line)" }}>
+            {s.recent.map((m) => (
+              <li key={m.id} className="py-1.5 flex items-center justify-between gap-2 text-xs">
+                <span className="truncate">{m.subject} <span className="text-muted-foreground">· {m.toEmail}</span></span>
+                <span className="flex items-center gap-2 shrink-0">
+                  <span className="text-muted-foreground">{fmtDateTime(m.createdAt)}</span>
+                  <Chip value={m.status} label={m.status} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

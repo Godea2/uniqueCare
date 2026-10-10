@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Confirm your new email address</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f2fafd;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2937;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Confirm the change of email address on your UniqueCare Connect account.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f2fafd;">
+  <tr>
+    <td align="center" style="padding:32px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+        <tr>
+          <td style="background-color:#082f52;border-radius:16px 16px 0 0;padding:24px 32px;">
+            <span style="display:inline-block;width:36px;height:36px;line-height:36px;border-radius:50%;background-color:#0586bf;color:#ffffff;font-size:18px;font-weight:700;text-align:center;vertical-align:middle;">U</span>
+            <span style="font-size:20px;font-weight:700;color:#ffffff;vertical-align:middle;padding-left:10px;">Unique Care UK</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#ffffff;padding:36px 32px 28px;border-left:1px solid #dcf0f9;border-right:1px solid #dcf0f9;">
+            <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3;color:#082f52;">Confirm your new email address</h1>
+            <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Hello,</p>
+            <p style="margin:0 0 24px;font-size:15px;line-height:1.6;">
+              A request was made to change the sign-in email for your UniqueCare Connect account
+              from <strong>{{ .Email }}</strong> to <strong>{{ .NewEmail }}</strong>.
+              Confirm to complete the change.
+            </p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+              <tr>
+                <td style="border-radius:10px;background-color:#0586bf;">
+                  <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:10px;">Confirm email change</a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0 0 8px;font-size:13px;line-height:1.6;color:#4b5563;">
+              The link expires in 1 hour and can only be used once.
+            </p>
+            <p style="margin:20px 0 4px;font-size:12px;line-height:1.6;color:#6b7280;">If the button doesn't work, copy this link into your browser:</p>
+            <p style="margin:0;font-size:12px;line-height:1.5;word-break:break-all;"><a href="{{ .ConfirmationURL }}" style="color:#0575a8;">{{ .ConfirmationURL }}</a></p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#ffffff;border-radius:0 0 16px 16px;border:1px solid #dcf0f9;border-top:1px solid #e5eef3;padding:20px 32px;">
+            <p style="margin:0;font-size:12px;line-height:1.6;color:#6b7280;">
+              Didn't ask for this? Don't click the link, and tell your manager straight away so they can secure your account.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding:20px 16px 0;">
+            <p style="margin:0;font-size:12px;line-height:1.6;color:#6b7280;">Unique Care UK · UniqueCare Connect</p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>
