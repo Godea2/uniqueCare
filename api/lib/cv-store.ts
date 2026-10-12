@@ -1,3 +1,4 @@
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { env } from "./env";
 
@@ -68,6 +69,39 @@ export async function readCv(key: string): Promise<Uint8Array | null> {
 
 export function cvDownloadUrl(key: string): Promise<string> {
   return signedUrl(CV_BUCKET, key, "This CV could not be opened.");
+}
+
+/** A one-time link the apply form can PUT a CV to, bypassing the serverless body limit. */
+export async function cvUploadTarget(fileName: string) {
+  await ensureBucket(CV_BUCKET);
+  const key = `apply/${Date.now()}-${randomUUID().slice(0, 8)}-${safeName(fileName)}`;
+  const { data, error } = await supabase().storage.from(CV_BUCKET).createSignedUploadUrl(key);
+  if (error || !data?.signedUrl) throw new Error("We could not prepare your upload. Please try again.");
+  return { key, uploadUrl: data.signedUrl, ticket: cvTicket(key) };
+}
+
+/** Proof that the server issued `key`, so the public form can't claim someone else's CV. */
+export function cvTicket(key: string): string {
+  return createHmac("sha256", env.supabaseServiceRoleKey).update(`cv-upload:${key}`).digest("base64url");
+}
+
+export function cvTicketValid(key: string, ticket: string): boolean {
+  const want = Buffer.from(cvTicket(key));
+  const got = Buffer.from(ticket);
+  return want.length === got.length && timingSafeEqual(want, got);
+}
+
+export async function removeCv(key: string): Promise<void> {
+  await supabase().storage.from(CV_BUCKET).remove([key]).catch(() => {});
+}
+
+/** MIME type of an accepted CV (a .pdf/.doc/.docx name and PDF, Word or zip bytes), or null. */
+export function sniffCv(bytes: Uint8Array, fileName: string): string | null {
+  if (!/\.(pdf|docx?)$/i.test(fileName)) return null;
+  if (Buffer.from(bytes.slice(0, 5)).toString("latin1") === "%PDF-") return "application/pdf";
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (bytes[0] === 0xd0 && bytes[1] === 0xcf) return "application/msword";
+  return null;
 }
 
 export function saveDocument(ownerKey: string, bytes: Uint8Array, fileName: string, contentType: string) {

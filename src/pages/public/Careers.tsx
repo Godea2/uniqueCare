@@ -1,7 +1,8 @@
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Loading, ErrorState, fmtDate, Markdown } from "@/components/common";
-import { MapPin, Clock3, ArrowRight } from "lucide-react";
+import { MapPin, Clock3, ArrowRight, Banknote } from "lucide-react";
+import { employmentLabel, formatSalary } from "@contracts/job-display";
 
 export default function Careers() {
   const q = trpc.hr.publicJobs.useQuery();
@@ -33,8 +34,12 @@ export default function Careers() {
                     <h3 className="font-semibold text-lg text-[--brand-900]">{j.title}</h3>
                     <p className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" aria-hidden />{j.location}</span>
-                      {j.salaryText && <span className="font-medium text-[--brand-700]">{j.salaryText}</span>}
-                      <span className="flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" aria-hidden />{j.employmentType.replace(/_/g, " ")}</span>
+                      {formatSalary(j.salaryText) && (
+                        <span className="flex items-center gap-1 font-medium text-[--brand-700]">
+                          <Banknote className="h-3.5 w-3.5" aria-hidden />{formatSalary(j.salaryText)}
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" aria-hidden />{employmentLabel(j.employmentType)}</span>
                     </p>
                   </div>
                   <Link to={`/apply/${j.applySlug ?? j.publicSlug}`}>

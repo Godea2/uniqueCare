@@ -64,6 +64,43 @@ describe("syncRequirementQuestions with answer types", () => {
   });
 });
 
+describe("syncRequirementQuestions doesn't ask the same thing twice", () => {
+  const base = defaultCareWorkerForm();
+  const fields = (doc: ReturnType<typeof syncRequirementQuestions>) => doc.sections.flatMap((s) => s.fields);
+
+  it("reuses the template's driving licence question for a licence requirement", () => {
+    const licence = req({
+      key: "full_uk_driving_license", label: "Full UK Driving License", required: true,
+      answerType: "yes_no", question: "Do you hold a full UK driving licence?", accepted: ["yes"],
+    });
+    const doc = syncRequirementQuestions(base, [licence]);
+    expect(fields(doc).find((f) => f.id === requirementFieldId(licence.key))).toBeUndefined();
+    expect(fields(doc).find((f) => f.id === "driving_licence")).toMatchObject({ requirementKey: licence.key, required: true });
+    expect(doc.sections.find((s) => s.id === "job_questions")).toBeUndefined();
+  });
+
+  it("matches on topic when the wording differs, and drops an existing duplicate", () => {
+    const rtw = req({ key: "rtw", label: "Right to work in the UK", answerType: "yes_no" });
+    const withDuplicate = syncRequirementQuestions(base, [req({ ...rtw, answerType: "multiple_choice", options: [] })]);
+    expect(fields(withDuplicate).some((f) => f.id === requirementFieldId("rtw"))).toBe(true);
+    const doc = syncRequirementQuestions(withDuplicate, [rtw]);
+    expect(fields(doc).filter((f) => f.requirementKey === "rtw").map((f) => f.id)).toEqual(["right_to_work"]);
+  });
+
+  it("still asks requirements the template doesn't cover", () => {
+    const crime = req({ key: "crime", label: "Any criminal record?", answerType: "yes_no", accepted: ["no"] });
+    const doc = syncRequirementQuestions(base, [crime]);
+    expect(fields(doc).find((f) => f.id === requirementFieldId("crime"))).toBeDefined();
+  });
+
+  it("keeps the requirement's accepted answer when it reuses a template question", () => {
+    const noCar = req({ key: "no_car", label: "Own car", answerType: "yes_no", accepted: ["no"] });
+    const own = fields(syncRequirementQuestions(base, [noCar])).find((f) => f.id === "own_car")!;
+    expect(own.requirementKey).toBe("no_car");
+    expect(structuredMet(noCar, own, "no")).toBe("yes");
+  });
+});
+
 describe("structuredMet", () => {
   it("decides yes / no answers, defaulting to yes meeting it", () => {
     expect(structuredMet(req({ answerType: "yes_no" }), { type: "yes_no" }, "yes")).toBe("yes");

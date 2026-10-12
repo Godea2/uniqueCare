@@ -33,7 +33,9 @@ import type { TrpcContext } from "../context";
 import { geocodePostcode } from "../lib/geo";
 import { callAI } from "../ai/provider";
 import { sendEmail } from "../lib/mailer";
-import { cvDownloadUrl, documentDownloadUrl, saveCv } from "../lib/cv-store";
+import {
+  cvDownloadUrl, cvTicketValid, cvUploadTarget, documentDownloadUrl, readCv, removeCv, saveCv, sniffCv,
+} from "../lib/cv-store";
 import { appUrl, orgProfile, portalUrl } from "../lib/app-url";
 import { jobRequirements, liveApplicationSchema, normaliseRequirements, syncJobForm } from "../lib/job-form";
 import {
@@ -54,6 +56,18 @@ import crypto from "crypto";
 const RECRUITMENT_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader", "interview_panel"];
 
 const REAPPLY_AFTER_DAYS = 30;
+
+const MAX_CV_BYTES = 10 * 1024 * 1024;
+const CV_TOO_LARGE = "Your CV is larger than 10 MB.";
+const CV_WRONG_TYPE = "Only PDF, DOC or DOCX files are accepted.";
+
+async function openJobForUpload(slug: string): Promise<JobPostings> {
+  const job = await db.from("jobPostings").eq("applySlug", slug).first<JobPostings>();
+  if (!job || job.status !== "live" || !job.applyLinkEnabled) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "This vacancy is no longer accepting applications." });
+  }
+  return job;
+}
 
 /** Admins and Registered Managers may apply repeatedly to test the form: signed in, or applying with their staff email. */
 async function isAdminApplicant(ctx: TrpcContext, email: string): Promise<boolean> {
@@ -289,7 +303,43 @@ export const hrRouter = createRouter({
       };
     }),
 
-  /** Public CV upload for the application form. Anonymous drop-box: 10 MB cap, PDF/DOC/DOCX only, no delete. */
+  /** Step 1 of a CV upload: a one-time storage link the browser PUTs the file to. */
+  cvUploadUrl: publicQuery
+    .input(z.object({ slug: z.string(), fileName: z.string().min(1).max(255) }))
+    .mutation(async ({ input }) => {
+      await openJobForUpload(input.slug);
+      if (!/\.(pdf|docx?)$/i.test(input.fileName)) throw new TRPCError({ code: "BAD_REQUEST", message: CV_WRONG_TYPE });
+      try {
+        return await cvUploadTarget(input.fileName);
+      } catch (err) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "We could not prepare your upload." });
+      }
+    }),
+
+  /** Step 2: check the uploaded CV (size, real PDF/Word file) and read its text for screening. */
+  confirmCv: publicQuery
+    .input(z.object({ slug: z.string(), key: z.string().min(1).max(300), ticket: z.string().min(1).max(100), fileName: z.string().min(1).max(255) }))
+    .mutation(async ({ input }) => {
+      await openJobForUpload(input.slug);
+      if (!input.key.startsWith("apply/") || !cvTicketValid(input.key, input.ticket)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This upload could not be matched. Please choose the file again." });
+      }
+      const bytes = await readCv(input.key);
+      if (!bytes) throw new TRPCError({ code: "BAD_REQUEST", message: "We didn't receive your file. Please try again." });
+      const problem = bytes.length > MAX_CV_BYTES ? CV_TOO_LARGE : null;
+      const mime = problem ? null : sniffCv(bytes, input.fileName);
+      if (!mime) {
+        await removeCv(input.key);
+        throw new TRPCError({ code: "BAD_REQUEST", message: problem ?? CV_WRONG_TYPE });
+      }
+      const { text, readable } = await extractCvText(bytes, input.fileName);
+      return {
+        key: input.key, fileName: input.fileName, size: bytes.length, mimeType: mime,
+        extractedText: text, readable,
+      };
+    }),
+
+  /** Older one-step CV upload (base64 through the API, so only small files fit). Kept for open tabs. */
   uploadCv: publicQuery
     .input(z.object({
       slug: z.string(),
@@ -297,25 +347,11 @@ export const hrRouter = createRouter({
       contentBase64: z.string().max(14_000_000), // ~10 MB binary as base64
     }))
     .mutation(async ({ input }) => {
-      const job = await db.from("jobPostings").eq("applySlug", input.slug).first<JobPostings>();
-      if (!job || job.status !== "live" || !job.applyLinkEnabled) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This vacancy is no longer accepting applications." });
-      }
+      await openJobForUpload(input.slug);
       const bytes = Uint8Array.from(Buffer.from(input.contentBase64, "base64"));
-      if (bytes.length > 10 * 1024 * 1024) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Your CV is larger than 10 MB." });
-      }
-      // MIME / magic-byte check
-      const magic = Buffer.from(bytes.slice(0, 8));
-      const isPdf = magic.subarray(0, 5).toString("latin1") === "%PDF-";
-      const isZip = magic[0] === 0x50 && magic[1] === 0x4b; // docx is a zip
-      const isOle = magic[0] === 0xd0 && magic[1] === 0xcf; // legacy .doc
-      const lower = input.fileName.toLowerCase();
-      const extOk = lower.endsWith(".pdf") || lower.endsWith(".doc") || lower.endsWith(".docx");
-      if (!extOk || !(isPdf || isZip || isOle)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Only PDF, DOC or DOCX files are accepted." });
-      }
-      const mime = isPdf ? "application/pdf" : isZip ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/msword";
+      if (bytes.length > MAX_CV_BYTES) throw new TRPCError({ code: "BAD_REQUEST", message: CV_TOO_LARGE });
+      const mime = sniffCv(bytes, input.fileName);
+      if (!mime) throw new TRPCError({ code: "BAD_REQUEST", message: CV_WRONG_TYPE });
       let saved: { key: string };
       try {
         saved = await saveCv(bytes, input.fileName, mime);

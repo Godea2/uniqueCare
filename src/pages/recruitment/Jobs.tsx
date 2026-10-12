@@ -23,6 +23,7 @@ import {
   REQUIREMENT_ANSWER_LABELS, REQUIREMENT_ANSWER_TYPES,
   type FormField, type JobRequirement, type RequirementAnswerType,
 } from "@contracts/form-schema";
+import { employmentLabel, formatSalary } from "@contracts/job-display";
 
 type JobRow = RouterOutputs["hr"]["jobs"][number];
 
@@ -122,7 +123,7 @@ function JobCard({ job: j, onSetStatus, onEdit }: { job: JobRow; onSetStatus: (s
             <Chip value={j.status} />
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {j.location}{j.salaryText ? ` · ${j.salaryText}` : ""} · {j.employmentType.replace(/_/g, " ")}
+            {[j.location, formatSalary(j.salaryText), employmentLabel(j.employmentType)].filter(Boolean).join(" · ")}
             {j.closesAt ? ` · closes ${fmtDate(j.closesAt)}` : ""}
           </p>
           <p className="text-xs text-muted-foreground mt-1">

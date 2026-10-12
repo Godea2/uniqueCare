@@ -158,15 +158,31 @@ export function trippedKnockouts(schema: FormSchemaDoc, answers: FormAnswers) {
 const UK_PHONE = /^(\+44\s?|0)\d[\d\s]{8,12}$/;
 const UK_POSTCODE = /^[A-Za-z]{1,2}\d[A-Za-z\d]?\s*\d[A-Za-z]{2}$/;
 
+const MISSING: Partial<Record<FieldType, string>> = {
+  single_choice: "Please choose an answer",
+  multiple_choice: "Please choose at least one option",
+  yes_no: "Please choose Yes or No",
+  rating: "Please choose a rating",
+  consent: "Please tick the box to continue",
+  file_upload: "Please upload a file",
+  availability_grid: "Please tick at least one time you could work",
+  date: "Please choose a date",
+};
+
+const noSlotsTicked = (value: unknown) =>
+  typeof value === "object" && value !== null && !Array.isArray(value) &&
+  Object.values(value as Record<string, unknown>).every((slots) => !Array.isArray(slots) || slots.length === 0);
+
 /** Validate one field's answer. Returns an error string or null. */
 export function validateAnswer(field: FormField, value: unknown): string | null {
   if (DISPLAY_TYPES.includes(field.type)) return null;
   const empty =
-    value === undefined || value === null || value === "" ||
+    value === undefined || value === null ||
+    (typeof value === "string" && value.trim() === "") ||
     (field.type === "consent" && value === false) ||
     (Array.isArray(value) && value.length === 0) ||
-    (field.type === "availability_grid" && typeof value === "object" && value !== null && Object.keys(value as object).length === 0);
-  if (empty) return field.required ? "This question requires an answer" : null;
+    (field.type === "availability_grid" && noSlotsTicked(value));
+  if (empty) return field.required ? MISSING[field.type] ?? "Please fill this in" : null;
 
   switch (field.type) {
     case "email":
@@ -433,26 +449,70 @@ export function requirementKeyFromLabel(label: string, taken: Iterable<string>):
   return key;
 }
 
+const normaliseAsk = (text: string) =>
+  text.toLowerCase().replace(/licen[cs]e/g, "licence").replace(/[^a-z0-9]+/g, " ").trim();
+
+const ASK_TOPICS: [string, RegExp][] = [
+  ["right_to_work", /right to work/],
+  ["driving_licence", /driv(?:ing|er)\b.*licence|licence.*driv/],
+  ["car", /\bcar\b|vehicle|own transport/],
+];
+
+/** The one well-known thing a question is about, or null when unclear. */
+function askTopic(text: string): string | null {
+  const t = normaliseAsk(text);
+  const hits = ASK_TOPICS.filter(([, re]) => re.test(t));
+  return hits.length === 1 ? hits[0][0] : null;
+}
+
+/**
+ * Whether a template field already asks what a requirement asks, so the form doesn't ask twice.
+ * The field's answers must be able to meet the requirement in code (a "yes" answer for yes/no).
+ */
+function templateFieldAsks(f: FormField, r: JobRequirement): boolean {
+  const ask = r.question?.trim() || r.label;
+  const sameWords = normaliseAsk(f.label) === normaliseAsk(ask);
+  const sameTopic = !sameWords && askTopic(f.label) !== null && askTopic(f.label) === askTopic(ask);
+  if (!sameWords && !sameTopic) return false;
+  const type = r.answerType ?? "text";
+  if (type === f.type) {
+    if (type !== "single_choice" && type !== "multiple_choice") return true;
+    const values = new Set((f.options ?? []).map((o) => o.value));
+    return (r.accepted ?? []).every((v) => values.has(v));
+  }
+  if (type !== "yes_no" && type !== "text") return false;
+  if (r.accepted?.length && !r.accepted.includes("yes")) return false;
+  if (f.type === "yes_no") return true;
+  return f.type === "single_choice" && (f.options ?? []).some((o) => o.value === "yes");
+}
+
 /**
  * Make the form ask about every screening requirement.
- * A requirement already covered by a template field (same requirementKey) reuses that field;
- * every other requirement gets one generated question in the job-questions section.
- * Generated questions for removed requirements are dropped. Pure: returns a new document.
+ * A requirement already covered by a template field (same requirementKey, or a field that asks
+ * the same thing) reuses that field; every other requirement gets one generated question in the
+ * job-questions section. Generated questions for removed requirements are dropped.
+ * Pure: returns a new document.
  */
 export function syncRequirementQuestions(schema: FormSchemaDoc, requirements: JobRequirement[]): FormSchemaDoc {
   const doc: FormSchemaDoc = JSON.parse(JSON.stringify(schema));
   const byKey = new Map(requirements.map((r) => [r.key, r]));
+  const templateFields = doc.sections.flatMap((s) => s.fields).filter((f) => !isRequirementField(f));
 
   const coveredByTemplate = new Set<string>();
-  for (const s of doc.sections) {
-    for (const f of s.fields) {
-      if (isRequirementField(f) || !f.requirementKey) continue;
-      const req = byKey.get(f.requirementKey);
-      if (!req) continue;
-      coveredByTemplate.add(req.key);
-      f.useInAi = true;
-      if (req.required) f.required = true;
-    }
+  const cover = (f: FormField, req: JobRequirement) => {
+    coveredByTemplate.add(req.key);
+    f.requirementKey = req.key;
+    f.useInAi = true;
+    if (req.required) f.required = true;
+  };
+  for (const f of templateFields) {
+    const req = f.requirementKey ? byKey.get(f.requirementKey) : undefined;
+    if (req) cover(f, req);
+  }
+  for (const r of requirements) {
+    if (coveredByTemplate.has(r.key)) continue;
+    const f = templateFields.find((t) => !(t.requirementKey && byKey.has(t.requirementKey)) && templateFieldAsks(t, r));
+    if (f) cover(f, r);
   }
 
   const existing = new Map<string, FormField>();
@@ -474,7 +534,10 @@ export function syncRequirementQuestions(schema: FormSchemaDoc, requirements: Jo
       return r ? { ...requirementField(r), id: f.id, condition: f.condition } : f;
     });
   }
-  if (missing.length === 0) return doc;
+  if (missing.length === 0) {
+    doc.sections = doc.sections.filter((s) => s.id !== REQUIREMENT_SECTION_ID || s.fields.length > 0);
+    return doc;
+  }
 
   let section = doc.sections.find((s) => s.id === REQUIREMENT_SECTION_ID);
   if (!section) {
