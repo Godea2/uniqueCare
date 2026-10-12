@@ -127,14 +127,16 @@ export async function sendEmail(opts: {
   kind: string;
   relatedType?: string;
   relatedId?: number | string;
+  /** The body holds a sign-in link: never store it, and never queue it for a resend. */
+  privateLink?: boolean;
 }) {
   const result = await deliver(opts.to, opts.subject, opts.body, opts.kind);
   const [row] = await db.from("emailOutbox").insert<EmailOutbox>({
     toEmail: opts.to,
     subject: opts.subject,
-    bodyText: opts.body,
+    bodyText: opts.privateLink ? opts.body.replace(/https?:\/\/\S+/g, "[private link not stored]") : opts.body,
     kind: opts.kind,
-    status: result.ok ? "sent" : "queued",
+    status: result.ok ? "sent" : opts.privateLink ? "failed" : "queued",
     relatedType: opts.relatedType ?? null,
     relatedId: opts.relatedId != null ? String(opts.relatedId) : null,
   });

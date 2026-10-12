@@ -63,19 +63,6 @@ function sessionFrom(body: unknown): ClientSession | null {
   return { accessToken, refreshToken, expiresAt };
 }
 
-export async function signUpWithEmail(email: string, password: string, fullName: string, redirectTo: string) {
-  const result = await gotrue("signup", {
-    email,
-    password,
-    data: { full_name: fullName },
-  }, redirectTo);
-  if (!result.ok) {
-    return { error: authErrorMessage(result.body, "Could not create the account") };
-  }
-  const session = sessionFrom(result.body);
-  return { session };
-}
-
 export async function signInWithPassword(email: string, password: string) {
   const result = await gotrue("token?grant_type=password", { email, password });
   if (!result.ok) {
@@ -94,20 +81,38 @@ export async function refreshAccessToken(refreshToken: string) {
   return { session };
 }
 
-export async function sendPasswordReset(email: string, redirectTo: string) {
-  const result = await gotrue("recover", { email }, redirectTo);
-  if (!result.ok) {
-    return { error: authErrorMessage(result.body, "Could not send the reset email") };
-  }
-  return { ok: true as const };
-}
-
 export async function verifyEmailToken(tokenHash: string, type: string) {
   const result = await gotrue("verify", { token_hash: tokenHash, type });
   if (!result.ok) return { error: authErrorMessage(result.body, "This link is invalid or has expired") };
   const session = sessionFrom(result.body);
   if (!session) return { error: "This link is invalid or has expired" };
   return { session };
+}
+
+/**
+ * A sign-up confirmation or password-reset link, made without Supabase sending an email,
+ * so the app can send it through its own mailer.
+ */
+export async function authEmailLink(
+  kind: "signup" | "recovery" | "magiclink", email: string, redirectTo: string, opts?: { password?: string; fullName?: string },
+): Promise<{ link?: string; error?: string }> {
+  const options = { redirectTo, ...(opts?.fullName ? { data: { full_name: opts.fullName } } : {}) };
+  const { data, error } = kind === "signup"
+    ? await authAdmin().auth.admin.generateLink({ type: "signup", email, password: opts?.password ?? "", options })
+    : await authAdmin().auth.admin.generateLink({ type: kind, email, options: { redirectTo } });
+  if (error || !data?.properties?.action_link) return { error: error?.message ?? "Could not create the link" };
+  return { link: data.properties.action_link };
+}
+
+export async function findAuthUserByEmail(email: string): Promise<AuthUser | null> {
+  for (let page = 1; page <= 20; page++) {
+    const { data, error } = await authAdmin().auth.admin.listUsers({ page, perPage: 200 });
+    if (error) return null;
+    const found = data.users.find((u) => u.email?.toLowerCase() === email);
+    if (found) return found;
+    if (data.users.length < 200) return null;
+  }
+  return null;
 }
 
 export async function userFromAccessToken(accessToken: string): Promise<AuthUser | null> {

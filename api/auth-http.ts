@@ -1,22 +1,17 @@
 import type { Context } from "hono";
 import { randomBytes } from "node:crypto";
 import {
+  authEmailLink,
+  findAuthUserByEmail,
   refreshAccessToken,
-  sendPasswordReset,
   setUserPassword,
   signInWithPassword,
-  signUpWithEmail,
   userFromAccessToken,
   verifyEmailToken,
 } from "./lib/gotrue";
-
-function appOrigin(c: Context): string {
-  const origin = c.req.header("origin");
-  if (origin) return origin;
-  const host = c.req.header("host") ?? "localhost:3000";
-  const proto = c.req.header("x-forwarded-proto") ?? "http";
-  return `${proto}://${host}`;
-}
+import { db } from "./db";
+import { appUrl, orgProfile } from "./lib/app-url";
+import { sendEmail } from "./lib/mailer";
 
 async function readJson(c: Context): Promise<Record<string, unknown>> {
   try {
@@ -35,24 +30,58 @@ function temporaryPassword(): string {
   return `Aa1!${randomBytes(24).toString("base64url")}`;
 }
 
+function clientIp(c: Context): string {
+  return (c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for")?.split(",")[0] ?? "unknown").trim();
+}
+
+/** At most `limit` requests per hour for each key; records this request when allowed. */
+async function withinLimit(bucket: string, keys: string[], limit: number): Promise<boolean> {
+  const since = new Date(Date.now() - 3600_000);
+  for (const key of keys) {
+    if (await db.from("rateLimitEvents").eq("bucket", bucket).eq("rlKey", key).gt("createdAt", since).count() >= limit) return false;
+  }
+  for (const key of keys) await db.from("rateLimitEvents").insert({ bucket, rlKey: key });
+  return true;
+}
+
+const TOO_MANY = "Too many requests. Please wait a while and try again.";
+const SEND_FAILED = "We could not send the email just now. Please try again in a few minutes.";
+
 export async function signupHandler(c: Context) {
   const body = await readJson(c);
   const email = text(body.email).toLowerCase();
   const fullName = text(body.fullName);
   if (!email || !email.includes("@")) return c.json({ error: "Enter a valid email address" }, 400);
   if (fullName.length < 2) return c.json({ error: "Enter your full name" }, 400);
+  if (!(await withinLimit("signup", [clientIp(c), email], 5))) return c.json({ error: TOO_MANY }, 429);
 
-  const redirectTo = `${appOrigin(c)}/auth/set-password`;
-  const result = await signUpWithEmail(email, temporaryPassword(), fullName, redirectTo);
-  if (result.error) {
-    const already = /already registered|already been registered|already exists/i.test(result.error);
-    return c.json({
-      error: already
-        ? "An account with this email already exists. Sign in, or reset your password."
-        : result.error,
-    }, already ? 409 : 400);
+  const redirectTo = `${appUrl(c.req.raw)}/auth/set-password`;
+  let result = await authEmailLink("signup", email, redirectTo, { password: temporaryPassword(), fullName });
+  if (result.error && /already registered|already been registered|already exists/i.test(result.error)) {
+    // Signed up before but never confirmed: send a fresh confirmation instead of refusing.
+    const existing = await findAuthUserByEmail(email);
+    if (existing?.email_confirmed_at) {
+      return c.json({ error: "An account with this email already exists. Sign in, or reset your password." }, 409);
+    }
+    result = await authEmailLink("magiclink", email, redirectTo);
   }
-  if (result.session) return c.json({ status: "session", session: result.session });
+  if (result.error || !result.link) return c.json({ error: result.error ?? "Could not create the account" }, 400);
+
+  const org = await orgProfile();
+  const sent = await sendEmail({
+    to: email,
+    subject: `Confirm your email for ${org.name}`,
+    body: [
+      `Hello ${fullName.split(" ")[0]},`,
+      `Thank you for creating a UniqueCare Connect account with ${org.name}. Confirm your email address and choose your password:`,
+      result.link,
+      "The link expires in 1 hour and can only be used once. If you did not ask for this, you can ignore this email.",
+      org.signOff,
+    ].join("\n\n"),
+    kind: "confirm_signup",
+    privateLink: true,
+  });
+  if (!sent.delivered) return c.json({ error: SEND_FAILED }, 502);
   return c.json({ status: "confirm_email" });
 }
 
@@ -81,9 +110,31 @@ export async function forgotHandler(c: Context) {
   const body = await readJson(c);
   const email = text(body.email).toLowerCase();
   if (!email || !email.includes("@")) return c.json({ error: "Enter a valid email address" }, 400);
-  const redirectTo = `${appOrigin(c)}/auth/set-password`;
-  const result = await sendPasswordReset(email, redirectTo);
-  if (result.error) return c.json({ error: result.error }, 400);
+  if (!(await withinLimit("password_reset", [clientIp(c), email], 5))) return c.json({ error: TOO_MANY }, 429);
+
+  const redirectTo = `${appUrl(c.req.raw)}/auth/set-password`;
+  // Same answer whether or not the account exists, so this can't be used to find out who has one.
+  const user = await findAuthUserByEmail(email);
+  if (!user) return c.json({ ok: true });
+  const result = await authEmailLink("recovery", email, redirectTo);
+  if (result.error || !result.link) return c.json({ error: SEND_FAILED }, 502);
+
+  const org = await orgProfile();
+  const sent = await sendEmail({
+    to: email,
+    subject: "Reset your UniqueCare Connect password",
+    body: [
+      "Hello,",
+      `We received a request to reset the password for the UniqueCare Connect account ${email}. Use the link below to choose a new one:`,
+      result.link,
+      "The link expires in 1 hour and can only be used once. Your current password keeps working until you set a new one.",
+      "Didn't ask for this? You can ignore this email and your password won't change.",
+      org.signOff,
+    ].join("\n\n"),
+    kind: "password_reset",
+    privateLink: true,
+  });
+  if (!sent.delivered) return c.json({ error: SEND_FAILED }, 502);
   return c.json({ ok: true });
 }
 

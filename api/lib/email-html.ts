@@ -19,6 +19,8 @@ const ACTION_LABELS: Record<string, string> = {
   training_booked: "View your booking",
   trainer_session: "Open the attendance register",
   staff_notification: "Open UniqueCare Connect",
+  confirm_signup: "Confirm email and set password",
+  password_reset: "Choose a new password",
 };
 
 export function actionLabelFor(kind: string): string {
