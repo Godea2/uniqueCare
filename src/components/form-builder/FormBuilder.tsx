@@ -18,6 +18,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import {
   GripVertical, Plus, Trash2, Copy, Lock, Undo2, Redo2, Eye, Pencil,
@@ -35,6 +37,22 @@ const TYPE_LABELS: Record<FieldType, string> = {
 
 let uid = 0;
 const nid = (p: string) => `${p}_${Date.now().toString(36)}_${(uid++).toString(36)}`;
+
+/** Wide enough for the editor and a settings rail side by side (the app sidebar takes ~250px). */
+const RAIL_QUERY = "(min-width: 1280px)";
+
+function useWideLayout() {
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia(RAIL_QUERY).matches);
+  useEffect(() => {
+    const mql = window.matchMedia(RAIL_QUERY);
+    const onChange = () => setWide(mql.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+  return wide;
+}
+
+const QUESTION_TYPES = FIELD_TYPES.filter((t) => !DISPLAY_TYPES.includes(t));
 
 type SuggestedQ = { id: string; type: string; label: string; required: boolean; locked: boolean; useInAi: boolean; options?: { value: string; label: string }[]; rationale?: string };
 
@@ -65,6 +83,7 @@ export function FormBuilder({ title, schema: initial, backLabel, onBack, onSave,
   const [suggesting, setSuggesting] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstLoad = useRef(true);
+  const wide = useWideLayout();
 
   // autosave draft (debounced) — skip the initial mount
   useEffect(() => {
@@ -144,11 +163,11 @@ export function FormBuilder({ title, schema: initial, backLabel, onBack, onSave,
   };
 
   return (
-    <div>
+    <div className="min-w-0">
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         {onBack && <Button variant="ghost" size="sm" onClick={onBack}>← {backLabel}</Button>}
-        {title && <h2 className="font-semibold text-[--brand-900] mr-auto">{title}</h2>}
+        <h2 className="min-w-0 flex-1 truncate font-semibold text-[--brand-900]">{title}</h2>
         <span className={`text-xs ${saveState === "saved" ? "text-green-600" : saveState === "saving" ? "text-muted-foreground" : "text-amber-600"}`}>
           {saveState === "saved" ? "Draft saved" : saveState === "saving" ? "Saving…" : "Unsaved changes…"}
         </span>
@@ -198,16 +217,23 @@ export function FormBuilder({ title, schema: initial, backLabel, onBack, onSave,
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+        <div className={wide ? "grid grid-cols-[minmax(0,1fr)_340px] items-start gap-5" : undefined}>
           {/* canvas */}
-          <div data-tour="form-canvas">
-            {/* branding */}
+          <div data-tour="form-canvas" className="min-w-0">
             <div className="uc-card p-4 mb-4">
-              <p className="uc-label mb-2">Branding & messages</p>
-              <Label htmlFor="fb-intro">Introduction shown at the top of the form</Label>
-              <Textarea id="fb-intro" rows={2} value={doc.introText ?? ""} onChange={(e) => mutate((d) => ({ ...d, introText: e.target.value }))} />
-              <Label htmlFor="fb-ty" className="mt-2">Thank-you message after submission</Label>
-              <Textarea id="fb-ty" rows={2} value={doc.thankYouText ?? ""} onChange={(e) => mutate((d) => ({ ...d, thankYouText: e.target.value }))} />
+              <p className="uc-label mb-3">Messages</p>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="min-w-0 space-y-1.5">
+                  <Label htmlFor="fb-intro">Introduction at the top of the form</Label>
+                  <Textarea id="fb-intro" rows={4} className="resize-y [field-sizing:fixed]" value={doc.introText ?? ""}
+                    onChange={(e) => mutate((d) => ({ ...d, introText: e.target.value }))} />
+                </div>
+                <div className="min-w-0 space-y-1.5">
+                  <Label htmlFor="fb-ty">Thank-you message after submitting</Label>
+                  <Textarea id="fb-ty" rows={4} className="resize-y [field-sizing:fixed]" value={doc.thankYouText ?? ""}
+                    onChange={(e) => mutate((d) => ({ ...d, thankYouText: e.target.value }))} />
+                </div>
+              </div>
             </div>
 
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd}>
@@ -229,6 +255,7 @@ export function FormBuilder({ title, schema: initial, backLabel, onBack, onSave,
                     onMoveDown={si < doc.sections.length - 1 ? () => mutate((d) => ({ ...d, sections: arrayMove(d.sections, si, si + 1) })) : undefined}
                     selected={sel?.section === si ? sel.field : null}
                     onSelectField={(fi) => setSel({ section: si, field: fi })}
+                    onAddField={(t) => addField(t, si)}
                     onMoveField={(from, to) => moveField(si, from, to)}
                     onDeleteField={(fi) => setDeleteFieldWarn({ s: si, f: fi })}
                     onDuplicateField={(fi) => mutate((d) => ({
@@ -251,39 +278,43 @@ export function FormBuilder({ title, schema: initial, backLabel, onBack, onSave,
             </Button>
           </div>
 
-          {/* right rail: palette + field settings */}
-          <div className="space-y-4">
-            <div className="uc-card p-4">
-              <p className="uc-label mb-2">Add a field</p>
-              {sel || doc.sections.length > 0 ? (
-                <>
-                  <p className="text-[11px] text-muted-foreground mb-2">
-                    Adds to: <strong>{doc.sections[sel?.section ?? doc.sections.length - 1]?.title}</strong>
-                  </p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {FIELD_TYPES.map((t) => (
-                      <button key={t}
-                        className="rounded-lg border px-2 py-1.5 text-[11px] text-left hover:bg-slate-50 hover:border-[--brand-400]"
-                        style={{ borderColor: "var(--card-line)" }}
-                        onClick={() => addField(t, sel?.section ?? doc.sections.length - 1)}>
-                        {TYPE_LABELS[t]}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : <p className="text-xs text-muted-foreground">Add a section first.</p>}
+          {wide && (
+            <div className="sticky top-4 max-h-[calc(100vh-2rem)] min-w-0 overflow-y-auto">
+              {selected && sel ? (
+                <FieldSettings
+                  field={selected}
+                  allFields={doc.sections.flatMap((s) => s.fields).filter((f) => !DISPLAY_TYPES.includes(f.type) && f.id !== selected.id)}
+                  onChange={(patch) => updateField(sel.section, sel.field, patch)}
+                  onClose={() => setSel(null)}
+                />
+              ) : (
+                <FormSummary doc={doc} />
+              )}
             </div>
-
-            {selected && sel && (
-              <FieldSettings
-                field={selected}
-                allFields={doc.sections.flatMap((s) => s.fields).filter((f) => !DISPLAY_TYPES.includes(f.type) && f.id !== selected.id)}
-                onChange={(patch) => updateField(sel.section, sel.field, patch)}
-                onClose={() => setSel(null)}
-              />
-            )}
-          </div>
+          )}
         </div>
+      )}
+
+      {!wide && !preview && (
+        <Sheet open={!!(selected && sel)} onOpenChange={(o) => !o && setSel(null)}>
+          <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-md">
+            <SheetHeader className="border-b pr-10" style={{ borderColor: "var(--card-line)" }}>
+              <SheetTitle className="truncate">{selected?.label ?? "Question"}</SheetTitle>
+              <SheetDescription>{selected ? TYPE_LABELS[selected.type] : ""} · changes save automatically</SheetDescription>
+            </SheetHeader>
+            {selected && sel && (
+              <div className="p-4">
+                <FieldSettings
+                  bare
+                  field={selected}
+                  allFields={doc.sections.flatMap((s) => s.fields).filter((f) => !DISPLAY_TYPES.includes(f.type) && f.id !== selected.id)}
+                  onChange={(patch) => updateField(sel.section, sel.field, patch)}
+                  onClose={() => setSel(null)}
+                />
+              </div>
+            )}
+          </SheetContent>
+        </Sheet>
       )}
 
       {/* warn before deleting fields */}
@@ -367,92 +398,164 @@ export function FormBuilder({ title, schema: initial, backLabel, onBack, onSave,
 }
 
 // ── Section card ────────────────────────────────────────────────────────────
-function SectionCard({ section: s, onRename, onDescription, onDelete, onDuplicate, onMoveUp, onMoveDown, selected, onSelectField, onMoveField, onDeleteField, onDuplicateField }: {
+function SectionCard({ section: s, onRename, onDescription, onDelete, onDuplicate, onMoveUp, onMoveDown, selected, onSelectField, onAddField, onMoveField, onDeleteField, onDuplicateField }: {
   section: FormSection;
   onRename: (t: string) => void; onDescription: (t: string) => void;
   onDelete: () => void; onDuplicate: () => void;
   onMoveUp?: () => void; onMoveDown?: () => void;
   selected: number | null; onSelectField: (i: number) => void;
+  onAddField: (t: FieldType) => void;
   onMoveField: (from: number, to: number) => void;
   onDeleteField: (i: number) => void; onDuplicateField: (i: number) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: s.id });
   const [open, setOpen] = useState(true);
+  const questions = s.fields.filter((f) => !DISPLAY_TYPES.includes(f.type)).length;
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }}
-      className="uc-card p-4 mb-3">
-      <div className="flex items-center gap-2">
-        <button {...attributes} {...listeners} className="cursor-grab text-slate-400 hover:text-slate-600" aria-label={`Drag section ${s.title}`}>
+      className="uc-card mb-3 min-w-0 p-3 sm:p-4">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <button {...attributes} {...listeners} className="shrink-0 cursor-grab text-slate-400 hover:text-slate-600" aria-label={`Drag section ${s.title}`}>
           <GripVertical className="h-4 w-4" />
         </button>
-        <Input value={s.title} onChange={(e) => onRename(e.target.value)} className="h-8 font-medium flex-1" aria-label="Section title" />
-        <button onClick={() => setOpen((o) => !o)} aria-label="Collapse section" className="text-slate-400">
-          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </button>
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onMoveUp} disabled={!onMoveUp} aria-label="Move section up"><ChevronUp className="h-3.5 w-3.5" /></Button>
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onMoveDown} disabled={!onMoveDown} aria-label="Move section down"><ChevronDown className="h-3.5 w-3.5" /></Button>
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onDuplicate} aria-label="Duplicate section"><Copy className="h-3.5 w-3.5" /></Button>
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onDelete} aria-label="Delete section"><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+        <Input value={s.title} onChange={(e) => onRename(e.target.value)} className="h-9 min-w-0 flex-1 font-medium" aria-label="Section title" />
+        <span className="hidden shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 sm:inline">
+          {questions} question{questions === 1 ? "" : "s"}
+        </span>
+        <div className="flex shrink-0 items-center">
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onMoveUp} disabled={!onMoveUp} aria-label="Move section up" title="Move section up"><ChevronUp className="h-3.5 w-3.5" /></Button>
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onMoveDown} disabled={!onMoveDown} aria-label="Move section down" title="Move section down"><ChevronDown className="h-3.5 w-3.5" /></Button>
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onDuplicate} aria-label="Duplicate section" title="Duplicate section"><Copy className="h-3.5 w-3.5" /></Button>
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onDelete} aria-label="Delete section" title="Delete section"><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setOpen((o) => !o)}
+            aria-label={open ? "Collapse section" : "Expand section"} aria-expanded={open} title={open ? "Collapse" : "Expand"}>
+            <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+          </Button>
+        </div>
       </div>
       {open && (
         <>
           <Input value={s.description ?? ""} onChange={(e) => onDescription(e.target.value)}
-            placeholder="Section description (optional)" className="h-7 mt-2 text-xs" aria-label="Section description" />
+            placeholder="Section description (optional)" className="mt-2 h-8 text-xs" aria-label="Section description" />
           <div className="mt-2 space-y-1.5">
             {s.fields.map((f, fi) => (
               <div key={f.id}
-                className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm cursor-pointer ${selected === fi ? "border-[--brand-500] bg-[--brand-50]" : "bg-white hover:bg-slate-50"}`}
+                className={`group flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm cursor-pointer transition-colors ${selected === fi ? "border-[--brand-500] bg-[--brand-50]" : "bg-white hover:bg-slate-50"}`}
                 style={{ borderColor: selected === fi ? undefined : "var(--card-line)" }}
                 onClick={() => onSelectField(fi)}
                 role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onSelectField(fi)}>
-                <span className="flex-1 truncate">
-                  {f.label}
-                  <span className="ml-2 text-[10px] text-muted-foreground">{TYPE_LABELS[f.type]}</span>
-                  {f.required && <span className="ml-1 text-red-500">*</span>}
-                </span>
-                {f.locked && (
-                  <span title="Core field — cannot be deleted (you can edit the label)">
-                    <Lock className="h-3.5 w-3.5 text-slate-400" aria-label="Locked core field" />
-                  </span>
-                )}
-                {f.knockoutRule && <span className="rounded-full bg-amber-100 text-amber-800 px-1.5 text-[10px]">knockout</span>}
-                {f.useInAi && <span className="rounded-full bg-[--brand-50] text-[--brand-700] px-1.5 text-[10px]">AI</span>}
-                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" disabled={fi === 0}
-                  onClick={(e) => { e.stopPropagation(); onMoveField(fi, fi - 1); }} aria-label="Move field up"><ChevronUp className="h-3 w-3" /></Button>
-                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" disabled={fi === s.fields.length - 1}
-                  onClick={(e) => { e.stopPropagation(); onMoveField(fi, fi + 1); }} aria-label="Move field down"><ChevronDown className="h-3 w-3" /></Button>
-                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" disabled={f.locked}
-                  onClick={(e) => { e.stopPropagation(); onDuplicateField(fi); }} aria-label="Duplicate field"><Copy className="h-3 w-3" /></Button>
-                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" disabled={f.locked}
-                  title={f.locked ? "Core field — cannot be deleted" : "Delete field"}
-                  onClick={(e) => { e.stopPropagation(); if (!f.locked) onDeleteField(fi); }} aria-label="Delete field">
-                  <Trash2 className={`h-3 w-3 ${f.locked ? "text-slate-300" : "text-red-500"}`} />
-                </Button>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-slate-800">
+                    {f.label}
+                    {f.required && <span className="ml-0.5 text-red-500">*</span>}
+                  </p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span>{TYPE_LABELS[f.type]}</span>
+                    {f.locked && (
+                      <span className="inline-flex items-center gap-0.5" title="Core field — cannot be deleted (you can edit the label)">
+                        <Lock className="h-3 w-3" aria-hidden /> core
+                      </span>
+                    )}
+                    {isRequirementField(f) && <span className="rounded-full bg-violet-50 px-1.5 text-violet-700">job requirement</span>}
+                    {f.condition && <span className="rounded-full bg-slate-100 px-1.5 text-slate-600">conditional</span>}
+                    {f.knockoutRule && <span className="rounded-full bg-amber-100 px-1.5 text-amber-800">knockout</span>}
+                    {f.useInAi && <span className="rounded-full bg-[--brand-100] px-1.5 text-[--brand-700]">AI</span>}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={fi === 0}
+                    onClick={(e) => { e.stopPropagation(); onMoveField(fi, fi - 1); }} aria-label="Move field up" title="Move up"><ChevronUp className="h-3.5 w-3.5" /></Button>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={fi === s.fields.length - 1}
+                    onClick={(e) => { e.stopPropagation(); onMoveField(fi, fi + 1); }} aria-label="Move field down" title="Move down"><ChevronDown className="h-3.5 w-3.5" /></Button>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={f.locked}
+                    onClick={(e) => { e.stopPropagation(); onDuplicateField(fi); }} aria-label="Duplicate field" title="Duplicate"><Copy className="h-3.5 w-3.5" /></Button>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={f.locked}
+                    title={f.locked ? "Core field — cannot be deleted" : "Delete"}
+                    onClick={(e) => { e.stopPropagation(); if (!f.locked) onDeleteField(fi); }} aria-label="Delete field">
+                    <Trash2 className={`h-3.5 w-3.5 ${f.locked ? "text-slate-300" : "text-red-500"}`} />
+                  </Button>
+                </div>
               </div>
             ))}
-            {s.fields.length === 0 && <p className="text-xs text-muted-foreground py-2">No fields yet — pick one from the palette on the right.</p>}
+            {s.fields.length === 0 && <p className="py-2 text-xs text-muted-foreground">No questions in this section yet.</p>}
           </div>
+          <AddFieldMenu onAdd={onAddField} />
         </>
       )}
     </div>
   );
 }
 
+function AddFieldMenu({ onAdd }: { onAdd: (t: FieldType) => void }) {
+  const [open, setOpen] = useState(false);
+  const pick = (t: FieldType) => { onAdd(t); setOpen(false); };
+  const item = (t: FieldType) => (
+    <button key={t} type="button" onClick={() => pick(t)}
+      className="rounded-lg border px-2.5 py-1.5 text-left text-xs hover:border-[--brand-400] hover:bg-[--brand-50]"
+      style={{ borderColor: "var(--card-line)" }}>
+      {TYPE_LABELS[t]}
+    </button>
+  );
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm" className="mt-2 w-full border border-dashed text-[--brand-700] hover:bg-[--brand-50]" style={{ borderColor: "var(--card-line)" }}>
+          <Plus className="mr-1 h-4 w-4" /> Add question
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="center" className="w-[min(92vw,360px)] p-3">
+        <p className="uc-label mb-2">Question</p>
+        <div className="grid grid-cols-2 gap-1.5">{QUESTION_TYPES.map(item)}</div>
+        <p className="uc-label mb-2 mt-3">Layout</p>
+        <div className="grid grid-cols-2 gap-1.5">{DISPLAY_TYPES.map(item)}</div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function FormSummary({ doc }: { doc: FormSchemaDoc }) {
+  const fields = doc.sections.flatMap((s) => s.fields).filter((f) => !DISPLAY_TYPES.includes(f.type));
+  const stats = [
+    { label: "Sections", value: doc.sections.length },
+    { label: "Questions", value: fields.length },
+    { label: "Required", value: fields.filter((f) => f.required).length },
+    { label: "Used in AI screening", value: fields.filter((f) => f.useInAi).length },
+  ];
+  return (
+    <div className="uc-card p-4">
+      <p className="uc-label mb-3">This form</p>
+      <dl className="grid grid-cols-2 gap-2">
+        {stats.map((s) => (
+          <div key={s.label} className="rounded-xl bg-slate-50 px-3 py-2">
+            <dt className="text-[11px] text-muted-foreground">{s.label}</dt>
+            <dd className="text-lg font-semibold text-[--brand-900]">{s.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-4 text-sm text-slate-600">Select a question to change its wording, options, when it shows, and how it's used in screening.</p>
+      <p className="mt-2 text-xs text-muted-foreground">Use “Add question” at the bottom of a section to add to it. Drag a section by its handle to reorder.</p>
+    </div>
+  );
+}
+
 // ── Field settings panel ────────────────────────────────────────────────────
-function FieldSettings({ field: f, allFields, onChange, onClose }: {
+function FieldSettings({ field: f, allFields, onChange, onClose, bare }: {
   field: FormField;
   allFields: FormField[];
   onChange: (p: Partial<FormField>) => void;
   onClose: () => void;
+  bare?: boolean;
 }) {
   const isDisplay = DISPLAY_TYPES.includes(f.type);
   const fromRequirement = isRequirementField(f);
   return (
-    <div className="uc-card p-4">
-      <div className="flex items-center justify-between mb-3">
-        <p className="uc-label">Field settings {f.locked && <Lock className="inline h-3 w-3 ml-1 text-slate-400" />}</p>
-        <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onClose} aria-label="Close settings"><X className="h-3.5 w-3.5" /></Button>
-      </div>
+    <div className={bare ? undefined : "uc-card p-4"}>
+      {!bare && (
+        <div className="flex items-center justify-between mb-3">
+          <p className="uc-label">Question settings {f.locked && <Lock className="inline h-3 w-3 ml-1 text-slate-400" />}</p>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onClose} aria-label="Close settings"><X className="h-3.5 w-3.5" /></Button>
+        </div>
+      )}
       <div className="space-y-3">
         <div>
           <Label>Label</Label>
@@ -524,9 +627,9 @@ function FieldSettings({ field: f, allFields, onChange, onClose }: {
           <>
             <div className="border-t pt-3" style={{ borderColor: "var(--card-line)" }}>
               <Label>Show only if…</Label>
-              <div className="flex gap-1.5 mt-1">
+              <div className="flex flex-wrap gap-1.5 mt-1">
                 <Select value={f.condition?.fieldId ?? ""} onValueChange={(v) => onChange({ condition: v ? { fieldId: v, op: f.condition?.op ?? "equals", value: f.condition?.value ?? "" } : undefined })}>
-                  <SelectTrigger className="h-8 text-xs flex-1"><SelectValue placeholder="Always shown" /></SelectTrigger>
+                  <SelectTrigger className="h-8 w-full min-w-0 text-xs"><SelectValue placeholder="Always shown" /></SelectTrigger>
                   <SelectContent>
                     {allFields.map((af) => <SelectItem key={af.id} value={af.id}>{af.label.slice(0, 40)}</SelectItem>)}
                   </SelectContent>
@@ -543,7 +646,7 @@ function FieldSettings({ field: f, allFields, onChange, onClose }: {
                       </SelectContent>
                     </Select>
                     {f.condition.op !== "answered" && (
-                      <Input className="h-8 text-xs w-24" value={f.condition.value ?? ""} placeholder="value"
+                      <Input className="h-8 min-w-0 flex-1 text-xs" value={f.condition.value ?? ""} placeholder="value"
                         onChange={(e) => onChange({ condition: { ...f.condition!, value: e.target.value } })} />
                     )}
                   </>
@@ -569,7 +672,7 @@ function FieldSettings({ field: f, allFields, onChange, onClose }: {
               )}
               <div>
                 <Label>Knockout rule (flags for human review — never auto-rejects)</Label>
-                <div className="flex gap-1.5 mt-1">
+                <div className="flex flex-wrap gap-1.5 mt-1">
                   <Select value={f.knockoutRule ? "set" : ""} onValueChange={(v) => onChange({ knockoutRule: v === "set" ? { op: "equals", value: "no", message: "" } : undefined })}>
                     <SelectTrigger className="h-8 text-xs w-24"><SelectValue placeholder="None" /></SelectTrigger>
                     <SelectContent>
@@ -586,7 +689,7 @@ function FieldSettings({ field: f, allFields, onChange, onClose }: {
                           <SelectItem value="contains">contains</SelectItem>
                         </SelectContent>
                       </Select>
-                      <Input className="h-8 text-xs w-20" value={f.knockoutRule.value} placeholder="value"
+                      <Input className="h-8 min-w-0 flex-1 text-xs" value={f.knockoutRule.value} placeholder="value"
                         onChange={(e) => onChange({ knockoutRule: { ...f.knockoutRule!, value: e.target.value } })} />
                     </>
                   )}
