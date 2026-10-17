@@ -79,10 +79,16 @@ function bodyHtml(text: string, actionLabel: string): string {
   return out.filter(Boolean).join("\n");
 }
 
-export function renderEmailHtml(opts: { orgName: string; subject: string; text: string; kind: string }): string {
+export function renderEmailHtml(opts: {
+  orgName: string; subject: string; text: string; kind: string; logoUrl?: string;
+}): string {
   const org = escapeHtml(opts.orgName);
   const initial = escapeHtml(opts.orgName.trim().charAt(0).toUpperCase() || "U");
   const preview = escapeHtml(opts.text.split("\n").find((l) => l.trim() && !/^dear |^hello /i.test(l.trim()))?.trim().slice(0, 140) ?? "");
+  const brand = opts.logoUrl
+    ? `<img src="${escapeHtml(opts.logoUrl)}" alt="${org}" height="36" style="height:36px;width:auto;max-width:220px;display:block;border:0;outline:none;text-decoration:none;" />`
+    : `<span style="display:inline-block;width:36px;height:36px;line-height:36px;border-radius:50%;background-color:#0586bf;color:#ffffff;font-size:18px;font-weight:700;text-align:center;vertical-align:middle;">${initial}</span>
+            <span style="font-size:20px;font-weight:700;color:#ffffff;vertical-align:middle;padding-left:10px;">${org}</span>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -99,8 +105,7 @@ export function renderEmailHtml(opts: { orgName: string; subject: string; text: 
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
         <tr>
           <td style="background-color:#082f52;border-radius:16px 16px 0 0;padding:24px 32px;">
-            <span style="display:inline-block;width:36px;height:36px;line-height:36px;border-radius:50%;background-color:#0586bf;color:#ffffff;font-size:18px;font-weight:700;text-align:center;vertical-align:middle;">${initial}</span>
-            <span style="font-size:20px;font-weight:700;color:#ffffff;vertical-align:middle;padding-left:10px;">${org}</span>
+            ${brand}
           </td>
         </tr>
         <tr>

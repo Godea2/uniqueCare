@@ -2,9 +2,30 @@ import { describe, expect, it } from "vitest";
 import { renderEmailHtml } from "./email-html";
 
 const render = (text: string, kind = "application_confirmation") =>
-  renderEmailHtml({ orgName: "Unique Care UK", subject: "Your application", text, kind });
+  renderEmailHtml({
+    orgName: "Unique Care UK",
+    subject: "Your application",
+    text,
+    kind,
+    logoUrl: "https://unique-care-six.vercel.app/logo-white.png",
+  });
 
 describe("renderEmailHtml", () => {
+  it("puts the org logo in the header", () => {
+    const html = render("Hello,\n\nThanks");
+    expect(html).toContain('src="https://unique-care-six.vercel.app/logo-white.png"');
+    expect(html).toContain('alt="Unique Care UK"');
+    expect(html).not.toContain("border-radius:50%");
+  });
+
+  it("falls back to an initial when no logo URL is set", () => {
+    const html = renderEmailHtml({
+      orgName: "Unique Care UK", subject: "Hi", text: "Hello", kind: "staff_notification",
+    });
+    expect(html).toContain(">U</span>");
+    expect(html).not.toContain("<img ");
+  });
+
   it("turns a line that is only a URL into a labelled button", () => {
     const html = render("Dear Ann,\n\nOpen your portal:\nhttps://example.com/portal/abc\n\nKind regards,\nTeam");
     expect(html).toContain('href="https://example.com/portal/abc"');

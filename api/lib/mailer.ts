@@ -142,7 +142,7 @@ async function deliver(
   to: string, subject: string, bodyText: string, kind: string, attachments?: EmailAttachment[],
 ): Promise<SendResult> {
   const org = await orgProfile();
-  const html = renderEmailHtml({ orgName: org.name, subject, text: bodyText, kind });
+  const html = renderEmailHtml({ orgName: org.name, subject, text: bodyText, kind, logoUrl: org.logoUrl });
   return smtpSettings()
     ? smtpSend(to, subject, bodyText, html, attachments)
     : graphSend(to, subject, html, attachments);
