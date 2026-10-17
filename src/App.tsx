@@ -31,6 +31,7 @@ import ChangeEvents from "./pages/clients/ChangeEvents";
 import WeekPlanner from "./pages/rota/WeekPlanner";
 import Reassignments from "./pages/rota/Reassignments";
 import MyRota from "./pages/rota/MyRota";
+import Timesheets from "./pages/rota/Timesheets";
 
 import Tickets from "./pages/crm/Tickets";
 import TicketDetail from "./pages/crm/TicketDetail";
@@ -95,6 +96,7 @@ export default function App() {
 
       <Route path="/rota" element={<P><WeekPlanner /></P>} />
       <Route path="/rota/reassignments" element={<P><Reassignments /></P>} />
+      <Route path="/rota/timesheets" element={<P><Timesheets /></P>} />
       <Route path="/me" element={<P><MyRota /></P>} />
 
       <Route path="/crm/tickets" element={<P><Tickets /></P>} />

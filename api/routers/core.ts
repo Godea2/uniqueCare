@@ -260,6 +260,7 @@ export const coreRouter = createRouter({
       maxWeeklyHours: z.number().min(0).max(60).optional(),
       jobTitle: z.string().optional(),
       employmentType: z.enum(["full_time", "part_time", "zero_hours", "bank"]).optional(),
+      hourlyRate: z.number().min(0).max(500).nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
@@ -275,6 +276,7 @@ export const coreRouter = createRouter({
       if (input.maxWeeklyHours !== undefined) set.maxWeeklyHours = String(input.maxWeeklyHours);
       if (input.jobTitle !== undefined) set.jobTitle = input.jobTitle;
       if (input.employmentType !== undefined) set.employmentType = input.employmentType;
+      if (input.hourlyRate !== undefined) set.hourlyRate = input.hourlyRate == null ? null : String(input.hourlyRate);
       if (Object.keys(set).length === 0) return { ok: true };
       await db.from("staffProfiles").eq("id", input.id).update(set);
       await audit(sc.staff.fullName, "staff_pattern_updated", "staff_profile", input.id, set);

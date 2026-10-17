@@ -614,6 +614,8 @@ export interface StaffProfiles {
   workPattern: string | null;
   /** 0=Mon .. 6=Sun when workPattern is five_day_flex */
   fixedDayOff: number | null;
+  /** GBP per hour for timesheets / payroll */
+  hourlyRate: string | null;
   status: string;
   avatarColor: string | null;
   homeRole: string | null;
@@ -803,6 +805,44 @@ export interface VisitAssignments {
   travelMinutesFromPrevious: number | null;
   status: string;
   createdAt: string;
+}
+
+export interface VisitAttendance {
+  id: number;
+  visitId: number;
+  staffId: number;
+  assignmentId: number | null;
+  clockInAt: string;
+  clockInLat: string;
+  clockInLng: string;
+  clockInAccuracyM: string | null;
+  clockOutAt: string | null;
+  clockOutLat: string | null;
+  clockOutLng: string | null;
+  clockOutAccuracyM: string | null;
+  clockOutReason: string | null;
+  earlyReasonText: string | null;
+  status: string;
+  leftGeofenceAt: string | null;
+  paidMinutes: number | null;
+  unpaidGraceMinutes: number | null;
+  hourlyRateSnapshot: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VisitLocationProbes {
+  id: number;
+  attendanceId: number;
+  visitId: number;
+  staffId: number;
+  at: string;
+  lat: string;
+  lng: string;
+  accuracyM: string | null;
+  distanceM: string;
+  insideGeofence: boolean;
+  violationNotified: boolean;
 }
 
 export interface Visits {

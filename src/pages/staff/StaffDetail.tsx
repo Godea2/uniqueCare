@@ -8,6 +8,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
   ArrowLeft, Phone, Mail, MapPin, Car, Languages, GraduationCap,
@@ -124,6 +127,7 @@ export default function StaffDetail() {
                 <Field label="Length of service" value={lengthOfService(s.startDate)} />
                 <Field label="Contracted hours" value={`${s.contractedHours ?? "—"}h / week`} />
                 <Field label="Max weekly hours" value={`${s.maxWeeklyHours ?? "—"}h${s.isStudent ? " (student cap, incl. travel)" : ""}`} />
+                <Field label="Hourly rate" value={s.hourlyRate != null ? `£${Number(s.hourlyRate).toFixed(2)}` : "—"} />
                 <Field label="Work pattern" value={s.workPattern === "five_day_flex"
                   ? `5-day flex${s.fixedDayOff != null ? ` · fixed off ${DAYS[s.fixedDayOff]}` : ""}`
                   : "6-day contract"} />
@@ -281,17 +285,49 @@ export default function StaffDetail() {
                         </Select>
                       </div>
                     )}
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm">Student (max 20h/week incl. travel)</span>
-                      <Switch
-                        checked={!!s.isStudent}
-                        onCheckedChange={(v) => upd.mutate({ id: staffId, isStudent: v })}
-                        aria-label="Student worker"
-                      />
-                    </div>
-                    {upd.isPending && <p className="text-xs text-muted-foreground">Saving…</p>}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm">Student (max 20h/week incl. travel)</span>
+                    <Switch
+                      checked={!!s.isStudent}
+                      onCheckedChange={(v) => upd.mutate({ id: staffId, isStudent: v })}
+                      aria-label="Student worker"
+                    />
                   </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="hourly-rate" className="text-sm">Hourly rate (£)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="hourly-rate"
+                        type="number"
+                        min={0}
+                        max={500}
+                        step={0.01}
+                        defaultValue={s.hourlyRate ?? ""}
+                        key={s.hourlyRate ?? "none"}
+                        className="w-36"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={upd.isPending}
+                        onClick={() => {
+                          const el = document.getElementById("hourly-rate") as HTMLInputElement | null;
+                          const raw = el?.value.trim() ?? "";
+                          upd.mutate({
+                            id: staffId,
+                            hourlyRate: raw === "" ? null : Number(raw),
+                          });
+                        }}
+                      >
+                        Save rate
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Used for timesheet gross pay when they clock out.</p>
+                  </div>
+                  {upd.isPending && <p className="text-xs text-muted-foreground">Saving…</p>}
                 </div>
+              </div>
               )}
               <div className="uc-card p-5">
                 <h3 className="text-sm font-semibold mb-3">Recent visits</h3>

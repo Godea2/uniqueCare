@@ -6,6 +6,7 @@ import { formsRouter } from "./routers/forms";
 import { portalRouter } from "./routers/portal";
 import { trainingRegisterRouter } from "./routers/training-register";
 import { rotaRouter } from "./routers/rota";
+import { attendanceRouter } from "./routers/attendance";
 import { cqcRouter } from "./routers/cqc";
 import { crmRouter } from "./routers/crm";
 
@@ -19,6 +20,7 @@ export const appRouter = createRouter({
   portal: portalRouter,
   trainingRegister: trainingRegisterRouter,
   rota: rotaRouter,
+  attendance: attendanceRouter,
   cqc: cqcRouter,
   crm: crmRouter,
 });

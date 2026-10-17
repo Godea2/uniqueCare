@@ -15,6 +15,7 @@ import type {
   StaffUnavailability,
   TravelCache,
   VisitAssignments,
+  VisitAttendance,
   VisitTemplates,
   Visits,
 } from "@db/schema";
@@ -658,6 +659,11 @@ export const rotaRouter = createRouter({
     const clientRows = await db.from("clients").many<Clients>();
     const allAsg = await db.from("visitAssignments").in("status", ["assigned", "accepted"]).many<VisitAssignments>();
     const staff = await db.from("staffProfiles").many<StaffProfiles>();
+    const attendance = await db.from("visitAttendance")
+      .eq("staffId", sc.staff.id)
+      .order("clockInAt", "desc")
+      .limit(200)
+      .many<VisitAttendance>();
     return vts
       .filter((v) => asg.some((a) => a.visitId === v.id))
       .sort((a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime())
@@ -667,7 +673,15 @@ export const rotaRouter = createRouter({
           ? allAsg.filter((a) => a.visitId === v.id && a.staffId !== sc.staff.id)
               .map((a) => staff.find((s2) => s2.id === a.staffId)?.fullName)[0]
           : null;
-        return { ...v, client, partner, myAssignment: asg.find((a) => a.visitId === v.id) };
+        const myAttendance = attendance.find((a) => Number(a.visitId) === Number(v.id)) ?? null;
+        return {
+          ...v,
+          client,
+          partner,
+          myAssignment: asg.find((a) => a.visitId === v.id),
+          myAttendance,
+          clientHasGeo: !!(client?.lat && client?.lng) || !!client?.postcode,
+        };
       });
   }),
 
