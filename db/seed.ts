@@ -77,24 +77,30 @@ async function seed() {
   });
 
   // ── Compliance requirements ──
-  const complianceReqs = [
-    ["dbs_enhanced", "Enhanced DBS with adult barred list", 36],
-    ["right_to_work", "Right to work check", null],
-    ["photo_id", "Photo ID", null],
-    ["proof_of_address", "Proof of address (under 3 months old)", null],
-    ["reference_1", "Reference — most recent care employer", null],
-    ["reference_2", "Reference — second referee", null],
-    ["employment_history", "Full employment history with gaps explained", null],
-    ["qualifications", "Qualifications / certificates", null],
-    ["health_declaration", "Health declaration", 12],
-    ["signed_contract", "Signed contract", null],
-    ["bank_details", "Bank details for payroll", null],
-    ["driving_docs", "Driving licence + business insurance (drivers)", 12],
-  ] as const;
-  for (const [key, label, months] of complianceReqs) {
-    await db.from("complianceRequirements").insert<{ id: number }>({
-      key, label, appliesTo: "candidate", required: true, expiresAfterMonths: months ?? null,
+  const complianceReqs: {
+    key: string; label: string; months: number | null; guidance?: string; inputKind?: "file" | "text";
+  }[] = [
+    { key: "dbs_enhanced", label: "Enhanced DBS with adult barred list", months: 36 },
+    { key: "right_to_work", label: "Right to work", months: null, guidance: "Enter Share Code", inputKind: "text" },
+    { key: "photo_id", label: "Photo ID", months: null },
+    { key: "proof_of_address", label: "Proof of address (under 3 months old)", months: null, guidance: "Utility Bill" },
+    { key: "reference_1", label: "Reference 1", months: null, guidance: "Enter the name, organisation, email and phone number for your most recent care employer.", inputKind: "text" },
+    { key: "reference_2", label: "Reference 2", months: null, guidance: "Enter the name, organisation, email and phone number for your second referee.", inputKind: "text" },
+    { key: "health_declaration", label: "Health declaration", months: 12 },
+    { key: "signed_contract", label: "Signed contract", months: null },
+    { key: "bank_details", label: "Bank details for payroll", months: null, guidance: "Enter your bank account details for payroll (account name, sort code, and account number).", inputKind: "text" },
+    { key: "driving_docs", label: "Driver's License Document", months: 12, guidance: "Upload a clear photo or scan of your driver's licence." },
+  ];
+  for (const req of complianceReqs) {
+    const [row] = await db.from("complianceRequirements").insert<{ id: number }>({
+      key: req.key, label: req.label, appliesTo: "candidate", required: true, expiresAfterMonths: req.months ?? null,
     });
+    try {
+      await db.from("complianceRequirements").eq("id", row.id).update({
+        guidance: req.guidance ?? null,
+        inputKind: req.inputKind ?? "file",
+      });
+    } catch { /* columns arrive with migration 0010 */ }
   }
 
   // ── Training courses ──
@@ -525,7 +531,7 @@ async function seed() {
   }
 
   // Compliance documents for approved+ candidates and for staff
-  const reqKeys = complianceReqs.map((c) => c[0]);
+  const reqKeys = complianceReqs.map((c) => c.key);
   for (const i of [10, 11, 12, 13, 14]) {
     for (const key of reqKeys) {
       const verified = stagePlan[i] === "compliance_docs_complete" || stagePlan[i] === "offer_sent" || stagePlan[i] === "offer_accepted" || stagePlan[i] === "online_training_in_progress";

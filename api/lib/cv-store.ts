@@ -140,6 +140,13 @@ export async function removeDocument(key: string): Promise<void> {
   await supabase().storage.from(DOC_BUCKET).remove([key]).catch(() => {});
 }
 
+export async function readDocument(key: string): Promise<Uint8Array | null> {
+  await ensureBucket(DOC_BUCKET);
+  const { data, error } = await supabase().storage.from(DOC_BUCKET).download(key);
+  if (error || !data) return null;
+  return new Uint8Array(await data.arrayBuffer());
+}
+
 /** Accept PDF, JPEG, PNG, HEIC/HEIF and Word files, checked by their first bytes. */
 export function sniffDocument(bytes: Uint8Array, fileName: string): string | null {
   const b = bytes;

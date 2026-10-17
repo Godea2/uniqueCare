@@ -317,7 +317,8 @@ function BookingSection({ token, slots, booking, slot }: {
 /* ── Compliance documents ── */
 type PortalDoc = {
   id: number | bigint; requirementKey: string; status: string; fileName: string | null; rejectionReason: string | null;
-  requirement?: { label: string; guidance?: string | null };
+  textValue?: string | null;
+  requirement?: { label: string; guidance?: string | null; inputKind?: "file" | "text" };
 };
 
 const DOC_STATES: Record<string, { label: string; icon: LucideIcon; pill: string; tile: string; bar: string }> = {
@@ -337,6 +338,15 @@ function DocsSection({ token, docs }: { token: string; docs: PortalDoc[] }) {
   const [busy, setBusy] = useState<Record<string, Uploading>>({});
   const prepare = trpc.portal.docUploadUrl.useMutation();
   const confirm = trpc.portal.confirmDoc.useMutation();
+  const submitText = trpc.portal.submitDocText.useMutation({
+    onSuccess: async (res, vars) => {
+      await utils.portal.get.invalidate({ token });
+      const label = docs.find((d) => d.requirementKey === vars.requirementKey)?.requirement?.label ?? "Details";
+      if (res.allSent) toast.success("That's everything. We've emailed you a confirmation and will start checking your documents.");
+      else toast.success(`${label} saved. ${res.outstanding} still to add.`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const send = async (doc: PortalDoc, picked: File) => {
     const key = doc.requirementKey;
@@ -441,7 +451,14 @@ function DocsSection({ token, docs }: { token: string; docs: PortalDoc[] }) {
 
       <ul className="space-y-3 px-5 pb-5 sm:px-6 sm:pb-6">
         {sorted.map((doc) => (
-          <DocCard key={String(doc.id)} doc={doc} uploading={busy[doc.requirementKey]} onFile={(f) => void send(doc, f)} />
+          <DocCard
+            key={String(doc.id)}
+            doc={doc}
+            uploading={busy[doc.requirementKey]}
+            onFile={(f) => void send(doc, f)}
+            onText={(text) => submitText.mutate({ token, requirementKey: doc.requirementKey, text })}
+            textPending={submitText.isPending && submitText.variables?.requirementKey === doc.requirementKey}
+          />
         ))}
       </ul>
 
@@ -453,18 +470,28 @@ function DocsSection({ token, docs }: { token: string; docs: PortalDoc[] }) {
   );
 }
 
-function DocCard({ doc, uploading, onFile }: { doc: PortalDoc; uploading?: Uploading; onFile: (file: File) => void }) {
+function DocCard({ doc, uploading, onFile, onText, textPending }: {
+  doc: PortalDoc; uploading?: Uploading; onFile: (file: File) => void;
+  onText: (text: string) => void; textPending?: boolean;
+}) {
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
+  const [text, setText] = useState(doc.textValue ?? "");
+  const [editingText, setEditingText] = useState(false);
   const state = docState(doc.status);
   const label = doc.requirement?.label ?? doc.requirementKey.replace(/_/g, " ");
-  const needsFile = doc.status === "requested" || doc.status === "rejected";
+  const isText = doc.requirement?.inputKind === "text";
+  const needsInput = doc.status === "requested" || doc.status === "rejected";
   const canReplace = doc.status === "uploaded";
+  const showTextForm = isText && (needsInput || editingText);
   const pick = (files: FileList | null | undefined) => { const f = files?.[0]; if (f) onFile(f); };
+  const rejectedHint = isText
+    ? (doc.rejectionReason ? doc.rejectionReason : "Please check the details and submit again.")
+    : (doc.rejectionReason ? doc.rejectionReason : "Please upload a clearer copy.");
 
   return (
-    <li className={`rounded-2xl border p-4 transition-shadow ${doc.status === "rejected" ? "border-rose-200" : ""} ${needsFile ? "shadow-sm" : ""}`}
+    <li className={`rounded-2xl border p-4 transition-shadow ${doc.status === "rejected" ? "border-rose-200" : ""} ${needsInput ? "shadow-sm" : ""}`}
       style={doc.status === "rejected" ? undefined : { borderColor: "var(--card-line)" }}>
       <div className="flex items-start gap-3">
         <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${state.tile}`}>
@@ -473,7 +500,9 @@ function DocCard({ doc, uploading, onFile }: { doc: PortalDoc; uploading?: Uploa
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <p className="text-sm font-semibold text-slate-800">{label}</p>
-            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${state.pill}`}>{state.label}</span>
+            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${state.pill}`}>
+              {isText && doc.status === "requested" ? "Needed" : isText && doc.status === "rejected" ? "Please update" : state.label}
+            </span>
           </div>
           {doc.requirement?.guidance && <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{doc.requirement.guidance}</p>}
         </div>
@@ -481,70 +510,109 @@ function DocCard({ doc, uploading, onFile }: { doc: PortalDoc; uploading?: Uploa
 
       {doc.status === "rejected" && (
         <div className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-xs leading-relaxed text-rose-800" role="alert">
-          <span className="font-semibold">We couldn't accept the last file.</span>{" "}
-          {doc.rejectionReason ? doc.rejectionReason : "Please upload a clearer copy."}
+          <span className="font-semibold">We couldn't accept that.</span>{" "}{rejectedHint}
         </div>
       )}
 
-      {doc.fileName && !needsFile && !uploading && (
-        <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2">
-          <FileText className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-          <span className="min-w-0 flex-1 truncate text-xs text-slate-700">{doc.fileName}</span>
-          {canReplace && (
-            <button type="button" onClick={() => fileRef.current?.click()}
-              className="inline-flex items-center gap-1 rounded-md text-xs font-medium text-[--brand-700] hover:text-[--brand-900]">
-              <RefreshCw className="h-3 w-3" aria-hidden /> Replace
-            </button>
+      {isText ? (
+        <>
+          {(doc.textValue || doc.fileName) && !showTextForm && (
+            <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2">
+              <p className="whitespace-pre-wrap text-xs text-slate-700">{doc.textValue ?? doc.fileName}</p>
+              {canReplace && (
+                <button type="button" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[--brand-700]"
+                  onClick={() => { setText(doc.textValue ?? ""); setEditingText(true); }}>
+                  <RefreshCw className="h-3 w-3" aria-hidden /> Edit
+                </button>
+              )}
+            </div>
           )}
-        </div>
-      )}
+          {showTextForm && (
+            <div className="mt-3 space-y-2">
+              <Textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={doc.requirementKey.startsWith("reference") || doc.requirementKey === "bank_details" ? 3 : 2}
+                placeholder={doc.requirement?.guidance ?? "Enter details"}
+                aria-label={label}
+              />
+              <div className="flex gap-2">
+                <Button
+                  type="button" size="sm" disabled={textPending || text.trim().length < 1}
+                  onClick={() => onText(text.trim())}
+                >
+                  {textPending ? "Saving…" : doc.status === "uploaded" ? "Update" : "Submit"}
+                </Button>
+                {editingText && (
+                  <Button type="button" size="sm" variant="outline" onClick={() => setEditingText(false)}>Cancel</Button>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {doc.fileName && !needsInput && !uploading && (
+            <div className="mt-3 flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2">
+              <FileText className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-xs text-slate-700">{doc.fileName}</span>
+              {canReplace && (
+                <button type="button" onClick={() => fileRef.current?.click()}
+                  className="inline-flex items-center gap-1 rounded-md text-xs font-medium text-[--brand-700] hover:text-[--brand-900]">
+                  <RefreshCw className="h-3 w-3" aria-hidden /> Replace
+                </button>
+              )}
+            </div>
+          )}
 
-      {uploading ? (
-        <div className="mt-3 rounded-xl border border-dashed border-[--brand-500] bg-[--brand-50] px-4 py-4">
-          <div className="flex items-center gap-2 text-sm font-medium text-[--brand-900]">
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[--brand-600]" aria-hidden />
-            {uploading.phase === "checking" ? "Saving" : "Uploading"}
-            <span className="min-w-0 flex-1 truncate font-normal text-slate-600">{uploading.name}</span>
-            {uploading.phase === "sending" && uploading.progress > 0 && (
-              <span className="tabular-nums text-xs text-[--brand-700]">{Math.round(uploading.progress * 100)}%</span>
-            )}
-          </div>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white" role="progressbar" aria-label={`Uploading ${label}`}
-            aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploading.phase === "sending" ? Math.round(uploading.progress * 100) : undefined}>
-            {uploading.phase === "sending" && uploading.progress > 0 ? (
-              <div className="h-full rounded-full bg-[--brand-600] transition-[width] duration-200" style={{ width: `${Math.max(4, uploading.progress * 100)}%` }} />
-            ) : (
-              <div className="h-full w-1/3 animate-[uc-indeterminate_1.2s_ease-in-out_infinite] rounded-full bg-[--brand-600]" />
-            )}
-          </div>
-        </div>
-      ) : needsFile && (
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-          onDragLeave={() => setDrag(false)}
-          onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files); }}
-          className={`mt-3 flex flex-col items-center gap-3 rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors sm:flex-row sm:text-left ${drag ? "border-[--brand-500] bg-[--brand-50]" : "border-slate-200 bg-slate-50/60"}`}
-        >
-          <UploadCloud className="hidden h-7 w-7 shrink-0 text-[--brand-600] sm:block" aria-hidden />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-slate-800">{doc.status === "rejected" ? "Upload a new copy" : "Add this document"}</p>
-            <p className="text-xs text-muted-foreground">Drop a file here, choose one, or take a photo</p>
-          </div>
-          <div className="flex w-full gap-2 sm:w-auto">
-            <Button type="button" size="sm" variant="outline" className="flex-1 sm:flex-none sm:hidden" onClick={() => cameraRef.current?.click()}>
-              <Camera className="mr-1.5 h-4 w-4" /> Take a photo
-            </Button>
-            <Button type="button" size="sm" className="flex-1 sm:flex-none" onClick={() => fileRef.current?.click()}>
-              <Upload className="mr-1.5 h-4 w-4" /> Choose file
-            </Button>
-          </div>
-        </div>
-      )}
+          {uploading ? (
+            <div className="mt-3 rounded-xl border border-dashed border-[--brand-500] bg-[--brand-50] px-4 py-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-[--brand-900]">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[--brand-600]" aria-hidden />
+                {uploading.phase === "checking" ? "Saving" : "Uploading"}
+                <span className="min-w-0 flex-1 truncate font-normal text-slate-600">{uploading.name}</span>
+                {uploading.phase === "sending" && uploading.progress > 0 && (
+                  <span className="tabular-nums text-xs text-[--brand-700]">{Math.round(uploading.progress * 100)}%</span>
+                )}
+              </div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white" role="progressbar" aria-label={`Uploading ${label}`}
+                aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploading.phase === "sending" ? Math.round(uploading.progress * 100) : undefined}>
+                {uploading.phase === "sending" && uploading.progress > 0 ? (
+                  <div className="h-full rounded-full bg-[--brand-600] transition-[width] duration-200" style={{ width: `${Math.max(4, uploading.progress * 100)}%` }} />
+                ) : (
+                  <div className="h-full w-1/3 animate-[uc-indeterminate_1.2s_ease-in-out_infinite] rounded-full bg-[--brand-600]" />
+                )}
+              </div>
+            </div>
+          ) : needsInput && (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+              onDragLeave={() => setDrag(false)}
+              onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files); }}
+              className={`mt-3 flex flex-col items-center gap-3 rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors sm:flex-row sm:text-left ${drag ? "border-[--brand-500] bg-[--brand-50]" : "border-slate-200 bg-slate-50/60"}`}
+            >
+              <UploadCloud className="hidden h-7 w-7 shrink-0 text-[--brand-600] sm:block" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-slate-800">{doc.status === "rejected" ? "Upload a new copy" : "Add this document"}</p>
+                <p className="text-xs text-muted-foreground">Drop a file here, choose one, or take a photo</p>
+              </div>
+              <div className="flex w-full gap-2 sm:w-auto">
+                <Button type="button" size="sm" variant="outline" className="flex-1 sm:flex-none sm:hidden" onClick={() => cameraRef.current?.click()}>
+                  <Camera className="mr-1.5 h-4 w-4" /> Take a photo
+                </Button>
+                <Button type="button" size="sm" className="flex-1 sm:flex-none" onClick={() => fileRef.current?.click()}>
+                  <Upload className="mr-1.5 h-4 w-4" /> Choose file
+                </Button>
+              </div>
+            </div>
+          )}
 
-      <input ref={fileRef} type="file" accept={ACCEPT_DOCS} className="hidden" aria-label={`Upload ${label}`}
-        onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" aria-label={`Take a photo of ${label}`}
-        onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+          <input ref={fileRef} type="file" accept={ACCEPT_DOCS} className="hidden" aria-label={`Upload ${label}`}
+            onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" aria-label={`Take a photo of ${label}`}
+            onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+        </>
+      )}
     </li>
   );
 }
@@ -587,7 +655,10 @@ function OfferSection({ token, content }: { token: string; content: string }) {
 /* ── Training ── */
 function TrainingSection({ token, enrolments, sessions }: {
   token: string;
-  enrolments: { id: number | bigint; courseId: number | bigint; sessionId: number | bigint | null; status: string; course?: { id: number | bigint; title: string; delivery?: string; type?: string } }[];
+  enrolments: {
+    id: number | bigint; courseId: number | bigint; sessionId: number | bigint | null; status: string;
+    course?: { id: number | bigint; title: string; delivery?: string; type?: string; courseUrl?: string | null; durationHours?: string | null } | null;
+  }[];
   sessions: {
     id: number | bigint; courseId: number | bigint; startsAt: string | Date; endsAt: string | Date; location: string | null;
     capacity: number | null; courseTitle: string; delivery: string; meetingUrl: string | null; notes: string | null; placesLeft: number;
@@ -618,20 +689,32 @@ function TrainingSection({ token, enrolments, sessions }: {
           <p className="uc-label mb-2">Online courses</p>
           <ul className="space-y-2">
             {onlineEnrolments.map((e) => (
-              <li key={e.id} className="flex items-center justify-between rounded-lg border p-3" style={{ borderColor: "var(--line)" }}>
-                <span className="text-sm font-medium">{e.course?.title ?? `Course ${e.courseId}`}</span>
-                {e.status === "completed" ? (
-                  <Chip value="completed" />
-                ) : (
-                  <Button size="sm" variant="outline" className="h-7" disabled={complete.isPending}
-                    onClick={() => complete.mutate({ token, courseId: Number(e.courseId) })}>
-                    Mark complete
-                  </Button>
-                )}
+              <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3" style={{ borderColor: "var(--line)" }}>
+                <div className="min-w-0">
+                  <span className="text-sm font-medium">{e.course?.title ?? `Course ${e.courseId}`}</span>
+                  {e.course?.durationHours && (
+                    <span className="ml-1.5 text-xs text-muted-foreground">· {e.course.durationHours}h</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {e.course?.courseUrl && e.status !== "completed" && (
+                    <Button size="sm" className="h-7" asChild>
+                      <a href={e.course.courseUrl} target="_blank" rel="noreferrer">Open course</a>
+                    </Button>
+                  )}
+                  {e.status === "completed" ? (
+                    <Chip value="completed" />
+                  ) : (
+                    <Button size="sm" variant="outline" className="h-7" disabled={complete.isPending}
+                      onClick={() => complete.mutate({ token, courseId: Number(e.courseId) })}>
+                      Mark complete
+                    </Button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">Complete each course in your learning account, then mark it complete here. Your DBS will be verified in person at your classroom induction.</p>
+          <p className="mt-1.5 text-[11px] text-muted-foreground">Open the course link to complete the training, then mark it complete here. Your DBS is verified in person at classroom induction.</p>
         </div>
       )}
 

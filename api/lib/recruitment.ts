@@ -3,11 +3,12 @@ import { TRPCError } from "@trpc/server";
 import { db } from "../db";
 import type {
   ApplicationStage, ApplicationFormVersions, Applications, Candidates, EmailOutbox, InterviewBookings, InterviewSlots,
-  JobPostings, PreInterviewForms,
+  JobPostings, OfferLetters, PreInterviewForms,
 } from "@db/schema";
 import { audit, notifyRoles, ruleEnabled } from "../util";
 import { callAI } from "../ai/provider";
 import { sendEmail } from "./mailer";
+import { ensureOfferPdfStored } from "./offer-letter";
 import { readCv } from "./cv-store";
 import { orgProfile, portalUrl } from "./app-url";
 import { jobRequirements } from "./job-form";
@@ -107,12 +108,16 @@ async function loadParties(appId: number) {
 export type CandidateEmailKind =
   | "interview_invitation" | "interview_slots_open" | "interview_booked" | "compliance_requested" | "documents_received"
   | "document_rejected" | "offer_sent" | "training_invite" | "training_dates_open" | "training_booked"
+  | "training_passed" | "training_failed"
   | "unsuccessful" | "hired";
 
 /** Email the candidate about a step in their application, always with their portal link. */
 export async function emailCandidate(
   appId: number, kind: CandidateEmailKind, baseUrl: string,
-  extra?: { when?: string; where?: string; note?: string },
+  extra?: {
+    when?: string; where?: string; note?: string;
+    attachment?: { filename: string; content: Uint8Array; contentType: string };
+  },
 ) {
   const p = await loadParties(appId);
   if (!p) return;
@@ -147,7 +152,7 @@ export async function emailCandidate(
     },
     offer_sent: {
       subject: `Your offer for ${p.job.title}`,
-      body: `${hi}\n\nWe are delighted to offer you the position of ${p.job.title}.\n\nPlease read and accept your offer letter in your candidate portal:\n${link}\n\n${sign}`,
+      body: `${hi}\n\nWe are delighted to offer you the position of ${p.job.title}.\n\nYour offer letter is attached to this email as a PDF. Please also read and accept it in your candidate portal:\n${link}\n\n${sign}`,
     },
     training_invite: {
       subject: `Your training for ${p.job.title}`,
@@ -161,6 +166,14 @@ export async function emailCandidate(
       subject: `You're booked: ${extra?.note ?? "induction"}`,
       body: `${hi}\n\nYour place is booked${extra?.when ? ` for ${extra.when}` : ""}.${extra?.where ? `\n\nWhere: ${extra.where}` : ""}\n\nPlease bring your original DBS certificate and photo ID. We check them when you arrive.\n\nYou can see the details in your candidate portal:\n${link}\n\n${sign}`,
     },
+    training_passed: {
+      subject: `Training certificate — ${extra?.note ?? "your course"}`,
+      body: `${hi}\n\nCongratulations — you have passed ${extra?.note ?? "your training"}${extra?.when ? ` (${extra.when})` : ""}.\n\nYour certificate is attached to this email as a PDF. You can also see your training progress in your candidate portal:\n${link}\n\n${sign}`,
+    },
+    training_failed: {
+      subject: `Training outcome — ${extra?.note ?? "your course"}`,
+      body: `${hi}\n\nWe are writing about the outcome of ${extra?.note ?? "your training"}${extra?.when ? ` (${extra.when})` : ""}.\n\nPlease read the attached outcome letter. If you have questions, reply to this email or use your candidate portal:\n${link}\n\n${sign}`,
+    },
     unsuccessful: {
       subject: `Your application for ${p.job.title}`,
       body: `${hi}\n\nThank you for your interest in ${p.job.title} and for the time you spent on your application.\n\nAfter careful consideration we will not be taking your application further on this occasion. We will keep your details on file if you agreed to that, and we encourage you to apply for future roles.\n\n${sign}`,
@@ -171,7 +184,29 @@ export async function emailCandidate(
     },
   };
   const msg = content[kind];
-  await sendEmail({ to: p.cand.email, subject: msg.subject, body: msg.body, kind, relatedType: "application", relatedId: appId });
+  let attachments: { filename: string; content: Uint8Array; contentType: string }[] | undefined;
+  if (extra?.attachment) {
+    attachments = [extra.attachment];
+  } else if (kind === "offer_sent") {
+    const offer = await db.from("offerLetters").eq("applicationId", appId).order("id", "desc").first<OfferLetters>();
+    if (offer?.content) {
+      try {
+        const pdf = await ensureOfferPdfStored({
+          offer,
+          candidateId: Number(p.cand.id),
+          candidateName: `${p.cand.firstName} ${p.cand.lastName}`,
+          orgName: org.name,
+        });
+        attachments = [{ filename: pdf.fileName, content: pdf.bytes, contentType: "application/pdf" }];
+      } catch {
+        // Still send the portal link email if PDF storage fails.
+      }
+    }
+  }
+  await sendEmail({
+    to: p.cand.email, subject: msg.subject, body: msg.body, kind,
+    relatedType: "application", relatedId: appId, attachments,
+  });
 }
 
 /**

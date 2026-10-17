@@ -47,6 +47,12 @@ export function mailProvider(): { provider: "smtp" | "graph" | "none"; from: str
   return { provider: "none", from: null };
 }
 
+export type EmailAttachment = {
+  filename: string;
+  content: Uint8Array | Buffer;
+  contentType: string;
+};
+
 type SendResult = { ok: true } | { ok: false; error: string };
 
 let transport: { key: string; transporter: Transporter } | null = null;
@@ -70,11 +76,20 @@ function smtpTransport(cfg: NonNullable<ReturnType<typeof smtpSettings>>): Trans
   return transport.transporter;
 }
 
-async function smtpSend(to: string, subject: string, bodyText: string, html: string): Promise<SendResult> {
+async function smtpSend(
+  to: string, subject: string, bodyText: string, html: string, attachments?: EmailAttachment[],
+): Promise<SendResult> {
   const cfg = smtpSettings();
   if (!cfg) return { ok: false, error: "SMTP is not configured" };
   try {
-    await smtpTransport(cfg).sendMail({ from: cfg.from, to, subject, text: bodyText, html });
+    await smtpTransport(cfg).sendMail({
+      from: cfg.from, to, subject, text: bodyText, html,
+      attachments: attachments?.map((a) => ({
+        filename: a.filename,
+        content: Buffer.from(a.content),
+        contentType: a.contentType,
+      })),
+    });
     return { ok: true };
   } catch (err) {
     transport = null;
@@ -82,7 +97,9 @@ async function smtpSend(to: string, subject: string, bodyText: string, html: str
   }
 }
 
-async function graphSend(to: string, subject: string, html: string): Promise<SendResult> {
+async function graphSend(
+  to: string, subject: string, html: string, attachments?: EmailAttachment[],
+): Promise<SendResult> {
   const cfg = graphSettings();
   if (!cfg) return { ok: false, error: "No email provider is configured (set the SMTP_* variables)" };
   try {
@@ -96,16 +113,23 @@ async function graphSend(to: string, subject: string, html: string): Promise<Sen
     });
     if (!tokenRes.ok) return { ok: false, error: `Microsoft sign-in failed (${tokenRes.status})` };
     const { access_token } = (await tokenRes.json()) as { access_token: string };
+    const message: Record<string, unknown> = {
+      subject,
+      body: { contentType: "HTML", content: html },
+      toRecipients: [{ emailAddress: { address: to } }],
+    };
+    if (attachments?.length) {
+      message.attachments = attachments.map((a) => ({
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        name: a.filename,
+        contentType: a.contentType,
+        contentBytes: Buffer.from(a.content).toString("base64"),
+      }));
+    }
     const sendRes = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(cfg.sender)}/sendMail`, {
       method: "POST",
       headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: {
-          subject,
-          body: { contentType: "HTML", content: html },
-          toRecipients: [{ emailAddress: { address: to } }],
-        },
-      }),
+      body: JSON.stringify({ message }),
     });
     if (sendRes.ok || sendRes.status === 202) return { ok: true };
     return { ok: false, error: `Microsoft Graph rejected the email (${sendRes.status})` };
@@ -114,10 +138,14 @@ async function graphSend(to: string, subject: string, html: string): Promise<Sen
   }
 }
 
-async function deliver(to: string, subject: string, bodyText: string, kind: string): Promise<SendResult> {
+async function deliver(
+  to: string, subject: string, bodyText: string, kind: string, attachments?: EmailAttachment[],
+): Promise<SendResult> {
   const org = await orgProfile();
   const html = renderEmailHtml({ orgName: org.name, subject, text: bodyText, kind });
-  return smtpSettings() ? smtpSend(to, subject, bodyText, html) : graphSend(to, subject, html);
+  return smtpSettings()
+    ? smtpSend(to, subject, bodyText, html, attachments)
+    : graphSend(to, subject, html, attachments);
 }
 
 export async function sendEmail(opts: {
@@ -129,8 +157,9 @@ export async function sendEmail(opts: {
   relatedId?: number | string;
   /** The body holds a sign-in link: never store it, and never queue it for a resend. */
   privateLink?: boolean;
+  attachments?: EmailAttachment[];
 }) {
-  const result = await deliver(opts.to, opts.subject, opts.body, opts.kind);
+  const result = await deliver(opts.to, opts.subject, opts.body, opts.kind, opts.attachments);
   const [row] = await db.from("emailOutbox").insert<EmailOutbox>({
     toEmail: opts.to,
     subject: opts.subject,
@@ -142,6 +171,7 @@ export async function sendEmail(opts: {
   });
   await audit("System", `email_${result.ok ? "sent" : "queued"}`, "email_outbox", row?.id, {
     to: opts.to, kind: opts.kind, subject: opts.subject,
+    attachments: opts.attachments?.map((a) => a.filename) ?? [],
     ...(result.ok ? {} : { error: result.error }),
   });
   return { delivered: result.ok, error: result.ok ? undefined : result.error };
@@ -156,6 +186,7 @@ export async function resendQueued(actor: string, ids?: number[]) {
   let failed = 0;
   let lastError: string | undefined;
   for (const email of queued) {
+    // Queued rows do not store binary attachments — resend body only.
     const result = await deliver(email.toEmail, email.subject, email.bodyText ?? "", email.kind);
     if (result.ok) {
       await db.from("emailOutbox").eq("id", email.id).update({ status: "sent" });

@@ -14,6 +14,8 @@ import { appUrl } from "../lib/app-url";
 import { complianceApplication, emailCandidate, emailSlotsOpenIfAny, slotOpenForJob as slotOpen } from "../lib/recruitment";
 import { sessionWhen, sessionWhere } from "../lib/training";
 import { slotCapacity, slotUiState, SLOT_STATE_LABEL } from "../lib/interview-slots";
+import { isRemovedComplianceKey, resolveComplianceRequirement } from "../lib/compliance-docs";
+import { recordTrainingOutcome } from "../lib/training-outcome";
 import { DbError } from "../db";
 
 async function appByToken(portalToken: string) {
@@ -62,22 +64,22 @@ async function docForUpload(token: string, requirementKey: string) {
   return { app, candidate, doc };
 }
 
-async function recordUpload({ app, candidate, doc, fileName, key, baseUrl }: {
-  app: Applications; candidate: Candidates; doc: ComplianceDocuments; fileName: string; key: string; baseUrl: string;
-}) {
-  await db.from("complianceDocuments").eq("id", doc.id).update({
-    status: "uploaded", fileName, fileKey: key, rejectionReason: null,
-  });
-  await audit("Candidate (portal)", "document_uploaded", "applications", app.id, { requirement: doc.requirementKey });
+function activeDocs(docs: ComplianceDocuments[]) {
+  return docs.filter((d) => d.status !== "cancelled" && !isRemovedComplianceKey(d.requirementKey));
+}
 
-  // One alert for the office when the whole set is in, and one per replacement of a rejected file;
-  // not one email per file while the candidate works through the list.
-  const docs = await db.from("complianceDocuments").eq("ownerType", "candidate").eq("ownerId", candidate.id).many<ComplianceDocuments>();
+async function afterDocSubmitted({ app, candidate, doc, baseUrl }: {
+  app: Applications; candidate: Candidates; doc: ComplianceDocuments; baseUrl: string;
+}) {
+  await audit("Candidate (portal)", "document_uploaded", "applications", app.id, { requirement: doc.requirementKey });
+  const docs = activeDocs(
+    await db.from("complianceDocuments").eq("ownerType", "candidate").eq("ownerId", candidate.id).many<ComplianceDocuments>(),
+  );
   const outstanding = docs.filter((d) => d.status === "requested" || d.status === "rejected").length;
   const toCheck = docs.filter((d) => d.status === "uploaded").length;
   const name = `${candidate.firstName} ${candidate.lastName}`;
-  const firstFile = doc.status === "requested" || doc.status === "rejected";
-  if (firstFile && outstanding === 0) {
+  const firstSubmit = doc.status === "requested" || doc.status === "rejected";
+  if (firstSubmit && outstanding === 0) {
     const forApp = (await complianceApplication(Number(candidate.id))) ?? app;
     await notifyRoles(["admin", "super_admin"], {
       type: "hr", title: `Documents ready to check — ${name}`,
@@ -87,13 +89,23 @@ async function recordUpload({ app, candidate, doc, fileName, key, baseUrl }: {
     waitUntil(emailCandidate(Number(forApp.id), "documents_received", baseUrl).catch(() => {}));
   } else if (doc.status === "rejected") {
     const req = await db.from("complianceRequirements").eq("key", doc.requirementKey).first<ComplianceRequirements>();
+    const resolved = req ? resolveComplianceRequirement(req) : null;
     await notifyRoles(["admin", "super_admin"], {
       type: "hr", title: `Replacement document to check — ${name}`,
-      body: `${req?.label ?? doc.requirementKey.replace(/_/g, " ")} was sent again after it was rejected.`,
+      body: `${resolved?.label ?? doc.requirementKey.replace(/_/g, " ")} was sent again after it was rejected.`,
       link: "/recruitment/compliance",
     });
   }
   return { ok: true, outstanding, allSent: outstanding === 0 };
+}
+
+async function recordUpload({ app, candidate, doc, fileName, key, baseUrl }: {
+  app: Applications; candidate: Candidates; doc: ComplianceDocuments; fileName: string; key: string; baseUrl: string;
+}) {
+  await db.from("complianceDocuments").eq("id", doc.id).update({
+    status: "uploaded", fileName, fileKey: key, rejectionReason: null,
+  });
+  return afterDocSubmitted({ app, candidate, doc, baseUrl });
 }
 
 export const portalRouter = createRouter({
@@ -138,7 +150,14 @@ export const portalRouter = createRouter({
             stateLabel: SLOT_STATE_LABEL[state],
           };
         }),
-        docs: docs.map((d) => ({ ...d, requirement: reqs.find((r) => r.key === d.requirementKey) })),
+        docs: activeDocs(docs)
+          .map((d) => {
+            const raw = reqs.find((r) => r.key === d.requirementKey);
+            const requirement = raw
+              ? resolveComplianceRequirement(raw)
+              : resolveComplianceRequirement({ key: d.requirementKey, label: d.requirementKey.replace(/_/g, " ") });
+            return { ...d, requirement };
+          }),
         offer, complianceDone, offerAccepted,
         enrolments: enrolments.map((e) => ({ ...e, course: courses.find((c) => c.id === e.courseId) })),
         sessions: offerAccepted ? await portalSessions(sessions, courses, enrolments) : [],
@@ -284,6 +303,45 @@ export const portalRouter = createRouter({
       return recordUpload({ app, candidate, doc, fileName: input.fileName, key: input.key, baseUrl: appUrl(ctx.req) });
     }),
 
+  /** Text-field requirements (share code, bank details, references). */
+  submitDocText: publicQuery
+    .input(z.object({
+      token: z.string(),
+      requirementKey: z.string().min(1).max(60),
+      text: z.string().trim().min(1).max(4000),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { app, candidate, doc } = await docForUpload(input.token, input.requirementKey);
+      if (isRemovedComplianceKey(input.requirementKey)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This document is no longer required." });
+      }
+      const req = await db.from("complianceRequirements").eq("key", input.requirementKey).first<ComplianceRequirements>();
+      const resolved = req
+        ? resolveComplianceRequirement(req)
+        : resolveComplianceRequirement({ key: input.requirementKey, label: input.requirementKey });
+      if (resolved.inputKind !== "text") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This item needs a file upload, not text." });
+      }
+      const summary = input.text.length > 80 ? `${input.text.slice(0, 77)}…` : input.text;
+      try {
+        await db.from("complianceDocuments").eq("id", doc.id).update({
+          status: "uploaded",
+          textValue: input.text,
+          fileName: summary,
+          fileKey: null,
+          rejectionReason: null,
+        });
+      } catch {
+        // text_value column missing until 0010 — still accept as uploaded with a text file name
+        await db.from("complianceDocuments").eq("id", doc.id).update({
+          status: "uploaded",
+          fileName: `Text: ${summary}`,
+          rejectionReason: null,
+        });
+      }
+      return afterDocSubmitted({ app, candidate, doc, baseUrl: appUrl(ctx.req) });
+    }),
+
   /** Single-request upload for small files; the portal now uses docUploadUrl + confirmDoc. */
   uploadDoc: publicQuery
     .input(z.object({
@@ -407,7 +465,7 @@ export const portalRouter = createRouter({
 
   markCourseComplete: publicQuery
     .input(z.object({ token: z.string(), courseId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { app, candidate } = await appByToken(input.token);
       const e = await db.from("trainingEnrolments")
         .eq("courseId", input.courseId).eq("personType", "candidate")
@@ -430,6 +488,18 @@ export const portalRouter = createRouter({
           from: "training_booked", to: "online_training_in_progress", actor: "Candidate (portal)", at: new Date().toISOString(),
         }];
         await db.from("applications").eq("id", app.id).update({ stage: "online_training_in_progress", stageHistory: history as never });
+      }
+      // Online self-completion counts as a pass — email certificate + store for download.
+      const refreshed = await db.from("trainingEnrolments").eq("id", e.id).first<TrainingEnrolments>();
+      if (refreshed && !refreshed.outcome) {
+        try {
+          await recordTrainingOutcome({
+            enrolment: refreshed,
+            outcome: "pass",
+            actor: "Candidate (portal)",
+            baseUrl: appUrl(ctx.req),
+          });
+        } catch { /* completion still stands if PDF/email fails */ }
       }
       return { ok: true };
     }),

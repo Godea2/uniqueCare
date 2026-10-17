@@ -258,6 +258,8 @@ export interface ComplianceDocuments {
   requirementKey: string;
   fileName: string | null;
   fileKey: string | null;
+  /** Free-text response for text-input requirements (e.g. share code, bank details). Missing until migration 0010. */
+  textValue?: string | null;
   status: string;
   verifiedBy: string | null;
   verifiedAt: string | null;
@@ -273,6 +275,10 @@ export interface ComplianceRequirements {
   appliesTo: string;
   required: boolean | null;
   expiresAfterMonths: number | null;
+  /** Shown under the label on the candidate portal. Missing until migration 0010. */
+  guidance?: string | null;
+  /** file | text — Missing until migration 0010; defaults to file. */
+  inputKind?: string | null;
 }
 
 export interface CrmContactRelationships {
@@ -495,6 +501,11 @@ export interface OfferLetters {
   signatureName: string | null;
   signatureIp: string | null;
   createdAt: string;
+  /** Storage key for the PDF copy. Missing until migration 0011. */
+  pdfFileKey?: string | null;
+  pdfFileName?: string | null;
+  /** Set when the candidate is hired — PDF stays downloadable. Missing until migration 0011. */
+  archivedAt?: string | null;
 }
 
 export interface Organisations {
@@ -506,6 +517,23 @@ export interface Organisations {
   settings: unknown | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Documents we issue (offers, certificates) — not candidate uploads. */
+export interface OutgoingDocuments {
+  id: number;
+  kind: string;
+  title: string;
+  fileName: string;
+  fileKey: string;
+  contentType: string;
+  candidateId: number | null;
+  applicationId: number | null;
+  relatedType: string | null;
+  relatedId: number | null;
+  issuedAt: string;
+  issuedBy: string | null;
+  createdAt: string;
 }
 
 export interface PlanReviews {
@@ -737,11 +765,14 @@ export interface TicketWatchers {
 export interface TrainingCourses {
   id: number;
   title: string;
+  /** online | in_person (legacy: classroom treated as in_person) */
   type: string;
   provider: string | null;
   durationHours: string | null;
   mandatory: boolean | null;
   renewEveryMonths: number | null;
+  /** External LMS / provider URL candidates open to take the course. Missing until migration 0009. */
+  courseUrl?: string | null;
 }
 
 export interface TrainingEnrolments {
@@ -754,6 +785,12 @@ export interface TrainingEnrolments {
   completedAt: string | null;
   expiresAt: string | null;
   createdAt: string;
+  /** pass | fail — Missing until migration 0012. */
+  outcome?: string | null;
+  outcomeAt?: string | null;
+  outcomeNotes?: string | null;
+  outcomeFileKey?: string | null;
+  outcomeFileName?: string | null;
 }
 
 export interface TrainingSessions {

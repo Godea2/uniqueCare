@@ -13,6 +13,7 @@ import Pipeline from "./pages/recruitment/Pipeline";
 import CandidateDetail from "./pages/recruitment/CandidateDetail";
 import Interviews from "./pages/recruitment/Interviews";
 import ComplianceQueue from "./pages/recruitment/ComplianceQueue";
+import OutgoingDocuments from "./pages/recruitment/OutgoingDocuments";
 import Training from "./pages/recruitment/Training";
 
 import StaffDirectory from "./pages/staff/StaffDirectory";
@@ -78,6 +79,7 @@ export default function App() {
       <Route path="/recruitment/pipeline/:id" element={<P><CandidateDetail /></P>} />
       <Route path="/recruitment/interviews" element={<P><Interviews /></P>} />
       <Route path="/recruitment/compliance" element={<P><ComplianceQueue /></P>} />
+      <Route path="/recruitment/outgoing-documents" element={<P><OutgoingDocuments /></P>} />
       <Route path="/recruitment/training" element={<P><Training /></P>} />
 
       <Route path="/staff" element={<P><StaffDirectory /></P>} />

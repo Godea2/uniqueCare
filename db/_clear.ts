@@ -8,7 +8,7 @@ const tables: TableKey[] = [
   "jobLinkSources", "applicationFormTemplates", "applicationForms", "applicationFormVersions",
   "candidates", "applications", "cvVersions", "emailOutbox", "rateLimitEvents", "preInterviewForms",
   "interviewSlots", "interviewBookings", "interviewScorecards", "complianceRequirements",
-  "complianceDocuments", "references", "offerLetters", "trainingCourses", "trainingSessions",
+  "complianceDocuments", "references", "offerLetters", "outgoingDocuments", "trainingCourses", "trainingSessions",
   "trainingEnrolments", "dbsVerifications", "documentTemplates", "carePlans", "planReviews",
   "clientChangeEvents", "supervisorNotes", "appraisals", "incidents", "notifications",
   "automationRules", "auditLog", "aiRuns", "crmOrganisations", "crmContacts", "crmContactRelationships",

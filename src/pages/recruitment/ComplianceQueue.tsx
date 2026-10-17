@@ -59,9 +59,14 @@ export default function ComplianceQueue() {
                   <td className="px-4 py-2.5">
                     {d.requirement?.label ?? d.requirementKey.replace(/_/g, " ")}
                     {d.requirement?.required && <span className="ml-1 text-[10px] text-red-700 font-semibold">REQUIRED</span>}
+                    {d.requirement?.guidance && (
+                      <p className="text-[11px] text-muted-foreground">{d.requirement.guidance}</p>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-xs">
-                    {d.fileKey ? (
+                    {d.textValue ? (
+                      <span className="whitespace-pre-wrap text-slate-700">{d.textValue}</span>
+                    ) : d.fileKey ? (
                       <button type="button" className="text-[--brand-700] underline underline-offset-2 hover:text-[--brand-900]"
                         onClick={() => openDoc.mutate({ id: Number(d.id) })} disabled={openDoc.isPending}>
                         {d.fileName ?? "Open file"}

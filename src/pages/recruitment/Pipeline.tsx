@@ -31,17 +31,25 @@ function toCsv(rows: string[][]): string {
   return rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
 }
 
-const KANBAN_TINTS = ["#efebfd", "#e8f3fb", "#fdf2df", "#fdeef5", "#e7f7ee", "#e6f7f6", "#edf0f6", "#fdecec"];
-const KANBAN_DEEP = ["#6d5bd0", "#2f7fc4", "#b45309", "#c2507f", "#15803d", "#0f766e", "#526078", "#b91c1c"];
+const KANBAN_TINTS = [
+  "#efebfd", "#e8f3fb", "#fdf2df", "#fdeef5", "#e7f7ee",
+  "#e6f7f6", "#edf0f6", "#f5f0e8", "#e8f5e9", "#fdecec",
+];
+const KANBAN_DEEP = [
+  "#6d5bd0", "#2f7fc4", "#b45309", "#c2507f", "#15803d",
+  "#0f766e", "#526078", "#92700c", "#2e7d32", "#b91c1c",
+];
 
 const STAGE_GROUPS: { label: string; stages: string[] }[] = [
   { label: "Applied", stages: ["applied", "review"] },
   { label: "Screened in", stages: ["shortlisted", "pre_interview_forms_sent", "pre_interview_forms_complete"] },
-  { label: "Interview", stages: ["interview_booked", "interviewed"] },
+  { label: "Interview booked", stages: ["interview_booked"] },
+  { label: "Interviewed", stages: ["interviewed"] },
   { label: "Decision", stages: ["approved", "rejected"] },
   { label: "Compliance", stages: ["compliance_docs_requested", "compliance_docs_complete"] },
   { label: "Offer", stages: ["offer_sent", "offer_accepted"] },
-  { label: "Training", stages: ["training_booked", "online_training_in_progress", "dbs_verified", "training_complete"] },
+  { label: "Training", stages: ["training_booked", "online_training_in_progress", "dbs_verified"] },
+  { label: "Training completed", stages: ["training_complete"] },
   { label: "Outcome", stages: ["hired", "screened_out", "withdrawn"] },
 ];
 

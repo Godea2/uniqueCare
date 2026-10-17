@@ -17,6 +17,8 @@ const ACTION_LABELS: Record<string, string> = {
   training_invite: "Start your training",
   training_dates_open: "Book your induction",
   training_booked: "View your booking",
+  training_passed: "Open your candidate portal",
+  training_failed: "Open your candidate portal",
   trainer_session: "Open the attendance register",
   staff_notification: "Open UniqueCare Connect",
   confirm_signup: "Confirm email and set password",

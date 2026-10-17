@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   CheckCircle2, XCircle, FileCheck2, GraduationCap, Copy, Check, ArrowLeft, FileText,
-  BadgeCheck, ThumbsUp, ThumbsDown, Ban, MessageSquarePlus, type LucideIcon,
+  BadgeCheck, ThumbsUp, ThumbsDown, Ban, MessageSquarePlus, Download, type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -304,9 +304,12 @@ export default function CandidateDetail() {
             <section className="uc-card p-5" aria-label="Offer and training">
               {d.offer && (
                 <div className="mb-4">
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <h2 className="uc-label">Offer letter</h2>
-                    <Chip value={d.offer.acceptedAt ? "signed" : "offer_sent"} label={d.offer.acceptedAt ? `Accepted ${fmtDate(d.offer.acceptedAt)}` : "Awaiting signature"} />
+                    <div className="flex items-center gap-2">
+                      <Chip value={d.offer.acceptedAt ? "signed" : "offer_sent"} label={d.offer.acceptedAt ? `Accepted ${fmtDate(d.offer.acceptedAt)}` : "Awaiting signature"} />
+                      <OfferPdfButton applicationId={Number(app.id)} />
+                    </div>
                   </div>
                   <pre className="whitespace-pre-wrap rounded-lg bg-[--brand-50] p-3 text-xs leading-relaxed border" style={{ borderColor: "var(--line)" }}>
                     {d.offer.content}
@@ -316,21 +319,73 @@ export default function CandidateDetail() {
                       Signed by {d.offer.signatureName} · {fmtDateTime(d.offer.acceptedAt)} · IP recorded
                     </p>
                   )}
+                  {d.offer.archivedAt && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      PDF archived on hire · {fmtDateTime(d.offer.archivedAt)} — remains downloadable here.
+                    </p>
+                  )}
                 </div>
               )}
               {d.enrolments.length > 0 && (
                 <div>
-                  <p className="uc-label mb-2">Training enrolments</p>
-                  <ul className="space-y-1.5 text-sm">
-                    {d.enrolments.map((e) => (
-                      <li key={e.id} className="flex items-center justify-between">
-                        <span>{e.course?.title ?? `Course #${e.courseId}`}</span>
-                        <Chip value={e.status} />
-                      </li>
-                    ))}
+                  <p className="uc-label mb-2">Training</p>
+                  <ul className="space-y-2 text-sm">
+                    {d.enrolments.map((e) => {
+                      const online = e.delivery === "online" || e.course?.type === "online";
+                      const hours = e.course?.durationHours ? `${e.course.durationHours}h` : null;
+                      return (
+                        <li key={e.id} className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--line)" }}>
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-medium text-[--brand-900]">{e.course?.title ?? `Course #${e.courseId}`}</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                {online ? "Online" : "In person"}
+                                {hours ? ` · ${hours}` : ""}
+                                {e.course?.provider ? ` · ${e.course.provider}` : ""}
+                              </p>
+                              {e.session && (
+                                <p className="mt-1 text-xs text-slate-700">
+                                  {fmtDate(e.session.startsAt)} {fmtTime(e.session.startsAt)}–{fmtTime(e.session.endsAt)}
+                                  {e.session.location ? ` · ${e.session.location}` : ""}
+                                  {e.session.trainerName ? ` · ${e.session.trainerName}` : ""}
+                                </p>
+                              )}
+                              {(e.courseUrl || e.session?.meetingUrl) && (
+                                <p className="mt-1 text-xs">
+                                  {e.courseUrl && (
+                                    <a href={e.courseUrl} target="_blank" rel="noreferrer" className="text-[--brand-700] underline mr-2">
+                                      Course link
+                                    </a>
+                                  )}
+                                  {e.session?.meetingUrl && (
+                                    <a href={e.session.meetingUrl} target="_blank" rel="noreferrer" className="text-[--brand-700] underline">
+                                      Join session
+                                    </a>
+                                  )}
+                                </p>
+                              )}
+                              {e.outcomeFileKey && (
+                                <TrainingOutcomeButton enrolmentId={Number(e.id)} outcome={e.outcome ?? null} />
+                              )}
+                            </div>
+                            <div className="flex flex-col items-end gap-1">
+                              <Chip value={e.status} />
+                              {e.outcome === "pass" && <Chip value="available" label="Passed" />}
+                              {e.outcome === "fail" && <Chip value="rejected" label="Failed" />}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}
+            </section>
+          )}
+          {!d.offer && d.enrolments.length === 0 && ["training_booked", "online_training_in_progress", "dbs_verified", "training_complete"].includes(stage) && (
+            <section className="uc-card p-5" aria-label="Training">
+              <h2 className="uc-label mb-2">Training</h2>
+              <p className="text-sm text-muted-foreground">No enrolments yet — schedule sessions or assign online courses from Training.</p>
             </section>
           )}
         </div>
@@ -702,6 +757,33 @@ function ScorecardForm({ applicationId, onDone }: { applicationId: number; onDon
   );
 }
 
+function OfferPdfButton({ applicationId }: { applicationId: number }) {
+  const download = trpc.hr2.offerLetterUrl.useMutation({
+    onSuccess: ({ url }) => window.open(url, "_blank", "noopener,noreferrer"),
+    onError: (e) => toast.error(e.message),
+  });
+  return (
+    <Button size="sm" variant="outline" className="h-7" disabled={download.isPending}
+      onClick={() => download.mutate({ applicationId })}>
+      <Download className="h-3.5 w-3.5 mr-1" /> {download.isPending ? "Preparing…" : "Download PDF"}
+    </Button>
+  );
+}
+
+function TrainingOutcomeButton({ enrolmentId, outcome }: { enrolmentId: number; outcome: string | null }) {
+  const download = trpc.hr2.trainingOutcomeUrl.useMutation({
+    onSuccess: ({ url }) => window.open(url, "_blank", "noopener,noreferrer"),
+    onError: (e) => toast.error(e.message),
+  });
+  return (
+    <button type="button" className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-[--brand-700] underline"
+      disabled={download.isPending} onClick={() => download.mutate({ enrolmentId })}>
+      <Download className="h-3 w-3" aria-hidden />
+      {download.isPending ? "Preparing…" : outcome === "fail" ? "Download outcome letter" : "Download certificate"}
+    </button>
+  );
+}
+
 function DocChecklist({ docs, onDone }: { docs: NonNullable<Detail>["docs"]; onDone: () => void }) {
   const utils = trpc.useUtils();
   const verify = trpc.hr2.verifyDocument.useMutation({
@@ -723,12 +805,20 @@ function DocChecklist({ docs, onDone }: { docs: NonNullable<Detail>["docs"]; onD
   return (
     <>
       <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
-        {docs.map((doc) => (
+        {docs.map((doc) => {
+          const label = doc.requirement?.label ?? doc.requirementKey.replace(/_/g, " ");
+          const isText = doc.requirement?.inputKind === "text" || !!doc.textValue;
+          return (
           <li key={doc.id} className="py-2.5 flex flex-wrap items-center gap-2">
             <div className="flex-1 min-w-40">
-              <p className="text-sm font-medium">{doc.requirementKey.replace(/_/g, " ")}</p>
-              <p className="text-xs text-muted-foreground">
-                {doc.fileKey ? (
+              <p className="text-sm font-medium">{label}</p>
+              {doc.requirement?.guidance && (
+                <p className="text-[11px] text-muted-foreground">{doc.requirement.guidance}</p>
+              )}
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap">
+                {isText ? (
+                  doc.textValue || doc.fileName || "No details yet"
+                ) : doc.fileKey ? (
                   <button className="underline text-[--brand-700] hover:text-[--brand-900]" disabled={openDoc.isPending}
                     onClick={() => openDoc.mutate({ id: Number(doc.id) })}>
                     {doc.fileName ?? "Open file"}
@@ -753,7 +843,8 @@ function DocChecklist({ docs, onDone }: { docs: NonNullable<Detail>["docs"]; onD
               <span className="text-xs text-red-700">{doc.rejectionReason}</span>
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
       <Dialog open={rejectId !== null} onOpenChange={(o) => !o && setRejectId(null)}>
         <DialogContent>

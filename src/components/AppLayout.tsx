@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, CalendarDays, ShieldCheck, Headset, Briefcase,
   Settings, ScrollText, Bell, Search, LogOut, UserCog, ClipboardList,
   CalendarRange, Stethoscope, FileCheck2, GraduationCap, Network,
-  ClipboardCheck, Star, AlertTriangle, FileText, ChevronDown, PhoneCall,
+  ClipboardCheck, Star, AlertTriangle, FileText, FileOutput, ChevronDown, PhoneCall,
   HelpCircle, Map, Compass, Menu, X,
 } from "lucide-react";
 import { AvatarDot } from "./common";
@@ -45,6 +45,7 @@ const NAV: NavGroup[] = [
       { label: "Pipeline", path: "/recruitment/pipeline", icon: Network, roles: OFFICE },
       { label: "Interviews", path: "/recruitment/interviews", icon: CalendarDays, roles: ["super_admin", "admin", "interview_panel", "team_leader"] },
       { label: "Compliance checks", path: "/recruitment/compliance", icon: FileCheck2, roles: OFFICE },
+      { label: "Outgoing documents", path: "/recruitment/outgoing-documents", icon: FileOutput, roles: OFFICE },
       { label: "Training", path: "/recruitment/training", icon: GraduationCap, roles: OFFICE },
     ],
   },

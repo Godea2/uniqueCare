@@ -20,6 +20,7 @@ import {
   type JobLinkSources,
   type JobPostings,
   type OfferLetters,
+  type OutgoingDocuments,
   type PreInterviewForms,
   type References,
   type StaffProfiles,
@@ -46,6 +47,12 @@ import {
 import {
   MIN_OFFERED_SLOTS, batchOverlaps, panelConflicts, slotCapacity, slotUiState, SLOT_STATE_LABEL,
 } from "../lib/interview-slots";
+import { isRemovedComplianceKey, resolveComplianceRequirement } from "../lib/compliance-docs";
+import { archiveOfferOnHire, buildOfferLetter, ensureOfferPdfStored, offerPdfDownloadUrl } from "../lib/offer-letter";
+import { recordTrainingOutcome, trainingOutcomeDownloadUrl } from "../lib/training-outcome";
+import {
+  OUTGOING_KIND_LABEL, OUTGOING_KINDS, outgoingDocumentUrl, syncOutgoingFromSources,
+} from "../lib/outgoing-docs";
 import {
   validateSubmission, trippedKnockouts, suggestRequirementSetup, REQUIREMENT_ANSWER_TYPES,
   formSchemaDoc, type FormSchemaDoc, type FormAnswers,
@@ -603,11 +610,22 @@ export const hrRouter = createRouter({
       let scorecards = await db.from("interviewScorecards").eq("applicationId", app.id).many<InterviewScorecards>();
       const allScorecards = scorecards;
       if (sc.staff.role === "interview_panel" && !myScorecard) scorecards = [];
-      const docs = await db.from("complianceDocuments").eq("ownerType", "candidate").eq("ownerId", app.candidateId).many<ComplianceDocuments>();
+      const docsRaw = await db.from("complianceDocuments").eq("ownerType", "candidate").eq("ownerId", app.candidateId).many<ComplianceDocuments>();
+      const complianceReqs = await db.from("complianceRequirements").many<ComplianceRequirements>();
+      const docs = docsRaw
+        .filter((d) => d.status !== "cancelled" && !isRemovedComplianceKey(d.requirementKey))
+        .map((d) => {
+          const raw = complianceReqs.find((r) => r.key === d.requirementKey);
+          const requirement = raw
+            ? resolveComplianceRequirement(raw)
+            : resolveComplianceRequirement({ key: d.requirementKey, label: d.requirementKey.replace(/_/g, " ") });
+          return { ...d, requirement };
+        });
       const refs = await db.from("references").eq("applicationId", app.id).many<References>();
       const offer = await db.from("offerLetters").eq("applicationId", app.id).order("id", "desc").first<OfferLetters>() ?? null;
       const enrolments = await db.from("trainingEnrolments").eq("personType", "candidate").eq("personId", app.candidateId).many<TrainingEnrolments>();
       const courses = await db.from("trainingCourses").many<TrainingCourses>();
+      const trainSessions = await db.from("trainingSessions").many<TrainingSessions>();
       const panel = await db.from("staffProfiles").many<StaffProfiles>();
       const cvs = await db.from("cvVersions").eq("applicationId", app.id).order("createdAt", "desc").many<CvVersions>();
       // Published form schema the applicant answered (for labelled answer display)
@@ -620,7 +638,31 @@ export const hrRouter = createRouter({
       return {
         application: app, candidate, job, form, booking, slot, offeredSlots, scorecards, allScorecardsCount: allScorecards.length,
         myScorecard, docs, references: refs, offer, panel, cvVersions: cvs, formSchema,
-        enrolments: enrolments.map((e) => ({ ...e, course: courses.find((c) => c.id === e.courseId) })),
+        enrolments: enrolments.map((e) => {
+          const course = courses.find((c) => Number(c.id) === Number(e.courseId)) ?? null;
+          const session = e.sessionId
+            ? trainSessions.find((s) => Number(s.id) === Number(e.sessionId)) ?? null
+            : null;
+          const delivery = session?.delivery
+            ?? (course && (course.type === "online" ? "online" : "in_person"));
+          return {
+            ...e,
+            course,
+            session: session
+              ? {
+                  id: Number(session.id),
+                  startsAt: session.startsAt,
+                  endsAt: session.endsAt,
+                  location: session.location,
+                  delivery: session.delivery ?? delivery,
+                  meetingUrl: session.meetingUrl ?? null,
+                  trainerName: session.trainerName,
+                }
+              : null,
+            delivery,
+            courseUrl: course?.courseUrl ?? null,
+          };
+        }),
         myStaffId: sc.staff.id, myRole: sc.staff.role,
       };
     }),
@@ -957,7 +999,8 @@ export const hrRouter2 = createRouter({
       requireRole(sc, "super_admin", "admin");
       const app = await db.from("applications").eq("id", input.applicationId).first<Applications>();
       if (!app) throw new TRPCError({ code: "NOT_FOUND" });
-      const reqs = await db.from("complianceRequirements").eq("required", true).many<ComplianceRequirements>();
+      const reqs = (await db.from("complianceRequirements").eq("required", true).many<ComplianceRequirements>())
+        .filter((r) => !isRemovedComplianceKey(r.key));
       if (reqs.length === 0) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No compliance documents are set up yet. Load the compliance requirements in Supabase first." });
       }
@@ -975,6 +1018,13 @@ export const hrRouter2 = createRouter({
             ownerType: "candidate", ownerId: app.candidateId, requirementKey: req.key, status: "requested",
           });
         }
+      }
+      // Retire any leftover requests for removed document types
+      for (const key of ["employment_history", "qualifications"]) {
+        await db.from("complianceDocuments")
+          .eq("ownerType", "candidate").eq("ownerId", app.candidateId).eq("requirementKey", key)
+          .in("status", ["requested", "rejected", "uploaded"])
+          .update({ status: "cancelled" });
       }
       // references
       const form = await db.from("preInterviewForms").eq("applicationId", app.id).first<PreInterviewForms>();
@@ -1022,7 +1072,8 @@ export const hrRouter2 = createRouter({
       if (doc.ownerType === "candidate") {
         const app = await complianceApplication(Number(doc.ownerId));
         if (app && ["compliance_docs_requested", "approved"].includes(app.stage)) {
-          const reqs = await db.from("complianceRequirements").eq("required", true).many<ComplianceRequirements>();
+          const reqs = (await db.from("complianceRequirements").eq("required", true).many<ComplianceRequirements>())
+            .filter((r) => !isRemovedComplianceKey(r.key));
           const docs = await db.from("complianceDocuments").eq("ownerType", "candidate").eq("ownerId", doc.ownerId).many<ComplianceDocuments>();
           const allVerified = reqs.length > 0 && reqs.every((r) => docs.some((d) => d.requirementKey === r.key && d.status === "verified"));
           if (allVerified) {
@@ -1032,19 +1083,26 @@ export const hrRouter2 = createRouter({
               const job = (await db.from("jobPostings").eq("id", app.jobPostingId).first<JobPostings>())!;
               const cand = (await db.from("candidates").eq("id", app.candidateId).first<Candidates>())!;
               const org = await orgProfile();
-              await db.from("offerLetters").insert({
-                applicationId: app.id, templateVersion: "v2",
-                content: buildOfferLetter({
-                  name: `${cand.firstName} ${cand.lastName}`, role: job.title, salary: job.salaryText ?? "",
-                  orgName: org.name, signatory: org.signatory, signatoryTitle: org.signatoryTitle,
-                }),
-                sentAt: new Date(),
+              const content = buildOfferLetter({
+                name: `${cand.firstName} ${cand.lastName}`, role: job.title, salary: job.salaryText ?? "",
+                orgName: org.name, signatory: org.signatory, signatoryTitle: org.signatoryTitle,
               });
+              const [offer] = await db.from("offerLetters").insert<OfferLetters>({
+                applicationId: app.id, templateVersion: "v2", content, sentAt: new Date(),
+              });
+              try {
+                await ensureOfferPdfStored({
+                  offer,
+                  candidateId: Number(cand.id),
+                  candidateName: `${cand.firstName} ${cand.lastName}`,
+                  orgName: org.name,
+                });
+              } catch { /* email still attaches via emailCandidate regenerate */ }
               await pushStage(app.id, "offer_sent", "System (automation)");
               await emailCandidate(app.id, "offer_sent", appUrl(ctx.req));
               await notifyRoles(["admin", "super_admin"], {
                 type: "hr", title: "Offer letter sent automatically",
-                body: `All compliance verified for application #${app.id}; offer letter generated and sent.`,
+                body: `All compliance verified for application #${app.id}; offer letter PDF generated and emailed.`,
                 link: `/recruitment/pipeline/${app.id}`,
               });
             }
@@ -1079,7 +1137,9 @@ export const hrRouter2 = createRouter({
       if (doc?.ownerType === "candidate") {
         const app = await complianceApplication(Number(doc.ownerId));
         const req = await db.from("complianceRequirements").eq("key", doc.requirementKey).first<ComplianceRequirements>();
-        const what = req?.label ?? doc.requirementKey.replace(/_/g, " ");
+        const what = req
+          ? resolveComplianceRequirement(req).label
+          : doc.requirementKey.replace(/_/g, " ");
         if (app) await emailCandidate(Number(app.id), "document_rejected", appUrl(ctx.req), { note: `${what}. ${input.reason}` });
       }
       return { ok: true };
@@ -1091,13 +1151,21 @@ export const hrRouter2 = createRouter({
     const reqs = await db.from("complianceRequirements").many<ComplianceRequirements>();
     const cands = await db.from("candidates").many<Candidates>();
     const staff = await db.from("staffProfiles").many<StaffProfiles>();
-    return docs.map((d) => ({
-      ...d,
-      requirement: reqs.find((r) => r.key === d.requirementKey),
-      ownerName: d.ownerType === "candidate"
-        ? (() => { const c = cands.find((x) => x.id === d.ownerId); return c ? `${c.firstName} ${c.lastName}` : `#${d.ownerId}`; })()
-        : staff.find((x) => x.id === d.ownerId)?.fullName ?? `#${d.ownerId}`,
-    }));
+    return docs
+      .filter((d) => !isRemovedComplianceKey(d.requirementKey))
+      .map((d) => {
+        const raw = reqs.find((r) => r.key === d.requirementKey);
+        const resolved = raw
+          ? resolveComplianceRequirement(raw)
+          : resolveComplianceRequirement({ key: d.requirementKey, label: d.requirementKey.replace(/_/g, " ") });
+        return {
+          ...d,
+          requirement: raw ? { ...raw, ...resolved, required: raw.required } : { ...resolved, required: true },
+          ownerName: d.ownerType === "candidate"
+            ? (() => { const c = cands.find((x) => x.id === d.ownerId); return c ? `${c.firstName} ${c.lastName}` : `#${d.ownerId}`; })()
+            : staff.find((x) => x.id === d.ownerId)?.fullName ?? `#${d.ownerId}`,
+        };
+      });
   }),
 
   complianceMatrix: authedQuery.query(async ({ ctx }) => {
@@ -1134,7 +1202,93 @@ export const hrRouter2 = createRouter({
   }),
 
   // ── Training ──
-  courses: authedQuery.query(async () => db.from("trainingCourses").many<TrainingCourses>()),
+  courses: authedQuery.query(async () => db.from("trainingCourses").order("title", "asc").many<TrainingCourses>()),
+
+  createCourse: authedQuery
+    .input(z.object({
+      title: z.string().trim().min(2).max(200),
+      type: z.enum(["online", "in_person"]),
+      provider: z.string().trim().max(120).optional(),
+      durationHours: z.number().positive().max(80).optional(),
+      courseUrl: z.string().trim().url().max(2000).optional().or(z.literal("")),
+      mandatory: z.boolean().default(true),
+      renewEveryMonths: z.number().int().min(1).max(120).optional().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      const courseUrl = input.courseUrl?.trim() || null;
+      if (input.type === "online" && !courseUrl) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Add the course URL so candidates know where to take the online training.",
+        });
+      }
+      const [row] = await db.from("trainingCourses").insert<TrainingCourses>({
+        title: input.title,
+        type: input.type === "in_person" ? "classroom" : "online",
+        provider: input.provider || "Unique Care Academy",
+        durationHours: input.durationHours != null ? String(input.durationHours) : null,
+        mandatory: input.mandatory,
+        renewEveryMonths: input.renewEveryMonths ?? null,
+      });
+      let urlSaved = true;
+      if (courseUrl) {
+        try {
+          await db.from("trainingCourses").eq("id", row.id).update({ courseUrl });
+        } catch {
+          urlSaved = false;
+        }
+      }
+      await audit(sc.staff.fullName, "training_course_created", "training_courses", row.id, {
+        type: input.type, courseUrl: !!courseUrl,
+      });
+      return { id: Number(row.id), urlSaved };
+    }),
+
+  updateCourse: authedQuery
+    .input(z.object({
+      id: z.number(),
+      title: z.string().trim().min(2).max(200),
+      type: z.enum(["online", "in_person"]),
+      provider: z.string().trim().max(120).optional().nullable(),
+      durationHours: z.number().positive().max(80).optional().nullable(),
+      courseUrl: z.string().trim().url().max(2000).optional().or(z.literal("")).nullable(),
+      mandatory: z.boolean(),
+      renewEveryMonths: z.number().int().min(1).max(120).optional().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      const existing = await db.from("trainingCourses").eq("id", input.id).first<TrainingCourses>();
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
+      const courseUrl = input.courseUrl == null ? null : (input.courseUrl.trim() || null);
+      if (input.type === "online" && !courseUrl) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Online courses need a URL candidates can open to take the training.",
+        });
+      }
+      await db.from("trainingCourses").eq("id", input.id).update({
+        title: input.title,
+        type: input.type === "in_person" ? "classroom" : "online",
+        provider: input.provider ?? existing.provider,
+        durationHours: input.durationHours != null ? String(input.durationHours) : null,
+        mandatory: input.mandatory,
+        renewEveryMonths: input.renewEveryMonths ?? null,
+      });
+      let urlSaved = true;
+      if (input.courseUrl !== undefined) {
+        try {
+          await db.from("trainingCourses").eq("id", input.id).update({ courseUrl });
+        } catch {
+          urlSaved = false;
+        }
+      }
+      await audit(sc.staff.fullName, "training_course_updated", "training_courses", input.id, { type: input.type });
+      return { ok: true, urlSaved };
+    }),
+
   createSession: authedQuery
     .input(z.object({
       courseId: z.number(),
@@ -1242,6 +1396,44 @@ export const hrRouter2 = createRouter({
       const e = await db.from("trainingEnrolments").eq("id", input.enrolmentId).first<TrainingEnrolments>();
       if (!e?.sessionId) throw new TRPCError({ code: "NOT_FOUND", message: "That booking no longer exists." });
       return { status: await markAttendance(e, input.mark, sc.staff.fullName) };
+    }),
+
+  /** Record pass/fail, email certificate or outcome letter PDF, and keep it downloadable. */
+  recordTrainingOutcome: authedQuery
+    .input(z.object({
+      enrolmentId: z.number(),
+      outcome: z.enum(["pass", "fail"]),
+      notes: z.string().trim().max(2000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin", "team_leader");
+      const e = await db.from("trainingEnrolments").eq("id", input.enrolmentId).first<TrainingEnrolments>();
+      if (!e) throw new TRPCError({ code: "NOT_FOUND", message: "That enrolment no longer exists." });
+      return recordTrainingOutcome({
+        enrolment: e,
+        outcome: input.outcome,
+        actor: sc.staff.fullName,
+        baseUrl: appUrl(ctx.req),
+        notes: input.notes,
+      });
+    }),
+
+  trainingOutcomeUrl: authedQuery
+    .input(z.object({ enrolmentId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, ...RECRUITMENT_ROLES);
+      const e = await db.from("trainingEnrolments").eq("id", input.enrolmentId).first<TrainingEnrolments>();
+      if (!e?.outcomeFileKey) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No outcome document is stored for this enrolment yet." });
+      }
+      await audit(sc.staff.fullName, "training_outcome_downloaded", "training_enrolments", e.id, { outcome: e.outcome });
+      return {
+        url: await trainingOutcomeDownloadUrl(e.outcomeFileKey),
+        fileName: e.outcomeFileName ?? "training-outcome.pdf",
+        outcome: e.outcome ?? null,
+      };
     }),
 
   resendTrainerEmail: authedQuery
@@ -1374,40 +1566,131 @@ export const hrRouter2 = createRouter({
           status: e.status, completedAt: e.completedAt, expiresAt: e.expiresAt,
         });
       }
+      // Persist a lasting downloadable PDF of the offer on the candidate profile.
+      const offer = await db.from("offerLetters").eq("applicationId", app.id).order("id", "desc").first<OfferLetters>();
+      const org = await orgProfile();
+      if (offer) {
+        try {
+          const archived = await archiveOfferOnHire({
+            offer,
+            candidateId: Number(cand.id),
+            candidateName: `${cand.firstName} ${cand.lastName}`,
+            orgName: org.name,
+            issuedBy: sc.staff.fullName,
+          });
+          if (archived) {
+            // Also keep a verified staff-file copy so it remains accessible after hire.
+            const already = await db.from("complianceDocuments")
+              .eq("ownerType", "staff").eq("ownerId", staffId).eq("requirementKey", "offer_letter")
+              .first<ComplianceDocuments>();
+            if (!already) {
+              await db.from("complianceDocuments").insert({
+                ownerType: "staff", ownerId: staffId, requirementKey: "offer_letter",
+                fileName: archived.fileName, fileKey: archived.fileKey, status: "verified",
+                verifiedBy: sc.staff.fullName, verifiedAt: new Date(),
+              });
+            }
+          }
+        } catch { /* hire still succeeds if storage is briefly unavailable */ }
+      }
+
       // re-fetch: stage may have moved to training_complete above — final transition to hired
       const cur = await db.from("applications").eq("id", app.id).first<Applications>();
       if (cur?.stage === "training_complete") await pushStage(app.id, "hired", "System (automation)");
       await notifyRoles(["admin", "super_admin", "care_coordinator"], {
         type: "hr", title: `${cand.firstName} ${cand.lastName} has joined as ${job?.title ?? "a new starter"}`,
-        body: "Compliance documents and training copied to the staff file.",
+        body: "Compliance documents, offer letter PDF and training copied to the staff file.",
         link: `/staff`,
       });
       await audit(sc.staff.fullName, "candidate_hired", "applications", app.id, { staffId });
       await emailCandidate(app.id, "hired", appUrl(ctx.req));
       return { ok: true, staffId };
     }),
+
+  /** Signed URL to download the stored offer-letter PDF (candidate profile / hired archive). */
+  offerLetterUrl: authedQuery
+    .input(z.object({ applicationId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, ...RECRUITMENT_ROLES);
+      const app = await db.from("applications").eq("id", input.applicationId).first<Applications>();
+      if (!app) throw new TRPCError({ code: "NOT_FOUND" });
+      const offer = await db.from("offerLetters").eq("applicationId", app.id).order("id", "desc").first<OfferLetters>();
+      if (!offer) throw new TRPCError({ code: "NOT_FOUND", message: "No offer letter for this candidate." });
+      const cand = (await db.from("candidates").eq("id", app.candidateId).first<Candidates>())!;
+      const org = await orgProfile();
+      const stored = await ensureOfferPdfStored({
+        offer,
+        candidateId: Number(cand.id),
+        candidateName: `${cand.firstName} ${cand.lastName}`,
+        orgName: org.name,
+      });
+      await audit(sc.staff.fullName, "offer_letter_downloaded", "offer_letters", offer.id, { applicationId: app.id });
+      return { url: await offerPdfDownloadUrl(stored.fileKey), fileName: stored.fileName };
+    }),
+
+  /** Central library of documents we issued (offers, certificates) — not candidate uploads. */
+  outgoingDocuments: authedQuery
+    .input(z.object({
+      q: z.string().trim().max(120).optional(),
+      kind: z.enum(OUTGOING_KINDS).optional(),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      sync: z.boolean().default(true),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      requireRole(await getStaff(ctx), "super_admin", "admin", "team_leader");
+      if (input?.sync !== false) await syncOutgoingFromSources().catch(() => 0);
+      let rows: OutgoingDocuments[] = [];
+      try {
+        rows = await db.from("outgoingDocuments").order("issuedAt", "desc").many<OutgoingDocuments>();
+      } catch {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Run the 0013 SQL in Supabase to enable Outgoing Documents.",
+        });
+      }
+      if (input?.kind) rows = rows.filter((r) => r.kind === input.kind);
+      if (input?.from) {
+        const from = new Date(input.from).getTime();
+        rows = rows.filter((r) => new Date(r.issuedAt).getTime() >= from);
+      }
+      if (input?.to) {
+        const to = new Date(input.to);
+        to.setHours(23, 59, 59, 999);
+        rows = rows.filter((r) => new Date(r.issuedAt).getTime() <= to.getTime());
+      }
+      const needle = input?.q?.toLowerCase();
+      const cands = await db.from("candidates").many<Candidates>();
+      const withNames = rows.map((r) => {
+        const cand = r.candidateId != null
+          ? cands.find((c) => Number(c.id) === Number(r.candidateId))
+          : undefined;
+        const candidateName = cand ? `${cand.firstName} ${cand.lastName}` : null;
+        return {
+          ...r,
+          kindLabel: OUTGOING_KIND_LABEL[r.kind as keyof typeof OUTGOING_KIND_LABEL] ?? r.kind.replace(/_/g, " "),
+          candidateName,
+        };
+      });
+      if (!needle) return withNames;
+      return withNames.filter((r) =>
+        r.title.toLowerCase().includes(needle)
+        || r.fileName.toLowerCase().includes(needle)
+        || (r.candidateName?.toLowerCase().includes(needle) ?? false)
+        || (r.issuedBy?.toLowerCase().includes(needle) ?? false)
+        || r.kindLabel.toLowerCase().includes(needle));
+    }),
+
+  outgoingDocumentUrl: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin", "team_leader");
+      const doc = await db.from("outgoingDocuments").eq("id", input.id).first<OutgoingDocuments>();
+      if (!doc?.fileKey) throw new TRPCError({ code: "NOT_FOUND", message: "Document not found." });
+      await audit(sc.staff.fullName, "outgoing_document_downloaded", "outgoing_documents", doc.id, { kind: doc.kind });
+      return { url: await outgoingDocumentUrl(doc.fileKey), fileName: doc.fileName };
+    }),
 });
-
-function buildOfferLetter(o: { name: string; role: string; salary: string; orgName: string; signatory: string; signatoryTitle: string }) {
-  const today = new Date().toLocaleDateString("en-GB");
-  return `${o.orgName.toUpperCase()} — OFFER OF EMPLOYMENT
-
-Date: ${today}
-
-Dear ${o.name},
-
-We are delighted to offer you the position of ${o.role} at ${o.orgName}.
-
-Pay: ${o.salary || "As discussed at interview"}
-Hours: As per your contracted schedule, discussed at interview.
-Start date: To be confirmed on completion of mandatory training.
-
-This offer is made subject to satisfactory completion of all mandatory training and ongoing compliance with our regulatory requirements (CQC Regulation 19, Schedule 3).
-
-Please accept this offer in your candidate portal by typing your full name as your electronic signature.
-
-Yours sincerely,
-${o.signatory}${o.signatoryTitle ? `\n${o.signatoryTitle}` : ""}
-${o.orgName}`;
-}
 

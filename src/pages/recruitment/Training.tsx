@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import type { RouterOutputs } from "@/lib/router-types";
@@ -21,12 +21,18 @@ const time = (d: string | Date) => new Date(d).toLocaleTimeString("en-GB", { hou
 /** Attendance can be marked from 12 hours before a session starts, matching the server. */
 const markingOpen = (startsAt: string | Date) => Date.now() >= new Date(startsAt).getTime() - 12 * 3600_000;
 
+function courseDeliveryLabel(type: string) {
+  return type === "online" ? "Online" : "In person";
+}
+
 export default function Training() {
   const coursesQ = trpc.hr2.courses.useQuery();
   const sessionsQ = trpc.hr2.sessions.useQuery();
   const pipelineQ = trpc.hr.pipeline.useQuery({});
   const [dbsOpen, setDbsOpen] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
+  const [courseOpen, setCourseOpen] = useState(false);
+  const [editingCourse, setEditingCourse] = useState<RouterOutputs["hr2"]["courses"][number] | null>(null);
   const [showPast, setShowPast] = useState(false);
 
   if (coursesQ.isLoading || sessionsQ.isLoading) return <Loading rows={5} />;
@@ -45,9 +51,12 @@ export default function Training() {
     <div className="space-y-6">
       <PageHeader
         title="Training & DBS check-in"
-        subtitle="Online courses, classroom induction, and DBS verification at the door"
+        subtitle="Create courses, schedule sessions, and verify DBS at the door"
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={() => { setEditingCourse(null); setCourseOpen(true); }}>
+              <Plus className="h-4 w-4 mr-1.5" /> New course
+            </Button>
             <Button variant="outline" onClick={() => setSessionOpen(true)}><GraduationCap className="h-4 w-4 mr-1.5" /> New session</Button>
             <Button onClick={() => setDbsOpen(true)}><ShieldCheck className="h-4 w-4 mr-1.5" /> DBS check-in</Button>
           </div>
@@ -106,37 +115,208 @@ export default function Training() {
       </section>
 
       <section aria-label="Course catalogue">
-        <h2 className="uc-label mb-2">Course catalogue</h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="uc-label">Course catalogue</h2>
+          <Button size="sm" variant="outline" onClick={() => { setEditingCourse(null); setCourseOpen(true); }}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> Add course
+          </Button>
+        </div>
         <div className="uc-card overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground" style={{ borderColor: "var(--line)" }}>
                 <th className="px-4 py-2.5 font-medium">Course</th>
-                <th className="px-4 py-2.5 font-medium">Type</th>
+                <th className="px-4 py-2.5 font-medium">Delivery</th>
+                <th className="px-4 py-2.5 font-medium">Duration</th>
+                <th className="px-4 py-2.5 font-medium">Course URL</th>
                 <th className="px-4 py-2.5 font-medium">Mandatory</th>
                 <th className="px-4 py-2.5 font-medium">Valid for</th>
+                <th className="px-4 py-2.5 font-medium" />
               </tr>
             </thead>
             <tbody>
               {(coursesQ.data ?? []).map((c) => (
                 <tr key={c.id} className="border-b last:border-0" style={{ borderColor: "var(--line)" }}>
-                  <td className="px-4 py-2.5 font-medium">{c.title}</td>
-                  <td className="px-4 py-2.5"><Chip value={c.type === "online" ? "open" : "scheduled"} label={c.type} /></td>
+                  <td className="px-4 py-2.5">
+                    <p className="font-medium">{c.title}</p>
+                    {c.provider && <p className="text-[11px] text-muted-foreground">{c.provider}</p>}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <Chip value={c.type === "online" ? "available" : "scheduled"} label={courseDeliveryLabel(c.type)} />
+                  </td>
+                  <td className="px-4 py-2.5 text-muted-foreground">{c.durationHours ? `${c.durationHours}h` : "—"}</td>
+                  <td className="px-4 py-2.5 max-w-[12rem] truncate">
+                    {c.courseUrl
+                      ? <a href={c.courseUrl} target="_blank" rel="noreferrer" className="text-[--brand-700] underline">{c.courseUrl}</a>
+                      : <span className="text-muted-foreground">—</span>}
+                  </td>
                   <td className="px-4 py-2.5">{c.mandatory ? <span className="text-[--brand-700] font-medium">Yes</span> : "No"}</td>
                   <td className="px-4 py-2.5 text-muted-foreground">{c.renewEveryMonths ? `${c.renewEveryMonths} months` : "—"}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingCourse(c); setCourseOpen(true); }}>
+                      Edit
+                    </Button>
+                  </td>
                 </tr>
               ))}
+              {(coursesQ.data ?? []).length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    No courses yet. Create online courses with a learning URL, or in-person courses and schedule session dates.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </section>
 
+      <CourseDialog
+        open={courseOpen}
+        course={editingCourse}
+        onClose={() => { setCourseOpen(false); setEditingCourse(null); }}
+      />
       <SessionDialog open={sessionOpen} onClose={() => setSessionOpen(false)}
         courses={(coursesQ.data ?? []).map((c) => ({ id: Number(c.id), title: c.title, type: c.type }))} />
       <DbsDialog open={dbsOpen} onClose={() => setDbsOpen(false)} candidates={inTraining.map((a) => ({
         id: Number(a.id), name: `${a.candidate?.firstName} ${a.candidate?.lastName}`,
       }))} />
     </div>
+  );
+}
+
+function CourseDialog({ open, course, onClose }: {
+  open: boolean;
+  course: RouterOutputs["hr2"]["courses"][number] | null;
+  onClose: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const editing = !!course;
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState<"online" | "in_person">("online");
+  const [provider, setProvider] = useState("Unique Care Academy");
+  const [durationHours, setDurationHours] = useState("2");
+  const [courseUrl, setCourseUrl] = useState("");
+  const [mandatory, setMandatory] = useState(true);
+  const [renewMonths, setRenewMonths] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setTitle(course?.title ?? "");
+    setType(course?.type === "online" ? "online" : "in_person");
+    setProvider(course?.provider ?? "Unique Care Academy");
+    setDurationHours(course?.durationHours != null ? String(course.durationHours) : "2");
+    setCourseUrl(course?.courseUrl ?? "");
+    setMandatory(course?.mandatory !== false);
+    setRenewMonths(course?.renewEveryMonths != null ? String(course.renewEveryMonths) : "");
+  }, [open, course]);
+
+  const create = trpc.hr2.createCourse.useMutation({
+    onSuccess: (res) => {
+      utils.hr2.courses.invalidate();
+      toast.success("Course created.");
+      if (!res.urlSaved && courseUrl.trim()) {
+        toast.warning("Run the 0009 SQL in Supabase so the course URL is stored.");
+      }
+      onClose();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const update = trpc.hr2.updateCourse.useMutation({
+    onSuccess: (res) => {
+      utils.hr2.courses.invalidate();
+      toast.success("Course updated.");
+      if (!res.urlSaved) toast.warning("Run the 0009 SQL in Supabase so the course URL is stored.");
+      onClose();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const hours = Number(durationHours);
+  const renew = renewMonths.trim() ? Number(renewMonths) : null;
+  const urlOk = !courseUrl.trim() || /^https?:\/\/\S+\.\S+/.test(courseUrl.trim());
+  const problem =
+    title.trim().length < 2 ? "Enter a course title."
+    : !Number.isFinite(hours) || hours <= 0 ? "Enter duration in hours."
+    : type === "online" && !courseUrl.trim() ? "Add the course URL for online training."
+    : !urlOk ? "Course URL should start with https://"
+    : renew != null && (!Number.isInteger(renew) || renew < 1) ? "Renewal months must be a whole number."
+    : null;
+
+  const submit = () => {
+    if (problem) return;
+    const payload = {
+      title: title.trim(),
+      type,
+      provider: provider.trim() || undefined,
+      durationHours: hours,
+      courseUrl: courseUrl.trim() || "",
+      mandatory,
+      renewEveryMonths: renew,
+    };
+    if (editing && course) update.mutate({ id: Number(course.id), ...payload });
+    else create.mutate(payload);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{editing ? "Edit course" : "New training course"}</DialogTitle>
+          <DialogDescription>
+            Online courses need a URL candidates open to take the training. In-person courses are scheduled as sessions with dates and times.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <Label htmlFor="course-title">Title</Label>
+            <Input id="course-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Safeguarding Adults Level 2" />
+          </div>
+          <div className="space-y-2">
+            <Label>Delivery</Label>
+            <Segmented label="Delivery" value={type} onChange={setType} options={[
+              { value: "online", label: "Online", icon: Video },
+              { value: "in_person", label: "In person", icon: Building2 },
+            ]} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="course-hours">Duration (hours)</Label>
+              <Input id="course-hours" type="number" min={0.5} step={0.5} max={80} value={durationHours}
+                onChange={(e) => setDurationHours(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="course-renew">Renew every (months)</Label>
+              <Input id="course-renew" type="number" min={1} max={120} value={renewMonths}
+                onChange={(e) => setRenewMonths(e.target.value)} placeholder="Optional" />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="course-url">{type === "online" ? "Course URL" : "Course URL (optional)"}</Label>
+            <Input id="course-url" type="url" value={courseUrl} onChange={(e) => setCourseUrl(e.target.value)}
+              placeholder="https://learning.example.com/course/…" />
+            <p className="text-[11px] text-muted-foreground">
+              Candidates see this link on their portal and profile so they can go take the course.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="course-provider">Provider</Label>
+            <Input id="course-provider" value={provider} onChange={(e) => setProvider(e.target.value)} />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={mandatory} onCheckedChange={(v) => setMandatory(v === true)} />
+            Mandatory for new starters
+          </label>
+          {problem && <p className="text-xs text-amber-800">{problem}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={!!problem || create.isPending || update.isPending} onClick={submit}>
+            {editing ? "Save course" : "Create course"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -153,6 +333,20 @@ function SessionCard({ session: s }: { session: SessionRow }) {
   const utils = trpc.useUtils();
   const mark = trpc.hr2.markAttendance.useMutation({
     onSuccess: () => { utils.hr2.sessions.invalidate(); utils.hr.pipeline.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const outcome = trpc.hr2.recordTrainingOutcome.useMutation({
+    onSuccess: (res) => {
+      utils.hr2.sessions.invalidate();
+      utils.hr.pipeline.invalidate();
+      toast.success(res.outcome === "pass"
+        ? `Pass recorded — certificate ${res.emailed ? "emailed" : "saved"}.`
+        : `Fail recorded — outcome letter ${res.emailed ? "emailed" : "saved"}.`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const outcomeUrl = trpc.hr2.trainingOutcomeUrl.useMutation({
+    onSuccess: ({ url }) => window.open(url, "_blank", "noopener,noreferrer"),
     onError: (e) => toast.error(e.message),
   });
   const resend = trpc.hr2.resendTrainerEmail.useMutation({
@@ -234,6 +428,8 @@ function SessionCard({ session: s }: { session: SessionRow }) {
                   <Chip value={at.dbsVerified ? "verified" : "pending"} label={at.dbsVerified ? "DBS checked" : "DBS not checked"} />
                 )}
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${st.className}`}>{st.label}</span>
+                {at.outcome === "pass" && <Chip value="available" label="Passed" />}
+                {at.outcome === "fail" && <Chip value="rejected" label="Failed" />}
                 {open && (
                   <span className="inline-flex gap-1">
                     <Button size="sm" variant={at.status === "completed" ? "default" : "outline"} className="h-7 px-2"
@@ -247,6 +443,29 @@ function SessionCard({ session: s }: { session: SessionRow }) {
                       <X className="h-3.5 w-3.5" />
                     </Button>
                   </span>
+                )}
+                {at.personType === "candidate" && !at.outcome && (at.status === "completed" || at.status === "no_show") && (
+                  <span className="inline-flex gap-1">
+                    {at.status === "completed" && (
+                      <Button size="sm" className="h-7" disabled={outcome.isPending}
+                        onClick={() => outcome.mutate({ enrolmentId: Number(at.id), outcome: "pass" })}>
+                        Pass
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" className="h-7" disabled={outcome.isPending}
+                      onClick={() => {
+                        const notes = window.prompt("Optional notes for the outcome letter (shown to the candidate):") ?? undefined;
+                        outcome.mutate({ enrolmentId: Number(at.id), outcome: "fail", notes: notes?.trim() || undefined });
+                      }}>
+                      Fail
+                    </Button>
+                  </span>
+                )}
+                {at.outcomeFileKey && (
+                  <Button size="sm" variant="ghost" className="h-7" disabled={outcomeUrl.isPending}
+                    onClick={() => outcomeUrl.mutate({ enrolmentId: Number(at.id) })}>
+                    {at.outcome === "pass" ? "Certificate" : "Outcome letter"}
+                  </Button>
                 )}
               </li>
             );
@@ -418,18 +637,23 @@ function SessionDialog({ open, onClose, courses }: { open: boolean; onClose: () 
 
         <div className="space-y-6">
           <Step n={1} title="Course">
-            <Select value={effectiveCourse} onValueChange={setCourseId}>
+            <Select value={effectiveCourse} onValueChange={(v) => {
+              setCourseId(v);
+              const c = courses.find((x) => String(x.id) === v);
+              if (c?.type === "online") setDelivery("online");
+              else if (c) setDelivery("in_person");
+            }}>
               <SelectTrigger aria-label="Course"><SelectValue placeholder="Choose a course" /></SelectTrigger>
               <SelectContent>
                 {classroom.length > 0 && (
                   <SelectGroup>
-                    <SelectLabel>Classroom courses</SelectLabel>
+                    <SelectLabel>In-person courses</SelectLabel>
                     {classroom.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.title}</SelectItem>)}
                   </SelectGroup>
                 )}
                 {online.length > 0 && (
                   <SelectGroup>
-                    <SelectLabel>Online courses (live, trainer-led)</SelectLabel>
+                    <SelectLabel>Online courses (live session)</SelectLabel>
                     {online.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.title}</SelectItem>)}
                   </SelectGroup>
                 )}
@@ -437,7 +661,7 @@ function SessionDialog({ open, onClose, courses }: { open: boolean; onClose: () 
             </Select>
             {course?.type === "online" && (
               <p className="text-xs text-muted-foreground">
-                New starters normally do this course on their own in their learning account. Schedule it only for a live, trainer-led version.
+                Self-paced online courses use the course URL. Schedule a session only when you want a live, trainer-led date with start/end times.
               </p>
             )}
           </Step>
