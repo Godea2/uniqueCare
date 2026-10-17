@@ -254,51 +254,86 @@ function BookingSection({ token, slots, booking, slot }: {
   slot: { id: number | bigint; startsAt: string | Date; endsAt: string | Date; locationText: string | null; teamsMeetingUrl: string | null } | null;
 }) {
   const utils = trpc.useUtils();
+  const confirmedId = booking ? Number(booking.slotId) : null;
+  const [pickedId, setPickedId] = useState<number | null>(null);
   const book = trpc.portal.bookSlot.useMutation({
-    onSuccess: () => { utils.portal.get.invalidate({ token }); toast.success("Interview confirmed — see you then!"); },
+    onSuccess: () => {
+      setPickedId(null);
+      utils.portal.get.invalidate({ token });
+      toast.success("Interview confirmed — see you then!");
+    },
     onError: (e) => toast.error(e.message),
   });
+
+  const picked = pickedId != null ? slots.find((s) => Number(s.id) === pickedId) : undefined;
+  const rescheduling = confirmedId != null && pickedId != null && pickedId !== confirmedId;
 
   return (
     <section className="uc-card p-5">
       <h2 className="flex items-center gap-2 font-semibold text-[--brand-900]"><CalendarDays className="h-4 w-4 text-[--brand-600]" /> Interview</h2>
       {booking && slot ? (
-        <div className="mt-2">
-          <p className="text-sm">
-            You're booked for <strong>{fmtDate(slot.startsAt)} at {fmtTime(slot.startsAt)}</strong> — {slot.locationText ?? "video interview"}.
+        <div className="mt-2 rounded-lg border border-[--brand-400] bg-[--brand-50]/px-3 py-2.5">
+          <p className="flex items-start gap-2 text-sm text-[--brand-900]">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[--brand-700]" aria-hidden />
+            <span>
+              You're booked for <strong>{fmtDate(slot.startsAt)} at {fmtTime(slot.startsAt)}</strong>
+              {" — "}{slot.locationText ?? "video interview"}.
+            </span>
           </p>
           {slot.teamsMeetingUrl && (
-            <p className="mt-1 text-xs text-muted-foreground break-all">
+            <p className="mt-1 pl-6 text-xs text-muted-foreground break-all">
               Join link: <a className="text-[--brand-600] underline" href={slot.teamsMeetingUrl}>{slot.teamsMeetingUrl}</a>
             </p>
           )}
-          <p className="mt-2 text-xs text-muted-foreground">Need to change? Pick a different available slot below — your old booking is released automatically.</p>
+          <p className="mt-1.5 pl-6 text-xs text-muted-foreground">Need to change? Tap a different available slot, then confirm.</p>
         </div>
       ) : slots.length > 0 ? (
-        <p className="mt-1 text-sm text-muted-foreground">Choose an available time. Full slots show as booked and cannot be selected.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Tap a time to choose it, then confirm. Full slots show as booked.</p>
       ) : null}
-      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2" role="listbox" aria-label="Interview times">
         {slots.map((s) => {
-          const state = s.state ?? (booking && Number(booking.slotId) === Number(s.id)
+          const id = Number(s.id);
+          const state = s.state ?? (confirmedId === id
             ? "selected"
             : s.bookedCount >= (s.capacity ?? 1) ? "booked" : "available");
-          const selectable = state === "available" || state === "selected";
+          const isConfirmed = state === "selected" || confirmedId === id;
+          const isPicked = !isConfirmed && pickedId === id;
+          const isBookedOut = state === "booked" && !isConfirmed;
+          const highlight = isConfirmed || isPicked;
           return (
-            <button key={s.id} type="button" disabled={!selectable || state === "selected" || book.isPending}
-              onClick={() => book.mutate({ token, slotId: Number(s.id) })}
-              className={`uc-focus rounded-lg border p-3 text-left text-sm transition-colors ${
-                state === "selected" ? "border-green-500 bg-green-50"
-                  : state === "booked" ? "opacity-55 cursor-not-allowed bg-slate-50"
-                  : "bg-white hover:border-[--brand-500] hover:bg-[--brand-50]"
+            <button
+              key={s.id}
+              type="button"
+              role="option"
+              aria-selected={highlight}
+              disabled={isBookedOut || book.isPending || isConfirmed}
+              onClick={() => {
+                if (isConfirmed || isBookedOut) return;
+                setPickedId(id === pickedId ? null : id);
+              }}
+              className={`uc-focus relative rounded-xl border-2 p-3 text-left text-sm transition-colors ${
+                isConfirmed
+                  ? "border-[--brand-600] bg-[--brand-50] shadow-sm"
+                  : isPicked
+                    ? "border-[--brand-500] bg-[--brand-50] ring-2 ring-[--brand-100]"
+                    : isBookedOut
+                      ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-55"
+                      : "border-slate-200 bg-white hover:border-[--brand-400] hover:bg-[--brand-50]/50"
               }`}
-              style={{ borderColor: state === "selected" ? undefined : "var(--line)" }}>
-              <span className="block font-semibold">{fmtDate(s.startsAt)}</span>
+            >
+              {highlight && (
+                <CheckCircle2
+                  className={`absolute right-2.5 top-2.5 h-5 w-5 ${isConfirmed ? "text-[--brand-700]" : "text-[--brand-600]"}`}
+                  aria-hidden
+                />
+              )}
+              <span className="block pr-7 font-semibold">{fmtDate(s.startsAt)}</span>
               <span className="block">{fmtTime(s.startsAt)} – {fmtTime(s.endsAt)}</span>
               <span className="block text-xs text-muted-foreground">{s.locationText ?? "Video interview"}</span>
-              <span className="mt-1 inline-block">
+              <span className="mt-1.5 inline-block">
                 <Chip
-                  value={state}
-                  label={state === "selected" ? "Selected" : state === "booked" ? "Booked" : "Available"}
+                  value={isConfirmed ? "selected" : isPicked ? "your_pick" : isBookedOut ? "booked" : "available"}
+                  label={isConfirmed ? "Your booking" : isPicked ? "Your pick" : isBookedOut ? "Booked" : "Available"}
                 />
               </span>
             </button>
@@ -310,6 +345,31 @@ function BookingSection({ token, slots, booking, slot }: {
           </p>
         )}
       </div>
+      {picked && (
+        <div className="mt-3 flex flex-col gap-2 rounded-xl border border-[--brand-400] bg-[--brand-50]/p-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-[--brand-900]">
+            {rescheduling ? "Change to" : "You've chosen"}{" "}
+            <strong>{fmtDate(picked.startsAt)} at {fmtTime(picked.startsAt)}</strong>
+            {picked.locationText ? ` — ${picked.locationText}` : ""}.
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button type="button" variant="ghost" size="sm" className="h-9" disabled={book.isPending}
+              onClick={() => setPickedId(null)}>
+              Clear
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-9"
+              disabled={book.isPending}
+              onClick={() => book.mutate({ token, slotId: Number(picked.id) })}
+            >
+              {book.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden />}
+              {rescheduling ? "Confirm new time" : "Confirm this time"}
+            </Button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -665,9 +725,17 @@ function TrainingSection({ token, enrolments, sessions }: {
   }[];
 }) {
   const utils = trpc.useUtils();
+  const [pendingSessionId, setPendingSessionId] = useState<number | null>(null);
   const register = trpc.portal.registerTraining.useMutation({
-    onSuccess: () => { utils.portal.get.invalidate({ token }); toast.success("Registered for induction"); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: () => {
+      setPendingSessionId(null);
+      utils.portal.get.invalidate({ token });
+      toast.success("Registered for induction");
+    },
+    onError: (e) => {
+      setPendingSessionId(null);
+      toast.error(e.message);
+    },
   });
   const complete = trpc.portal.markCourseComplete.useMutation({
     onSuccess: () => { utils.portal.get.invalidate({ token }); toast.success("Course marked complete"); },
@@ -679,6 +747,9 @@ function TrainingSection({ token, enrolments, sessions }: {
   const attended = sessionEnrolments.some((e) => e.status === "completed");
   const upcomingBooking = sessionEnrolments.find((e) => e.status === "registered" && sessions.some((s) => Number(s.id) === Number(e.sessionId)));
   const missed = !upcomingBooking && sessionEnrolments.some((e) => e.status === "no_show");
+  const bookedSession = upcomingBooking
+    ? sessions.find((s) => Number(s.id) === Number(upcomingBooking.sessionId))
+    : undefined;
 
   return (
     <section className="uc-card p-5">
@@ -689,7 +760,7 @@ function TrainingSection({ token, enrolments, sessions }: {
           <p className="uc-label mb-2">Online courses</p>
           <ul className="space-y-2">
             {onlineEnrolments.map((e) => (
-              <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3" style={{ borderColor: "var(--line)" }}>
+              <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3">
                 <div className="min-w-0">
                   <span className="text-sm font-medium">{e.course?.title ?? `Course ${e.courseId}`}</span>
                   {e.course?.durationHours && (
@@ -722,21 +793,43 @@ function TrainingSection({ token, enrolments, sessions }: {
         <p className="uc-label mb-2">Classroom induction</p>
         {attended ? (
           <p className="mb-2 flex items-center gap-2 text-sm text-green-800"><CheckCircle2 className="h-4 w-4" aria-hidden /> Induction attended. Thank you.</p>
-        ) : upcomingBooking ? (
-          <p className="mb-2 text-sm text-green-800">
-            You have a place. Bring your original DBS certificate and photo ID; we check them when you arrive.
-          </p>
+        ) : bookedSession ? (
+          <div className="mb-3 rounded-lg border border-[--brand-400] bg-[--brand-50] px-3 py-2.5 text-sm text-[--brand-900]">
+            <p className="flex items-start gap-2">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[--brand-700]" aria-hidden />
+              <span>
+                You're booked for <strong>{new Date(bookedSession.startsAt).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</strong>
+                {" at "}{fmtTime(bookedSession.startsAt)}. Bring your original DBS certificate and photo ID.
+              </span>
+            </p>
+          </div>
         ) : missed ? (
           <p className="mb-2 text-sm text-amber-800">We missed you at your last induction. Please book another date below.</p>
-        ) : null}
+        ) : (
+          <p className="mb-2 text-sm text-muted-foreground">Choose a date below. Your place is held as soon as you book.</p>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {sessions.map((s) => {
-            const booked = sessionEnrolments.some((e) => Number(e.sessionId) === Number(s.id));
+            const id = Number(s.id);
+            const booked = sessionEnrolments.some((e) => Number(e.sessionId) === id);
             const full = !booked && s.placesLeft <= 0;
             const online = s.delivery === "online";
+            const pending = pendingSessionId === id && register.isPending;
             return (
-              <div key={s.id} className={`rounded-xl border p-3 text-sm ${booked ? "border-green-500 bg-green-50" : "bg-white"}`} style={{ borderColor: booked ? undefined : "var(--line)" }}>
-                <p className="text-xs font-medium text-[--brand-700]">{s.courseTitle}</p>
+              <div
+                key={s.id}
+                className={`relative rounded-xl border-2 p-3 text-sm transition-colors ${
+                  booked
+                    ? "border-[--brand-600] bg-[--brand-50] shadow-sm"
+                    : pending
+                      ? "border-[--brand-400] bg-[--brand-100] ring-2 ring-[--brand-100]"
+                      : "border-slate-200 bg-white"
+                }`}
+              >
+                {booked && (
+                  <CheckCircle2 className="absolute right-2.5 top-2.5 h-5 w-5 text-[--brand-700]" aria-hidden />
+                )}
+                <p className="pr-7 text-xs font-medium text-[--brand-700]">{s.courseTitle}</p>
                 <p className="mt-0.5 font-semibold">{new Date(s.startsAt).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</p>
                 <p className="flex items-center gap-1 text-slate-700"><Clock className="h-3.5 w-3.5" aria-hidden /> {fmtTime(s.startsAt)} – {fmtTime(s.endsAt)}</p>
                 <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
@@ -751,11 +844,20 @@ function TrainingSection({ token, enrolments, sessions }: {
                 {s.notes && <p className="mt-1.5 text-xs text-slate-600">{s.notes}</p>}
                 <div className="mt-2 flex items-center justify-between gap-2">
                   {booked ? (
-                    <Chip value="registered" label="You have a place" />
+                    <Chip value="selected" label="Your booking" />
                   ) : (
-                    <Button size="sm" variant={full ? "ghost" : "outline"} className="h-7" disabled={full || register.isPending || !!upcomingBooking}
-                      onClick={() => register.mutate({ token, sessionId: Number(s.id) })}>
-                      {full ? "Full" : "Book this date"}
+                    <Button
+                      size="sm"
+                      variant={full ? "ghost" : "default"}
+                      className="h-8"
+                      disabled={full || register.isPending || !!upcomingBooking}
+                      onClick={() => {
+                        setPendingSessionId(id);
+                        register.mutate({ token, sessionId: id });
+                      }}
+                    >
+                      {pending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />}
+                      {full ? "Full" : pending ? "Booking…" : "Book this date"}
                     </Button>
                   )}
                   {!booked && !full && <span className="text-[11px] text-muted-foreground">{s.placesLeft} place{s.placesLeft === 1 ? "" : "s"} left</span>}
