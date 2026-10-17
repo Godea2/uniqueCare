@@ -44,6 +44,9 @@ import {
   isOpenStage, pushStage, screenApplication, screenInBackground, slotAudience, supersedeOlderApplications,
 } from "../lib/recruitment";
 import {
+  MIN_OFFERED_SLOTS, batchOverlaps, panelConflicts, slotCapacity, slotUiState, SLOT_STATE_LABEL,
+} from "../lib/interview-slots";
+import {
   validateSubmission, trippedKnockouts, suggestRequirementSetup, REQUIREMENT_ANSWER_TYPES,
   formSchemaDoc, type FormSchemaDoc, type FormAnswers,
 } from "@contracts/form-schema";
@@ -578,6 +581,23 @@ export const hrRouter = createRouter({
       const form = await db.from("preInterviewForms").eq("applicationId", app.id).first<PreInterviewForms>() ?? null;
       const booking = await db.from("interviewBookings").eq("applicationId", app.id).eq("status", "booked").first<InterviewBookings>() ?? null;
       const slot = booking ? (await db.from("interviewSlots").eq("id", booking.slotId).first<InterviewSlots>())! : null;
+      const allBookings = await db.from("interviewBookings").eq("status", "booked").many<InterviewBookings>();
+      const jobSlots = (await db.from("interviewSlots").order("startsAt", "asc").many<InterviewSlots>())
+        .filter((s) => s.jobPostingId == null || Number(s.jobPostingId) === Number(app.jobPostingId))
+        .filter((s) => ALLOW_PAST_INTERVIEW_SLOTS || new Date(s.startsAt).getTime() > Date.now() || Number(s.id) === Number(slot?.id));
+      const offeredSlots = jobSlots.map((s) => {
+        const bookedCount = allBookings.filter((b) => Number(b.slotId) === Number(s.id)).length;
+        const capacity = slotCapacity(s);
+        const state = slotUiState({
+          slotId: Number(s.id), capacity, bookedCount,
+          myBookedSlotId: booking ? Number(booking.slotId) : null,
+        });
+        return {
+          id: Number(s.id), startsAt: s.startsAt, endsAt: s.endsAt,
+          locationText: s.locationText, capacity, bookedCount, state,
+          stateLabel: SLOT_STATE_LABEL[state],
+        };
+      });
       const myScorecard = await db.from("interviewScorecards").eq("applicationId", app.id).eq("panelMemberId", sc.staff.id).first<InterviewScorecards>() ?? null;
       // hide other panel members' scores until I've submitted mine (interview_panel role)
       let scorecards = await db.from("interviewScorecards").eq("applicationId", app.id).many<InterviewScorecards>();
@@ -598,7 +618,7 @@ export const hrRouter = createRouter({
         if (parsed?.success) formSchema = parsed.data;
       }
       return {
-        application: app, candidate, job, form, booking, slot, scorecards, allScorecardsCount: allScorecards.length,
+        application: app, candidate, job, form, booking, slot, offeredSlots, scorecards, allScorecardsCount: allScorecards.length,
         myScorecard, docs, references: refs, offer, panel, cvVersions: cvs, formSchema,
         enrolments: enrolments.map((e) => ({ ...e, course: courses.find((c) => c.id === e.courseId) })),
         myStaffId: sc.staff.id, myRole: sc.staff.role,
@@ -713,11 +733,20 @@ export const hrRouter2 = createRouter({
     const slots = await db.from("interviewSlots").order("startsAt", "asc").many<InterviewSlots>();
     const bookings = await db.from("interviewBookings").eq("status", "booked").many<InterviewBookings>();
     const staff = await db.from("staffProfiles").many<StaffProfiles>();
-    return slots.map((sl) => ({
-      ...sl,
-      bookedCount: bookings.filter((b) => b.slotId === sl.id).length,
-      panel: staff.filter((s2) => ((sl.panelMemberIds as number[]) ?? []).includes(Number(s2.id))).map((p) => p.fullName),
-    }));
+    return slots.map((sl) => {
+      const bookedCount = bookings.filter((b) => Number(b.slotId) === Number(sl.id)).length;
+      const capacity = slotCapacity(sl);
+      const past = new Date(sl.startsAt).getTime() <= Date.now();
+      const state = past ? "booked" as const : slotUiState({ slotId: Number(sl.id), capacity, bookedCount, myBookedSlotId: null });
+      return {
+        ...sl,
+        bookedCount,
+        capacity,
+        state: past ? "closed" as const : state,
+        stateLabel: past ? "Closed" : SLOT_STATE_LABEL[state],
+        panel: staff.filter((s2) => ((sl.panelMemberIds as number[]) ?? []).includes(Number(s2.id))).map((p) => p.fullName),
+      };
+    });
   }),
 
   createSlot: authedQuery
@@ -739,6 +768,16 @@ export const hrRouter2 = createRouter({
       }
       if (!ALLOW_PAST_INTERVIEW_SLOTS && startsAt.getTime() <= Date.now()) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a start time in the future. Candidates can only book interviews that haven't started yet." });
+      }
+      const existing = await db.from("interviewSlots").many<InterviewSlots>();
+      const conflicts = panelConflicts({
+        panelMemberIds: input.panelMemberIds, startsAt, endsAt, existing,
+      });
+      if (conflicts.length) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "A panel member is already assigned to an overlapping interview. Adjust the time or panel.",
+        });
       }
       const meetingUrl = input.meetingUrl || null;
       const [row] = await db.from("interviewSlots").insert<InterviewSlots>({
@@ -762,6 +801,82 @@ export const hrRouter2 = createRouter({
       const audience = await slotAudience(input.jobPostingId ?? null);
       if (input.notifyNow) waitUntil(emailCandidatesSlotsOpen(input.jobPostingId ?? null, appUrl(ctx.req)).catch(() => 0));
       return { id: row.id, readyNow: input.notifyNow ? audience.readyNow : 0, laterSaved };
+    }),
+
+  /** Offer 3+ date/time choices in one go (candidates pick one; double-booking is blocked). */
+  createSlots: authedQuery
+    .input(z.object({
+      slots: z.array(z.object({ startsAt: z.string(), endsAt: z.string() })).min(MIN_OFFERED_SLOTS).max(20),
+      jobPostingId: z.number().optional(),
+      panelMemberIds: z.array(z.number()).min(1),
+      capacity: z.number().min(1).max(5).default(1),
+      locationText: z.string().trim().max(300).optional(),
+      meetingUrl: z.string().trim().url().max(2000).optional().or(z.literal("")),
+      notifyNow: z.boolean().default(true),
+      notifyLater: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      const parsed = input.slots.map((s, i) => {
+        const startsAt = new Date(s.startsAt);
+        const endsAt = new Date(s.endsAt);
+        if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Slot ${i + 1}: the interview must end after it starts.` });
+        }
+        if (!ALLOW_PAST_INTERVIEW_SLOTS && startsAt.getTime() <= Date.now()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Slot ${i + 1}: choose a start time in the future.` });
+        }
+        return { startsAt, endsAt };
+      });
+      const overlaps = batchOverlaps(parsed);
+      if (overlaps.length) {
+        const [a, b] = overlaps[0]!;
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Slots ${a + 1} and ${b + 1} overlap. Give candidates distinct times so they can choose freely.`,
+        });
+      }
+      const existing = await db.from("interviewSlots").many<InterviewSlots>();
+      for (const [i, s] of parsed.entries()) {
+        const conflicts = panelConflicts({
+          panelMemberIds: input.panelMemberIds, startsAt: s.startsAt, endsAt: s.endsAt, existing,
+        });
+        if (conflicts.length) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `Slot ${i + 1} clashes with an existing interview for a panel member. Pick another time.`,
+          });
+        }
+      }
+      const meetingUrl = input.meetingUrl || null;
+      const locationText = input.locationText || (meetingUrl ? "Video interview" : "In person — address to be confirmed");
+      const ids: number[] = [];
+      for (const s of parsed) {
+        const [row] = await db.from("interviewSlots").insert<InterviewSlots>({
+          startsAt: s.startsAt, endsAt: s.endsAt,
+          jobPostingId: input.jobPostingId ?? null, panelMemberIds: input.panelMemberIds as never,
+          capacity: input.capacity, locationText, teamsMeetingUrl: meetingUrl,
+        });
+        ids.push(Number(row.id));
+        if (!input.notifyLater) {
+          try {
+            await db.from("interviewSlots").eq("id", row.id).update({ notifyNewCandidates: false });
+          } catch { /* column may be missing until 0003 */ }
+        }
+        existing.push(row);
+      }
+      await audit(sc.staff.fullName, "interview_slots_created", "interview_slots", ids[0]!, {
+        count: ids.length, ids, notifyNow: input.notifyNow, notifyLater: input.notifyLater,
+      });
+      const audience = await slotAudience(input.jobPostingId ?? null);
+      if (input.notifyNow) waitUntil(emailCandidatesSlotsOpen(input.jobPostingId ?? null, appUrl(ctx.req)).catch(() => 0));
+      return {
+        ids,
+        count: ids.length,
+        readyNow: input.notifyNow ? audience.readyNow : 0,
+        laterSaved: input.notifyLater,
+      };
     }),
 
   /** Who a new slot would reach: candidates ready to book now, and those still on their pre-interview form. */

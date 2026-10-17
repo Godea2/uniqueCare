@@ -13,6 +13,8 @@ import { documentUploadTarget, inspectDocument, removeDocument, saveDocument, sn
 import { appUrl } from "../lib/app-url";
 import { complianceApplication, emailCandidate, emailSlotsOpenIfAny, slotOpenForJob as slotOpen } from "../lib/recruitment";
 import { sessionWhen, sessionWhere } from "../lib/training";
+import { slotCapacity, slotUiState, SLOT_STATE_LABEL } from "../lib/interview-slots";
+import { DbError } from "../db";
 
 async function appByToken(portalToken: string) {
   const app = await db.from("applications").eq("portalToken", portalToken).first<Applications>();
@@ -105,10 +107,10 @@ export const portalRouter = createRouter({
       const slot = booking ? await db.from("interviewSlots").eq("id", booking.slotId).first<InterviewSlots>() : null;
       const formsComplete = ["pre_interview_forms_complete", "interview_booked", "interviewed", "approved", "compliance_docs_requested", "compliance_docs_complete", "offer_sent", "offer_accepted", "training_booked", "online_training_in_progress", "dbs_verified", "training_complete", "hired"].includes(app.stage);
       const slotBookings = await db.from("interviewBookings").eq("status", "booked").many<InterviewBookings>();
+      const myBookedSlotId = booking ? Number(booking.slotId) : null;
       const openSlots = formsComplete
         ? (await db.from("interviewSlots").order("startsAt", "asc").many<InterviewSlots>())
           .filter((s) => slotOpen(s, Number(job.id)))
-          .filter((s) => s.id === slot?.id || slotBookings.filter((b) => b.slotId === s.id).length < (s.capacity ?? 1))
         : [];
       const docs = await db.from("complianceDocuments")
         .eq("ownerType", "candidate").eq("ownerId", candidate.id).many<ComplianceDocuments>();
@@ -122,10 +124,20 @@ export const portalRouter = createRouter({
       const offerAccepted = ["offer_accepted", "training_booked", "online_training_in_progress", "dbs_verified", "training_complete", "hired"].includes(app.stage);
       return {
         application: app, candidate, job, form, booking, slot,
-        availableSlots: openSlots.map((s) => ({
-          ...s,
-          bookedCount: slotBookings.filter((b) => b.slotId === s.id).length,
-        })),
+        availableSlots: openSlots.map((s) => {
+          const bookedCount = slotBookings.filter((b) => Number(b.slotId) === Number(s.id)).length;
+          const capacity = slotCapacity(s);
+          const state = slotUiState({
+            slotId: Number(s.id), capacity, bookedCount, myBookedSlotId,
+          });
+          return {
+            ...s,
+            bookedCount,
+            capacity,
+            state,
+            stateLabel: SLOT_STATE_LABEL[state],
+          };
+        }),
         docs: docs.map((d) => ({ ...d, requirement: reqs.find((r) => r.key === d.requirementKey) })),
         offer, complianceDone, offerAccepted,
         enrolments: enrolments.map((e) => ({ ...e, course: courses.find((c) => c.id === e.courseId) })),
@@ -180,13 +192,38 @@ export const portalRouter = createRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Interview booking unlocks once your pre-interview form is complete." });
       const slot = await db.from("interviewSlots").eq("id", input.slotId).first<InterviewSlots>();
       if (!slot || !slotOpen(slot, Number(job.id))) throw new TRPCError({ code: "NOT_FOUND", message: "This slot is no longer available." });
+      const capacity = slotCapacity(slot);
       const current = await db.from("interviewBookings").eq("applicationId", app.id).eq("status", "booked").first<InterviewBookings>();
-      if (current?.slotId === slot.id) return { ok: true, teamsMeetingUrl: slot.teamsMeetingUrl };
+      if (current && Number(current.slotId) === Number(slot.id)) {
+        return { ok: true, teamsMeetingUrl: slot.teamsMeetingUrl };
+      }
       const booked = await db.from("interviewBookings").eq("slotId", slot.id).eq("status", "booked").count();
-      if (booked >= (slot.capacity ?? 1)) throw new TRPCError({ code: "CONFLICT", message: "This slot is now full — please pick another." });
-      // release any previous booking (reschedule)
+      if (booked >= capacity) {
+        throw new TRPCError({ code: "CONFLICT", message: "This slot is now full — please pick another." });
+      }
+      // Release any previous booking (reschedule) before claiming the new seat.
       await db.from("interviewBookings").eq("applicationId", app.id).eq("status", "booked").update({ status: "cancelled" });
-      await db.from("interviewBookings").insert({ slotId: slot.id, applicationId: app.id });
+      let createdId: number | null = null;
+      try {
+        const [row] = await db.from("interviewBookings").insert<InterviewBookings>({
+          slotId: slot.id, applicationId: app.id, status: "booked",
+        });
+        createdId = Number(row.id);
+      } catch (err) {
+        if (err instanceof DbError && /duplicate|unique/i.test(err.message)) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "You already have an interview booked. Refresh the page and try again if you need to change it.",
+          });
+        }
+        throw err;
+      }
+      // Race-safe capacity check: if we overshot, roll our booking back.
+      const after = await db.from("interviewBookings").eq("slotId", slot.id).eq("status", "booked").count();
+      if (after > capacity && createdId != null) {
+        await db.from("interviewBookings").eq("id", createdId).update({ status: "cancelled" });
+        throw new TRPCError({ code: "CONFLICT", message: "This slot is now full — please pick another." });
+      }
       if (app.stage === "pre_interview_forms_complete") {
         const history = [...((app.stageHistory as never[]) ?? []), {
           from: app.stage, to: "interview_booked", actor: "Candidate (portal)", at: new Date().toISOString(),

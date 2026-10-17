@@ -246,13 +246,16 @@ function PreInterviewForm({ token, existing, submitted }: {
 /* ── Interview booking ── */
 function BookingSection({ token, slots, booking, slot }: {
   token: string;
-  slots: { id: number | bigint; startsAt: string | Date; endsAt: string | Date; locationText: string | null; capacity: number | null; bookedCount: number }[];
+  slots: {
+    id: number | bigint; startsAt: string | Date; endsAt: string | Date; locationText: string | null;
+    capacity: number | null; bookedCount: number; state?: "available" | "selected" | "booked"; stateLabel?: string;
+  }[];
   booking: { slotId: number | bigint } | null;
   slot: { id: number | bigint; startsAt: string | Date; endsAt: string | Date; locationText: string | null; teamsMeetingUrl: string | null } | null;
 }) {
   const utils = trpc.useUtils();
   const book = trpc.portal.bookSlot.useMutation({
-    onSuccess: () => { utils.portal.get.invalidate({ token }); toast.success("Interview booked — see you then!"); },
+    onSuccess: () => { utils.portal.get.invalidate({ token }); toast.success("Interview confirmed — see you then!"); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -269,25 +272,34 @@ function BookingSection({ token, slots, booking, slot }: {
               Join link: <a className="text-[--brand-600] underline" href={slot.teamsMeetingUrl}>{slot.teamsMeetingUrl}</a>
             </p>
           )}
-          <p className="mt-2 text-xs text-muted-foreground">Need to change? Pick a different slot below — your old booking is released automatically.</p>
+          <p className="mt-2 text-xs text-muted-foreground">Need to change? Pick a different available slot below — your old booking is released automatically.</p>
         </div>
       ) : slots.length > 0 ? (
-        <p className="mt-1 text-sm text-muted-foreground">Choose a time that suits you:</p>
+        <p className="mt-1 text-sm text-muted-foreground">Choose an available time. Full slots show as booked and cannot be selected.</p>
       ) : null}
       <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
         {slots.map((s) => {
-          const full = s.bookedCount >= (s.capacity ?? 1);
-          const mine = booking && Number(booking.slotId) === Number(s.id);
+          const state = s.state ?? (booking && Number(booking.slotId) === Number(s.id)
+            ? "selected"
+            : s.bookedCount >= (s.capacity ?? 1) ? "booked" : "available");
+          const selectable = state === "available" || state === "selected";
           return (
-            <button key={s.id} type="button" disabled={full || book.isPending}
+            <button key={s.id} type="button" disabled={!selectable || state === "selected" || book.isPending}
               onClick={() => book.mutate({ token, slotId: Number(s.id) })}
-              className={`uc-focus rounded-lg border p-3 text-left text-sm transition-colors ${mine ? "border-green-500 bg-green-50" : full ? "opacity-50 cursor-not-allowed bg-slate-50" : "bg-white hover:border-[--brand-500] hover:bg-[--brand-50]"}`}
-              style={{ borderColor: mine ? undefined : "var(--line)" }}>
+              className={`uc-focus rounded-lg border p-3 text-left text-sm transition-colors ${
+                state === "selected" ? "border-green-500 bg-green-50"
+                  : state === "booked" ? "opacity-55 cursor-not-allowed bg-slate-50"
+                  : "bg-white hover:border-[--brand-500] hover:bg-[--brand-50]"
+              }`}
+              style={{ borderColor: state === "selected" ? undefined : "var(--line)" }}>
               <span className="block font-semibold">{fmtDate(s.startsAt)}</span>
               <span className="block">{fmtTime(s.startsAt)} – {fmtTime(s.endsAt)}</span>
               <span className="block text-xs text-muted-foreground">{s.locationText ?? "Video interview"}</span>
               <span className="mt-1 inline-block">
-                {mine ? <Chip value="booked" label="Your booking" /> : full ? <Chip value="closed" label="Full" /> : <Chip value="open" label="Available" />}
+                <Chip
+                  value={state}
+                  label={state === "selected" ? "Selected" : state === "booked" ? "Booked" : "Available"}
+                />
               </span>
             </button>
           );

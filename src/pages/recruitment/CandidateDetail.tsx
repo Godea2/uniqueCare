@@ -247,15 +247,28 @@ export default function CandidateDetail() {
             <h2 className="uc-label mb-3">Interview</h2>
             {d.slot && d.booking ? (
               <p className="text-sm mb-3">
-                {fmtDate(d.slot.startsAt)} {fmtTime(d.slot.startsAt)}–{fmtTime(d.slot.endsAt)} · {d.slot.locationText ?? "Interview"}
-                {" "}<Chip value={d.booking.status} />
+                Confirmed: {fmtDate(d.slot.startsAt)} {fmtTime(d.slot.startsAt)}–{fmtTime(d.slot.endsAt)} · {d.slot.locationText ?? "Interview"}
+                {" "}<Chip value="selected" label="Selected" />
               </p>
             ) : (
               <p className="text-sm text-muted-foreground mb-3">
                 {stage === "pre_interview_forms_complete"
-                  ? "Forms complete — the candidate can now book a slot through their portal link."
-                  : "No interview booked yet."}
+                  ? "Forms complete — the candidate can pick an available slot in their portal."
+                  : "No interview selected yet."}
               </p>
+            )}
+            {(d.offeredSlots?.length ?? 0) > 0 && (
+              <ul className="mb-3 space-y-1.5">
+                {d.offeredSlots.map((s) => (
+                  <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--line)" }}>
+                    <span>
+                      {fmtDate(s.startsAt)} {fmtTime(s.startsAt)}–{fmtTime(s.endsAt)}
+                      <span className="ml-1.5 text-xs text-muted-foreground">{s.locationText ?? "Interview"} · {s.bookedCount}/{s.capacity}</span>
+                    </span>
+                    <Chip value={s.state} label={s.stateLabel} />
+                  </li>
+                ))}
+              </ul>
             )}
             <Scorecards d={d} />
             {["interview_booked", "interviewed"].includes(stage) && !d.myScorecard && ["super_admin", "admin", "interview_panel", "team_leader"].includes(d.myRole) && (
