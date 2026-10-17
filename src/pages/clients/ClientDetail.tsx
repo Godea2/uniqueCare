@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 
@@ -61,9 +62,18 @@ function VisitPatternForm({ clientId, onSaved }: { clientId: number; onSaved: ()
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>();
-  const q = trpc.rota.clientDetail.useQuery({ id: Number(id) });
+  const clientId = Number(id);
+  const q = trpc.rota.clientDetail.useQuery({ id: clientId });
+  const utils = trpc.useUtils();
   const remove = trpc.rota.removeVisitTemplate.useMutation({
     onSuccess: () => { q.refetch(); toast.success("Visit removed"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const setTc = trpc.rota.setClientTimeCritical.useMutation({
+    onSuccess: () => {
+      utils.rota.clientDetail.invalidate({ id: clientId });
+      toast.success("Visit time window updated");
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -82,6 +92,21 @@ export default function ClientDetail() {
         subtitle={`${c.clientRef} · ${c.addressLine1}, ${c.town}, ${c.postcode}`}
         actions={<Chip value={c.status} />}
       />
+      <div className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm ${
+        c.timeCritical ? "border-red-300 bg-red-50 text-red-900" : "bg-white text-muted-foreground"
+      }`} style={{ borderColor: c.timeCritical ? undefined : "var(--line)" }}>
+        <label className="flex items-center gap-2 font-medium text-foreground cursor-pointer">
+          <Switch
+            checked={!!c.timeCritical}
+            onCheckedChange={(v) => setTc.mutate({ clientId, timeCritical: v })}
+            aria-label="Time-critical / medication client"
+          />
+          Time-critical / medication
+        </label>
+        <span className={`rounded-md px-2.5 py-1 text-xs font-medium ${c.timeCritical ? "bg-red-100 text-red-800" : "bg-[--brand-50] text-[--brand-900]"}`}>
+          {c.timeCritical ? "±30 min window (CQC standard)" : "±60 min window around preferred times"}
+        </span>
+      </div>
 
       <Tabs defaultValue="overview">
         <TabsList>
@@ -180,6 +205,7 @@ export default function ClientDetail() {
                   <th className="px-4 py-2.5 font-medium">Days</th>
                   <th className="px-4 py-2.5 font-medium">Time</th>
                   <th className="px-4 py-2.5 font-medium">Duration</th>
+                  <th className="px-4 py-2.5 font-medium">Window</th>
                   <th className="px-4 py-2.5 font-medium">Type</th>
                   <th className="px-4 py-2.5 font-medium">Double-handed</th>
                   <th className="px-4 py-2.5" />
@@ -191,6 +217,9 @@ export default function ClientDetail() {
                     <td className="px-4 py-2.5 text-xs">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][t.dayOfWeek] ?? t.dayOfWeek}</td>
                     <td className="px-4 py-2.5 text-xs">{t.startTime}</td>
                     <td className="px-4 py-2.5 text-xs">{t.durationMinutes} min</td>
+                    <td className={`px-4 py-2.5 text-xs ${c.timeCritical ? "text-red-700 font-medium" : ""}`}>
+                      ±{c.timeCritical ? 30 : (t.flexibilityMinutes ?? 60)} min
+                    </td>
                     <td className="px-4 py-2.5 text-xs">{t.visitType.replace(/_/g, " ")}</td>
                     <td className="px-4 py-2.5 text-xs">{t.callType === "double" ? "Yes" : "No"}</td>
                     <td className="px-4 py-2.5 text-right">
@@ -202,7 +231,7 @@ export default function ClientDetail() {
                   </tr>
                 ))}
                 {d.templates.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">No regular visits yet. Add them above — the weekly rota is built from them.</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">No regular visits yet. Add them above — the weekly rota is built from them.</td></tr>
                 )}
               </tbody>
             </table>

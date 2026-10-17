@@ -7,17 +7,28 @@ import { mailProvider, resendQueued, sendTestEmail } from "../lib/mailer";
 import {
   STAFF_ROLES,
   type Applications,
+  type Appraisals,
   type AuditLog,
   type AutomationRules,
   type Candidates,
+  type ClientAssignedWorkers,
   type Clients,
+  type ComplianceDocuments,
   type CrmContacts,
+  type DbsVerifications,
   type EmailOutbox,
+  type Incidents,
   type Notifications,
   type Organisations,
+  type StaffAvailability,
   type StaffProfiles,
+  type StaffUnavailability,
+  type SupervisorNotes,
   type Teams,
   type Tickets,
+  type TrainingCourses,
+  type TrainingEnrolments,
+  type VisitAssignments,
   type Visits,
 } from "@db/schema";
 import { getStaff, requireRole, audit, notify } from "../util";
@@ -129,6 +140,146 @@ export const coreRouter = createRouter({
     await getStaff(ctx);
     return db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
   }),
+
+  /** Full staff 360° profile: HR, compliance, training, availability, clients, recent visits */
+  staffDetail: authedQuery
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      const staff = await db.from("staffProfiles").eq("id", input.id).first<StaffProfiles>();
+      if (!staff || staff.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found" });
+      const isSelf = Number(sc.staff.id) === Number(staff.id);
+      const privileged = ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor"].includes(sc.staff.role);
+      if (!isSelf && !privileged) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only view your own profile" });
+      }
+
+      const [
+        availability, unavailability, compliance, dbs, enrolments, courses,
+        appraisalRows, notesRows, assignedWorkerRows, clientRows, asgRows, visitRows,
+      ] = await Promise.all([
+        db.from("staffAvailability").eq("staffId", staff.id).many<StaffAvailability>(),
+        db.from("staffUnavailability").eq("staffId", staff.id).order("startsAt", "desc").many<StaffUnavailability>(),
+        db.from("complianceDocuments").eq("ownerType", "staff").eq("ownerId", staff.id).many<ComplianceDocuments>(),
+        db.from("dbsVerifications").eq("staffId", staff.id).many<DbsVerifications>(),
+        db.from("trainingEnrolments").eq("personType", "staff").eq("personId", staff.id).many<TrainingEnrolments>(),
+        db.from("trainingCourses").many<TrainingCourses>(),
+        db.from("appraisals").eq("staffId", staff.id).order("createdAt", "desc").many<Appraisals>(),
+        db.from("supervisorNotes").eq("staffId", staff.id).order("createdAt", "desc").limit(30).many<SupervisorNotes>(),
+        db.from("clientAssignedWorkers").eq("staffId", staff.id).many<ClientAssignedWorkers>(),
+        db.from("clients").many<Clients>(),
+        db.from("visitAssignments").eq("staffId", staff.id).in("status", ["assigned", "accepted"]).many<VisitAssignments>(),
+        db.from("visits").order("scheduledStart", "desc").limit(500).many<Visits>(),
+      ]);
+
+      const myVisits = visitRows
+        .filter((v) => asgRows.some((a) => a.visitId === v.id))
+        .slice(0, 25)
+        .map((v) => ({ ...v, client: clientRows.find((c) => c.id === v.clientId) ?? null }));
+      const visibleNotes = isSelf ? notesRows.filter((n) => n.visibleToStaff) : notesRows;
+
+      return {
+        staff, availability, unavailability,
+        compliance, dbs,
+        training: enrolments.map((e) => ({ ...e, course: courses.find((c) => c.id === e.courseId) ?? null })),
+        appraisals: appraisalRows,
+        supervisorNotes: visibleNotes,
+        assignedClients: assignedWorkerRows.map((w) => ({
+          ...w, client: clientRows.find((c) => c.id === w.clientId) ?? null,
+        })),
+        recentVisits: myVisits,
+      };
+    }),
+
+  /** Chronological HR history timeline for a staff member */
+  staffHistory: authedQuery
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      const isSelf = Number(sc.staff.id) === input.id;
+      const privileged = ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor"].includes(sc.staff.role);
+      if (!isSelf && !privileged) throw new TRPCError({ code: "FORBIDDEN" });
+
+      const [auditRows, notesRows, appraisalRows, incidentRows, unavailRows] = await Promise.all([
+        db.from("auditLog").eq("entityType", "staff_profile").eq("entityId", String(input.id))
+          .order("at", "desc").limit(50).many<AuditLog>(),
+        db.from("supervisorNotes").eq("staffId", input.id).order("createdAt", "desc").limit(30).many<SupervisorNotes>(),
+        db.from("appraisals").eq("staffId", input.id).order("createdAt", "desc").limit(20).many<Appraisals>(),
+        db.from("incidents").eq("staffId", input.id).order("occurredAt", "desc").limit(20).many<Incidents>(),
+        db.from("staffUnavailability").eq("staffId", input.id).order("startsAt", "desc").limit(30).many<StaffUnavailability>(),
+      ]);
+
+      const items: { at: string; kind: string; title: string; detail: string | null }[] = [];
+      for (const a of auditRows) {
+        items.push({
+          at: a.at, kind: "audit",
+          title: a.action.replaceAll("_", " "),
+          detail: a.actorName ? `by ${a.actorName}` : null,
+        });
+      }
+      for (const n of notesRows) {
+        if (isSelf && !n.visibleToStaff) continue;
+        items.push({
+          at: n.createdAt, kind: "supervision",
+          title: `Supervision note (${n.noteType.replaceAll("_", " ")})`,
+          detail: n.strengths ?? n.transcript ?? null,
+        });
+      }
+      for (const a of appraisalRows) {
+        items.push({
+          at: a.createdAt, kind: "appraisal",
+          title: `Appraisal ${a.periodStart} → ${a.periodEnd}`,
+          detail: `Status: ${a.status}`,
+        });
+      }
+      for (const i of incidentRows) {
+        items.push({
+          at: i.occurredAt, kind: "incident",
+          title: `Incident: ${i.category}`,
+          detail: `${i.severity} — ${i.status}`,
+        });
+      }
+      for (const u of unavailRows) {
+        items.push({
+          at: u.createdAt, kind: "leave",
+          title: `${u.reason.replaceAll("_", " ")} (${u.status})`,
+          detail: `${new Date(u.startsAt).toLocaleDateString("en-GB")} → ${new Date(u.endsAt).toLocaleDateString("en-GB")}`,
+        });
+      }
+      return items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    }),
+
+  /** Update work pattern / student status / hours (coordinator+) */
+  updateStaffPattern: authedQuery
+    .input(z.object({
+      id: z.number(),
+      workPattern: z.enum(["six_day", "five_day_flex"]).optional(),
+      fixedDayOff: z.number().min(0).max(6).nullable().optional(),
+      isStudent: z.boolean().optional(),
+      contractedHours: z.number().min(0).max(60).optional(),
+      maxWeeklyHours: z.number().min(0).max(60).optional(),
+      jobTitle: z.string().optional(),
+      employmentType: z.enum(["full_time", "part_time", "zero_hours", "bank"]).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      const set: Partial<StaffProfiles> = {};
+      if (input.workPattern !== undefined) set.workPattern = input.workPattern;
+      if (input.fixedDayOff !== undefined) set.fixedDayOff = input.fixedDayOff;
+      if (input.isStudent !== undefined) {
+        set.isStudent = input.isStudent;
+        if (input.isStudent) set.maxWeeklyHours = "20";
+      }
+      if (input.contractedHours !== undefined) set.contractedHours = String(input.contractedHours);
+      if (input.maxWeeklyHours !== undefined) set.maxWeeklyHours = String(input.maxWeeklyHours);
+      if (input.jobTitle !== undefined) set.jobTitle = input.jobTitle;
+      if (input.employmentType !== undefined) set.employmentType = input.employmentType;
+      if (Object.keys(set).length === 0) return { ok: true };
+      await db.from("staffProfiles").eq("id", input.id).update(set);
+      await audit(sc.staff.fullName, "staff_pattern_updated", "staff_profile", input.id, set);
+      return { ok: true };
+    }),
 
   teams: authedQuery.query(async () => db.from("teams").many<Teams>()),
 

@@ -244,6 +244,8 @@ export interface Clients {
   startDate: string | null;
   endDate: string | null;
   riskLevel: string;
+  /** CQC time-critical / medication: visit window ±30 min instead of ±60 */
+  timeCritical: boolean | null;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -606,6 +608,12 @@ export interface StaffProfiles {
   languages: unknown | null;
   skills: unknown | null;
   wtdOptOut: boolean | null;
+  /** Students are capped at 20h/week including travel in the rota engine */
+  isStudent: boolean | null;
+  /** six_day (Sun off) | five_day_flex (fixed day off + flexible Sun) */
+  workPattern: string | null;
+  /** 0=Mon .. 6=Sun when workPattern is five_day_flex */
+  fixedDayOff: number | null;
   status: string;
   avatarColor: string | null;
   homeRole: string | null;

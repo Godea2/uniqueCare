@@ -16,6 +16,7 @@ import ComplianceQueue from "./pages/recruitment/ComplianceQueue";
 import Training from "./pages/recruitment/Training";
 
 import StaffDirectory from "./pages/staff/StaffDirectory";
+import StaffDetail from "./pages/staff/StaffDetail";
 import ComplianceMatrix from "./pages/staff/ComplianceMatrix";
 import Supervision from "./pages/staff/Supervision";
 import Appraisals from "./pages/staff/Appraisals";
@@ -82,6 +83,7 @@ export default function App() {
       <Route path="/staff/compliance" element={<P><ComplianceMatrix /></P>} />
       <Route path="/staff/supervision" element={<P><Supervision /></P>} />
       <Route path="/staff/appraisals" element={<P><Appraisals /></P>} />
+      <Route path="/staff/:id" element={<P><StaffDetail /></P>} />
 
       <Route path="/clients" element={<P><ClientDirectory /></P>} />
       <Route path="/clients/care-plans" element={<P><Plans kind="care" /></P>} />

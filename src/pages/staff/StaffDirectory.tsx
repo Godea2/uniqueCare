@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, Chip, Loading, ErrorState, AvatarDot } from "@/components/common";
@@ -7,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { GraduationCap } from "lucide-react";
 import type { StaffProfiles, StaffRole } from "@db/schema";
 
 const ROLE_LABELS: Record<StaffRole, string> = {
@@ -80,13 +82,20 @@ export default function StaffDirectory() {
             {rows.map((s) => (
               <tr key={s.id} className="border-b last:border-0 hover:bg-[--brand-50]/60" style={{ borderColor: "var(--line)" }}>
                 <td className="px-4 py-2.5">
-                  <span className="flex items-center gap-2.5">
+                  <Link to={`/staff/${s.id}`} className="uc-focus flex items-center gap-2.5 rounded-md -m-1 p-1">
                     <AvatarDot name={s.fullName} color={s.avatarColor} />
                     <span>
-                      <span className="block font-medium text-[--brand-900]">{s.fullName}</span>
+                      <span className="flex items-center gap-1.5 font-medium text-[--brand-900]">
+                        {s.fullName}
+                        {!!s.isStudent && (
+                          <span className="inline-flex items-center gap-0.5 rounded bg-[--brand-50] px-1.5 py-0.5 text-[10px] font-medium text-[--brand-800]" title="Student · 20h weekly cap">
+                            <GraduationCap className="h-3 w-3" /> Student
+                          </span>
+                        )}
+                      </span>
                       <span className="block text-xs text-muted-foreground">{s.jobTitle ?? ""}</span>
                     </span>
-                  </span>
+                  </Link>
                 </td>
                 <td className="px-4 py-2.5">
                   {ROLE_LABELS[(s.homeRole ?? s.role) as StaffRole] ?? s.role}

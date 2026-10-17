@@ -26,17 +26,29 @@ export default function WeekPlanner() {
 
   const selectedWeekId = weekId ?? (weeksQ.data?.[0] ? Number(weeksQ.data[0].id) : null);
   const dataQ = trpc.rota.weekData.useQuery({ weekId: selectedWeekId! }, { enabled: selectedWeekId !== null });
+  const insightsQ = trpc.rota.weekInsights.useQuery(
+    { weekId: selectedWeekId! },
+    { enabled: selectedWeekId !== null },
+  );
 
   const generate = trpc.rota.generateWeek.useMutation({
     onSuccess: (r) => {
       utils.rota.weeks.invalidate();
+      utils.rota.weekData.invalidate();
+      utils.rota.weekInsights.invalidate();
+      utils.rota.kpis.invalidate();
       setWeekId(r.weekId);
       toast.success(`Generated ${r.visits} visits — ${r.assigned} assigned automatically, ${r.unassigned} need attention`);
     },
     onError: (e) => toast.error(e.message),
   });
   const publish = trpc.rota.publishWeek.useMutation({
-    onSuccess: () => { utils.rota.weeks.invalidate(); utils.rota.weekData.invalidate(); toast.success("Week published — care workers notified"); },
+    onSuccess: () => {
+      utils.rota.weeks.invalidate();
+      utils.rota.weekData.invalidate();
+      utils.rota.weekInsights.invalidate();
+      toast.success("Week published — care workers notified");
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -120,9 +132,44 @@ export default function WeekPlanner() {
         <EmptyState icon={CalendarPlus} title="Generate your first week" hint="Visits are created from each client's visit templates, then assigned automatically within every hard constraint." />
       ) : dataQ.isLoading ? <Loading rows={6} /> : dataQ.error ? <ErrorState message={dataQ.error.message} onRetry={() => dataQ.refetch()} /> : (
         <>
+          {insightsQ.data && (
+            <div className="uc-card p-4 space-y-3" data-tour="rota-insights">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm">
+                <span className="font-semibold">Rule compliance</span>
+                <span className="text-muted-foreground">
+                  On-time <strong className={insightsQ.data.stats.onTimePct >= 90 ? "text-green-700" : "text-amber-700"}>{insightsQ.data.stats.onTimePct}%</strong>
+                </span>
+                <span className="text-muted-foreground">
+                  Continuity <strong className={insightsQ.data.stats.continuityPct >= 70 ? "text-green-700" : "text-amber-700"}>{insightsQ.data.stats.continuityPct}%</strong> with primary carer
+                </span>
+                <span className="text-muted-foreground">Travel <strong>{insightsQ.data.stats.travelMinutes} min</strong> total</span>
+                <span className="text-muted-foreground">
+                  {insightsQ.data.violations.filter((v) => v.severity === "error").length === 0
+                    ? <strong className="text-green-700">No rule breaches</strong>
+                    : <strong className="text-red-700">{insightsQ.data.violations.filter((v) => v.severity === "error").length} breach(es)</strong>}
+                </span>
+              </div>
+              {insightsQ.data.violations.length > 0 && (
+                <ul className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {insightsQ.data.violations.map((v, i) => (
+                    <li key={i} className={`rounded-lg border px-3 py-2 text-xs ${
+                      v.severity === "error" ? "border-red-300 bg-red-50 text-red-900"
+                      : v.severity === "warning" ? "border-amber-300 bg-amber-50 text-amber-900"
+                      : "border-sky-200 bg-sky-50 text-sky-900"}`}>
+                      <span className="font-semibold uppercase tracking-wide mr-1.5">
+                        {v.type === "rest_break" ? "11h rest" : v.type === "student_hours" ? "Student cap" : v.type === "time_window" ? "Time window" : "Continuity"}
+                      </span>
+                      {v.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
           {week?.status === "draft" && unassignedCount > 0 && (
             <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-              {unassignedCount} visit{unassignedCount === 1 ? "" : "s"} still need{unassignedCount === 1 ? "s" : ""} a worker — click a visit to assign manually. The engine only assigns within hard constraints (skills, availability, gender preference, no overlaps, hours caps).
+              {unassignedCount} visit{unassignedCount === 1 ? "" : "s"} still need{unassignedCount === 1 ? "s" : ""} a worker — click a visit to assign manually. The engine only assigns within hard constraints (skills, availability, rest breaks, time windows, student caps, no overlaps).
             </p>
           )}
           <div className="grid grid-cols-1 md:grid-cols-7 gap-2" data-tour="rota-grid">
