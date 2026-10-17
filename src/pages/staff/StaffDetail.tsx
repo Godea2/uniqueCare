@@ -5,6 +5,7 @@ import {
   Chip, Loading, ErrorState, AvatarDot, EmptyState,
   fmtDate, fmtDateTime, fmtTime,
 } from "@/components/common";
+import { StaffAvailabilityWindowsView } from "@/components/AvailabilityGridView";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -228,19 +229,10 @@ export default function StaffDetail() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="uc-card p-5">
               <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Clock className="h-4 w-4" /> Weekly availability</h3>
-              {d.availability.length === 0 && <p className="text-sm text-muted-foreground">No availability windows set.</p>}
-              <ul className="space-y-1.5">
-                {DAYS.map((day, dow) => {
-                  const wins = d.availability.filter((a) => a.dayOfWeek === dow);
-                  if (!wins.length) return null;
-                  return (
-                    <li key={day} className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">{day}</span>
-                      <span>{wins.map((w) => `${w.startTime}–${w.endTime}`).join(", ")}</span>
-                    </li>
-                  );
-                })}
-              </ul>
+              <p className="text-xs text-muted-foreground mb-2">
+                Synced from the application form when hired (coordinators can refine later).
+              </p>
+              <StaffAvailabilityWindowsView windows={d.availability} />
               <h3 className="text-sm font-semibold mt-5 mb-3 flex items-center gap-2"><CalendarDays className="h-4 w-4" /> Leave & unavailability</h3>
               {d.unavailability.length === 0 && <p className="text-sm text-muted-foreground">None recorded.</p>}
               <ul className="space-y-1.5">

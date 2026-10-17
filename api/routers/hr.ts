@@ -38,6 +38,7 @@ import {
 } from "../lib/cv-store";
 import { appUrl, orgProfile, portalUrl } from "../lib/app-url";
 import { jobRequirements, liveApplicationSchema, normaliseRequirements, syncJobForm } from "../lib/job-form";
+import { syncStaffAvailabilityFromApplication } from "../lib/availability-sync";
 import {
   ALLOW_PAST_INTERVIEW_SLOTS, canTransition, complianceApplication, emailCandidate, emailCandidatesSlotsOpen, emailSlotsOpenIfAny, inviteToInterviewStage,
   isOpenStage, pushStage, screenApplication, screenInBackground, slotAudience, supersedeOlderApplications,
@@ -1190,6 +1191,10 @@ export const hrRouter2 = createRouter({
       const cand = (await db.from("candidates").eq("id", app.candidateId).first<Candidates>())!;
       const job = await db.from("jobPostings").eq("id", app.jobPostingId).first<JobPostings>();
       const existing = await db.from("staffProfiles").eq("email", cand.email).first<StaffProfiles>();
+      const answers = (app.answers ?? {}) as Record<string, unknown>;
+      const earliest = typeof answers.earliest_start === "string" && /^\d{4}-\d{2}-\d{2}/.test(answers.earliest_start)
+        ? answers.earliest_start.slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
       let staffId: number;
       if (existing) {
         // Never downgrade an existing office account; only reactivate it.
@@ -1202,18 +1207,21 @@ export const hrRouter2 = createRouter({
           fullName: `${cand.firstName} ${cand.lastName}`, email: cand.email, phone: cand.phone,
           role: "care_worker", jobTitle: job?.title ?? "Care Worker",
           employeeNo: `UC${Date.now().toString().slice(-5)}`,
-          startDate: new Date().toISOString().slice(0, 10),
+          startDate: earliest,
           employmentType: job?.employmentType ?? "full_time", contractedHours: "37.5", maxWeeklyHours: "48",
           homePostcode: cand.postcode, drives: cand.hasDrivingLicence ?? false,
           hasVehicle: cand.hasVehicle ?? false, skills: [], languages: ["English"], status: "active",
           avatarColor: "#1477AE",
         });
         staffId = row.id;
-        // default weekday availability
-        for (let d = 0; d < 5; d++) {
-          await db.from("staffAvailability").insert({ staffId, dayOfWeek: d, startTime: "07:00", endTime: "15:00" });
-        }
       }
+      // Sync the applicant availability_grid into rota windows (never invent Mon–Fri 07–15).
+      // If they already have coordinator-edited windows, leave them alone.
+      await syncStaffAvailabilityFromApplication({
+        staffId,
+        application: app,
+        actorName: sc.staff.fullName,
+      });
       // copy compliance docs to staff file
       const docs = await db.from("complianceDocuments")
         .eq("ownerType", "candidate")

@@ -18,6 +18,7 @@ import {
   answerText, conditionMet, trippedKnockouts, DISPLAY_TYPES,
   type FormAnswers, type FormField, type FormSchemaDoc,
 } from "@contracts/form-schema";
+import { AvailabilityGridView } from "@/components/AvailabilityGridView";
 
 const CRITERIA = ["Values & motivation", "Person-centred care", "Safeguarding awareness", "Communication", "Reliability", "Scenario judgement"];
 
@@ -384,11 +385,13 @@ function ApplicationAnswers({ schema, answers, requirements }: {
                 <h3 className="text-sm font-semibold text-[--brand-900] mb-2">{section.title}</h3>
                 <dl className="divide-y rounded-xl border" style={{ borderColor: "var(--line)" }}>
                   {rows.map((f) => {
-                    const text = display(f, answers[f.id]);
+                    const value = answers[f.id];
+                    const text = display(f, value);
                     const req = f.requirementKey ? requirements.find((r) => r.key === f.requirementKey) : undefined;
                     const knockout = knockoutIds.has(f.id);
+                    const isAvail = f.type === "availability_grid";
                     return (
-                      <div key={f.id} className={`grid gap-1 px-3 py-2.5 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-4 ${knockout ? "bg-red-50" : ""}`}
+                      <div key={f.id} className={`grid gap-2 px-3 py-3 ${isAvail ? "" : "sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-4"} ${knockout ? "bg-red-50" : ""}`}
                         style={{ borderColor: "var(--line)" }}>
                         <dt className="text-xs text-muted-foreground">
                           {f.label}
@@ -398,8 +401,12 @@ function ApplicationAnswers({ schema, answers, requirements }: {
                             </span>
                           )}
                         </dt>
-                        <dd className={`text-sm whitespace-pre-wrap break-words ${knockout ? "font-medium text-red-800" : ""}`}>
-                          {text || <span className="text-muted-foreground">Not answered</span>}
+                        <dd className={`min-w-0 ${knockout ? "font-medium text-red-800" : ""} ${isAvail ? "mt-1" : "text-sm whitespace-pre-wrap break-words"}`}>
+                          {isAvail ? (
+                            <AvailabilityGridView value={value} />
+                          ) : (
+                            text || <span className="text-muted-foreground">Not answered</span>
+                          )}
                           {knockout && <span className="mt-1 block text-xs font-normal">{f.knockoutRule?.message ?? "Knockout answer — needs human review"}</span>}
                         </dd>
                       </div>
@@ -412,12 +419,18 @@ function ApplicationAnswers({ schema, answers, requirements }: {
         </div>
       ) : Object.keys(answers).length > 0 ? (
         <dl className="divide-y rounded-xl border" style={{ borderColor: "var(--line)" }}>
-          {Object.entries(answers).map(([k, v]) => (
-            <div key={k} className="grid gap-1 px-3 py-2.5 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-4" style={{ borderColor: "var(--line)" }}>
-              <dt className="text-xs text-muted-foreground">{k.replace(/_/g, " ")}</dt>
-              <dd className="text-sm whitespace-pre-wrap break-words">{typeof v === "object" ? JSON.stringify(v) : String(v)}</dd>
-            </div>
-          ))}
+          {Object.entries(answers).map(([k, v]) => {
+            const looksLikeAvail = typeof v === "object" && v !== null && !Array.isArray(v)
+              && ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].some((d) => d in (v as object));
+            return (
+              <div key={k} className={`grid gap-2 px-3 py-3 ${looksLikeAvail ? "" : "sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-4"}`} style={{ borderColor: "var(--line)" }}>
+                <dt className="text-xs text-muted-foreground">{k.replace(/_/g, " ")}</dt>
+                <dd className="min-w-0 text-sm whitespace-pre-wrap break-words">
+                  {looksLikeAvail ? <AvailabilityGridView value={v} /> : typeof v === "object" ? JSON.stringify(v) : String(v)}
+                </dd>
+              </div>
+            );
+          })}
         </dl>
       ) : (
         <p className="text-sm text-muted-foreground">No form answers were saved with this application.</p>

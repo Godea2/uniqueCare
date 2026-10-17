@@ -561,9 +561,20 @@ export function answerText(field: FormField, value: unknown): string {
   if (Array.isArray(value)) return value.map(optLabel).join(", ");
   if (field.type === "file_upload" && typeof value === "object") return String((value as { fileName?: string }).fileName ?? "file uploaded");
   if (field.type === "availability_grid" && typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>)
-      .map(([day, slots]) => `${day}: ${Array.isArray(slots) ? slots.join("/") : String(slots)}`)
-      .join("; ");
+    // Prefer ordered, human labels (Mon: Mornings · …). Lazy import avoided —
+    // keep formatting here so AI/CSV stay readable without a circular dependency.
+    const order = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+    const dayLbl: Record<string, string> = {
+      mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun",
+    };
+    const slotLbl: Record<string, string> = {
+      mornings: "Mornings", afternoons: "Afternoons", evenings: "Evenings", nights: "Nights",
+    };
+    const grid = value as Record<string, unknown>;
+    return order
+      .filter((d) => Array.isArray(grid[d]) && (grid[d] as unknown[]).length)
+      .map((d) => `${dayLbl[d]}: ${(grid[d] as unknown[]).map((s) => slotLbl[String(s)] ?? String(s)).join(", ")}`)
+      .join(" · ");
   }
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (field.type === "yes_no") return value === "yes" ? "Yes" : value === "no" ? "No" : String(value);
