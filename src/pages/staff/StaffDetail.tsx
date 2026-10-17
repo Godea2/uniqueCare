@@ -12,10 +12,12 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   ArrowLeft, Phone, Mail, MapPin, Car, Languages, GraduationCap,
-  CalendarDays, ShieldCheck, Clock, Users, History,
+  CalendarDays, ShieldCheck, Clock, Users, History, FileText, ExternalLink, StickyNote, Upload,
 } from "lucide-react";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -27,6 +29,7 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 const EMPLOYMENT_LABELS: Record<string, string> = {
   full_time: "Full-time", part_time: "Part-time", zero_hours: "Zero-hours", bank: "Bank",
 };
+const PRIVILEGED = new Set(["super_admin", "admin", "care_coordinator", "team_leader", "supervisor"]);
 
 function lengthOfService(startDate?: string | null) {
   if (!startDate) return "—";
@@ -46,6 +49,15 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function patternLabel(workPattern: string | null | undefined, fixedDayOff: number | null | undefined, flexibleDayOff: number | null | undefined) {
+  if (workPattern === "five_day_flex") {
+    const fixed = fixedDayOff != null ? DAYS[fixedDayOff] : "not set";
+    const flex = flexibleDayOff != null ? DAYS[flexibleDayOff] : "Sunday";
+    return `5-day flex · fixed off ${fixed} · flexible ${flex}`;
+  }
+  return "6-day contract (Sunday off)";
+}
+
 export default function StaffDetail() {
   const { id } = useParams<{ id: string }>();
   const staffId = Number(id);
@@ -61,7 +73,12 @@ export default function StaffDetail() {
     },
     onError: (e) => toast.error(e.message),
   });
+  const openDoc = trpc.hr2.documentUrl.useMutation({
+    onSuccess: ({ url }) => window.open(url, "_blank", "noopener,noreferrer"),
+    onError: (e: { message: string }) => toast.error(e.message),
+  });
   const [tab, setTab] = useState("overview");
+  const [renewKey, setRenewKey] = useState<string | null>(null);
 
   if (q.isLoading) return <Loading rows={8} />;
   if (q.error) return <ErrorState message={q.error.message} onRetry={() => q.refetch()} />;
@@ -69,14 +86,24 @@ export default function StaffDetail() {
   const s = d.staff;
   const skills = (s.skills as string[] | null) ?? [];
   const languages = (s.languages as string[] | null) ?? [];
-  const myRole = meQ.data?.homeRole ?? meQ.data?.role;
+  const myRole = meQ.data?.role;
+  const myId = meQ.data?.id != null ? Number(meQ.data.id) : null;
+  const isSelf = myId != null && myId === Number(s.id);
+  const canSeeDirectory = !!myRole && PRIVILEGED.has(myRole);
   const canEditPattern = myRole === "super_admin" || myRole === "admin" || myRole === "care_coordinator";
+  const canRenewDocs = canEditPattern || myRole === "team_leader";
+  const canSeePay = canEditPattern || myRole === "team_leader" || myRole === "supervisor";
+  const showRate = canSeePay || isSelf;
 
   return (
     <div>
-      <Link to="/staff" className="uc-focus inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-[--brand-600] mb-3">
-        <ArrowLeft className="h-4 w-4" /> Staff directory
-      </Link>
+      {canSeeDirectory ? (
+        <Link to="/staff" className="uc-focus inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-[--brand-600] mb-3">
+          <ArrowLeft className="h-4 w-4" /> Staff directory
+        </Link>
+      ) : (
+        <p className="mb-3 text-sm text-muted-foreground">{isSelf ? "Your profile" : "Staff profile"}</p>
+      )}
 
       <div className="uc-card p-5 mb-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -128,10 +155,10 @@ export default function StaffDetail() {
                 <Field label="Length of service" value={lengthOfService(s.startDate)} />
                 <Field label="Contracted hours" value={`${s.contractedHours ?? "—"}h / week`} />
                 <Field label="Max weekly hours" value={`${s.maxWeeklyHours ?? "—"}h${s.isStudent ? " (student cap, incl. travel)" : ""}`} />
-                <Field label="Hourly rate" value={s.hourlyRate != null ? `£${Number(s.hourlyRate).toFixed(2)}` : "—"} />
-                <Field label="Work pattern" value={s.workPattern === "five_day_flex"
-                  ? `5-day flex${s.fixedDayOff != null ? ` · fixed off ${DAYS[s.fixedDayOff]}` : ""}`
-                  : "6-day contract"} />
+                {showRate && (
+                  <Field label="Hourly rate" value={s.hourlyRate != null ? `£${Number(s.hourlyRate).toFixed(2)}` : "—"} />
+                )}
+                <Field label="Work pattern" value={patternLabel(s.workPattern, s.fixedDayOff, s.flexibleDayOff)} />
                 <Field label="WTD opt-out" value={s.wtdOptOut ? "Yes" : "No"} />
               </div>
             </div>
@@ -151,53 +178,159 @@ export default function StaffDetail() {
         </TabsContent>
 
         <TabsContent value="hr">
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-4">
             <div className="uc-card p-5">
-              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> Compliance documents</h3>
-              {d.compliance.length === 0 && <p className="text-sm text-muted-foreground">No compliance documents on file.</p>}
-              <ul className="space-y-2">
-                {d.compliance.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between gap-2 text-sm border-b pb-2 last:border-0" style={{ borderColor: "var(--line)" }}>
-                    <span>{c.requirementKey.replaceAll("_", " ")}</span>
-                    <span className="flex items-center gap-2">
-                      {c.expiresAt && <span className="text-xs text-muted-foreground">exp {fmtDate(c.expiresAt)}</span>}
-                      <Chip value={c.status} />
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <h3 className="text-sm font-semibold mt-5 mb-3">DBS</h3>
-              {d.dbs.length === 0 && <p className="text-sm text-muted-foreground">No DBS verification recorded.</p>}
-              <ul className="space-y-2">
-                {d.dbs.map((x) => (
-                  <li key={x.id} className="text-sm flex items-center justify-between">
-                    <span>Certificate {x.certificateNo}</span>
-                    <span className="text-xs text-muted-foreground">{x.verifiedAt ? `Verified ${fmtDate(x.verifiedAt)}` : "Unverified"}</span>
-                  </li>
-                ))}
-              </ul>
+              <h3 className="text-sm font-semibold mb-3">Employment details</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <Field label="Job title" value={s.jobTitle ?? ROLE_LABELS[s.role] ?? s.role} />
+                <Field label="Employment type" value={EMPLOYMENT_LABELS[s.employmentType ?? ""] ?? s.employmentType} />
+                <Field label="Employee number" value={s.employeeNo} />
+                <Field label="Start date" value={fmtDate(s.startDate)} />
+                <Field label="Length of service" value={lengthOfService(s.startDate)} />
+                <Field label="Contracted hours" value={`${s.contractedHours ?? "—"}h / week`} />
+                {showRate && (
+                  <Field label="Hourly rate" value={s.hourlyRate != null ? `£${Number(s.hourlyRate).toFixed(2)}` : "—"} />
+                )}
+                <Field label="Work pattern" value={patternLabel(s.workPattern, s.fixedDayOff, s.flexibleDayOff)} />
+                <Field label="Student" value={s.isStudent ? "Yes (20h/week cap)" : "No"} />
+              </div>
             </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="uc-card p-5">
+                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> Compliance documents</h3>
+                {d.compliance.length === 0 && <p className="text-sm text-muted-foreground">No compliance documents on file.</p>}
+                <ul className="space-y-2">
+                  {d.compliance
+                    .filter((c) => c.status !== "superseded" && c.status !== "cancelled")
+                    .map((c) => (
+                    <li key={c.id} className="flex items-center justify-between gap-2 text-sm border-b pb-2 last:border-0" style={{ borderColor: "var(--line)" }}>
+                      <span className="capitalize">{c.requirementKey.replaceAll("_", " ")}</span>
+                      <span className="flex items-center gap-2">
+                        {c.expiresAt && <span className="text-xs text-muted-foreground">exp {fmtDate(c.expiresAt)}</span>}
+                        <Chip value={c.status} />
+                        {c.fileKey && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2"
+                            disabled={openDoc.isPending}
+                            onClick={() => openDoc.mutate({ id: Number(c.id) })}
+                            aria-label="Open document"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {canRenewDocs && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => setRenewKey(c.requirementKey)}
+                          >
+                            <Upload className="h-3 w-3 mr-1" /> Renew
+                          </Button>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {canRenewDocs && renewKey && (
+                  <RenewDocumentDialog
+                    staffId={staffId}
+                    requirementKey={renewKey}
+                    onClose={() => setRenewKey(null)}
+                    onDone={() => {
+                      setRenewKey(null);
+                      utils.core.staffDetail.invalidate({ id: staffId });
+                      utils.hr2.expiryDashboard.invalidate();
+                      utils.hr2.complianceMatrix.invalidate();
+                    }}
+                  />
+                )}
+                <h3 className="text-sm font-semibold mt-5 mb-3">DBS verifications</h3>
+                {d.dbs.length === 0 && <p className="text-sm text-muted-foreground">No DBS verification recorded.</p>}
+                <ul className="space-y-2">
+                  {d.dbs.map((x) => (
+                    <li key={x.id} className="text-sm flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5 text-muted-foreground" /> Certificate {x.certificateNo}</span>
+                      <span className="text-xs text-muted-foreground">{x.verifiedAt ? `Verified ${fmtDate(x.verifiedAt)}` : "Unverified"}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="uc-card p-5">
+                <h3 className="text-sm font-semibold mb-3">Training records</h3>
+                {d.training.length === 0 && <p className="text-sm text-muted-foreground">No training enrolments.</p>}
+                <ul className="space-y-2">
+                  {d.training.map((t) => (
+                    <li key={t.id} className="flex items-center justify-between gap-2 text-sm border-b pb-2 last:border-0" style={{ borderColor: "var(--line)" }}>
+                      <span>{t.course?.title ?? `Course #${t.courseId}`}{t.course?.mandatory ? <span className="text-xs text-red-600 ml-1">mandatory</span> : null}</span>
+                      <span className="flex items-center gap-2">
+                        {t.expiresAt && <span className="text-xs text-muted-foreground">exp {fmtDate(t.expiresAt)}</span>}
+                        <Chip value={t.status} />
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <h3 className="text-sm font-semibold mt-5 mb-3 flex items-center justify-between gap-2">
+                  <span>Appraisals</span>
+                  {canSeeDirectory && (
+                    <Link to="/staff/appraisals" className="text-xs font-medium text-[--brand-700] hover:underline">Open appraisals</Link>
+                  )}
+                </h3>
+                {d.appraisals.length === 0 && <p className="text-sm text-muted-foreground">No appraisals yet.</p>}
+                <ul className="space-y-2">
+                  {d.appraisals.map((a) => (
+                    <li key={a.id} className="flex items-center justify-between text-sm">
+                      <span>{fmtDate(a.periodStart)} → {fmtDate(a.periodEnd)}</span>
+                      <Chip value={a.status} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
             <div className="uc-card p-5">
-              <h3 className="text-sm font-semibold mb-3">Training record</h3>
-              {d.training.length === 0 && <p className="text-sm text-muted-foreground">No training enrolments.</p>}
-              <ul className="space-y-2">
-                {d.training.map((t) => (
-                  <li key={t.id} className="flex items-center justify-between gap-2 text-sm border-b pb-2 last:border-0" style={{ borderColor: "var(--line)" }}>
-                    <span>{t.course?.title ?? `Course #${t.courseId}`}{t.course?.mandatory ? <span className="text-xs text-red-600 ml-1">mandatory</span> : null}</span>
-                    <span className="flex items-center gap-2">
-                      {t.expiresAt && <span className="text-xs text-muted-foreground">exp {fmtDate(t.expiresAt)}</span>}
-                      <Chip value={t.status} />
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <h3 className="text-sm font-semibold mt-5 mb-3">Appraisals</h3>
-              {d.appraisals.length === 0 && <p className="text-sm text-muted-foreground">No appraisals yet.</p>}
-              <ul className="space-y-2">
-                {d.appraisals.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between text-sm">
-                    <span>{fmtDate(a.periodStart)} → {fmtDate(a.periodEnd)}</span>
-                    <Chip value={a.status} />
+              <h3 className="text-sm font-semibold mb-1 flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2"><StickyNote className="h-4 w-4" /> Supervisor notes</span>
+                {canSeeDirectory && (
+                  <Link to="/staff/supervision" className="text-xs font-medium text-[--brand-700] hover:underline">Record a note</Link>
+                )}
+              </h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                {isSelf && !canSeeDirectory
+                  ? "Notes your supervisor has shared with you."
+                  : "Internal notes are visible to managers; staff only see notes marked visible to them."}
+              </p>
+              {d.supervisorNotes.length === 0 && (
+                <p className="text-sm text-muted-foreground">No supervisor notes on this record.</p>
+              )}
+              <ul className="space-y-3">
+                {d.supervisorNotes.map((n) => (
+                  <li key={n.id} className="rounded-lg border p-3 text-sm" style={{ borderColor: "var(--line)" }}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium capitalize">{n.noteType.replaceAll("_", " ")}</span>
+                      <span className="flex items-center gap-2">
+                        {!n.visibleToStaff && canSeeDirectory && (
+                          <span className="rounded-md bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 text-[11px] font-medium">Internal</span>
+                        )}
+                        <span className="text-xs text-muted-foreground">{fmtDateTime(n.createdAt)}</span>
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {n.supervisorName ? `By ${n.supervisorName}` : "Supervisor"}
+                      {n.method ? ` · ${n.method.replaceAll("_", " ")}` : ""}
+                      {n.rating != null ? ` · Rating ${n.rating}` : ""}
+                    </p>
+                    {(n.strengths || n.improvements || n.transcript) && (
+                      <p className="mt-2 text-sm text-slate-700 whitespace-pre-wrap line-clamp-4">
+                        {n.strengths || n.improvements || n.transcript}
+                      </p>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -207,7 +340,11 @@ export default function StaffDetail() {
 
         <TabsContent value="history">
           <div className="uc-card p-5">
-            <h3 className="text-sm font-semibold mb-4">Timeline</h3>
+            <h3 className="text-sm font-semibold mb-1">Staff history timeline</h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              Audit events, supervision, appraisals, incidents and leave — newest first.
+              {isSelf && !canSeeDirectory ? " Internal supervisor notes are hidden." : ""}
+            </p>
             {hist.isLoading && <Loading rows={5} />}
             {hist.data && hist.data.length === 0 && <EmptyState title="No history yet" hint="Events will appear here as they happen." />}
             <ol className="relative border-l pl-5 space-y-4" style={{ borderColor: "var(--line)" }}>
@@ -247,13 +384,17 @@ export default function StaffDetail() {
             <div className="space-y-4">
               {canEditPattern && (
                 <div className="uc-card p-5">
-                  <h3 className="text-sm font-semibold mb-3">Work pattern & hours</h3>
+                  <h3 className="text-sm font-semibold mb-3">Work pattern & pay</h3>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm">Pattern</span>
                       <Select
                         value={s.workPattern ?? "six_day"}
-                        onValueChange={(v) => upd.mutate({ id: staffId, workPattern: v as "six_day" | "five_day_flex" })}
+                        onValueChange={(v) => upd.mutate({
+                          id: staffId,
+                          workPattern: v as "six_day" | "five_day_flex",
+                          ...(v === "five_day_flex" && s.flexibleDayOff == null ? { flexibleDayOff: 6 } : {}),
+                        })}
                       >
                         <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -263,63 +404,106 @@ export default function StaffDetail() {
                       </Select>
                     </div>
                     {(s.workPattern ?? "six_day") === "five_day_flex" && (
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-sm">Fixed day off</span>
-                        <Select
-                          value={s.fixedDayOff != null ? String(s.fixedDayOff) : "none"}
-                          onValueChange={(v) => upd.mutate({ id: staffId, fixedDayOff: v === "none" ? null : Number(v) })}
-                        >
-                          <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Not set</SelectItem>
-                            {DAYS.map((d2, i) => <SelectItem key={d2} value={String(i)}>{d2}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      <>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm">Fixed day off</span>
+                          <Select
+                            value={s.fixedDayOff != null ? String(s.fixedDayOff) : "none"}
+                            onValueChange={(v) => upd.mutate({ id: staffId, fixedDayOff: v === "none" ? null : Number(v) })}
+                          >
+                            <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Not set</SelectItem>
+                              {DAYS.map((d2, i) => <SelectItem key={d2} value={String(i)}>{d2}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm">Flexible day off</span>
+                          <Select
+                            value={s.flexibleDayOff != null ? String(s.flexibleDayOff) : "6"}
+                            onValueChange={(v) => upd.mutate({ id: staffId, flexibleDayOff: Number(v) })}
+                          >
+                            <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {DAYS.map((d2, i) => <SelectItem key={d2} value={String(i)}>{d2}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
                     )}
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm">Student (max 20h/week incl. travel)</span>
-                    <Switch
-                      checked={!!s.isStudent}
-                      onCheckedChange={(v) => upd.mutate({ id: staffId, isStudent: v })}
-                      aria-label="Student worker"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="hourly-rate" className="text-sm">Hourly rate (£)</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="hourly-rate"
-                        type="number"
-                        min={0}
-                        max={500}
-                        step={0.01}
-                        defaultValue={s.hourlyRate ?? ""}
-                        key={s.hourlyRate ?? "none"}
-                        className="w-36"
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm">Student (max 20h/week incl. travel)</span>
+                      <Switch
+                        checked={!!s.isStudent}
+                        onCheckedChange={(v) => upd.mutate({ id: staffId, isStudent: v })}
+                        aria-label="Student worker"
                       />
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={upd.isPending}
-                        onClick={() => {
-                          const el = document.getElementById("hourly-rate") as HTMLInputElement | null;
-                          const raw = el?.value.trim() ?? "";
-                          upd.mutate({
-                            id: staffId,
-                            hourlyRate: raw === "" ? null : Number(raw),
-                          });
-                        }}
-                      >
-                        Save rate
-                      </Button>
                     </div>
-                    <p className="text-[11px] text-muted-foreground">Used for timesheet gross pay when they clock out.</p>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="contracted-hours" className="text-sm">Contracted hours / week</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="contracted-hours"
+                          type="number"
+                          min={0}
+                          max={60}
+                          step={0.5}
+                          defaultValue={s.contractedHours ?? ""}
+                          key={`ch-${s.contractedHours ?? "none"}`}
+                          className="w-36"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={upd.isPending}
+                          onClick={() => {
+                            const el = document.getElementById("contracted-hours") as HTMLInputElement | null;
+                            const raw = el?.value.trim() ?? "";
+                            if (raw === "") return toast.error("Enter contracted hours");
+                            upd.mutate({ id: staffId, contractedHours: Number(raw) });
+                          }}
+                        >
+                          Save hours
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="hourly-rate" className="text-sm">Hourly rate (£)</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="hourly-rate"
+                          type="number"
+                          min={0}
+                          max={500}
+                          step={0.01}
+                          defaultValue={s.hourlyRate ?? ""}
+                          key={`rate-${s.hourlyRate ?? "none"}`}
+                          className="w-36"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={upd.isPending}
+                          onClick={() => {
+                            const el = document.getElementById("hourly-rate") as HTMLInputElement | null;
+                            const raw = el?.value.trim() ?? "";
+                            upd.mutate({
+                              id: staffId,
+                              hourlyRate: raw === "" ? null : Number(raw),
+                            });
+                          }}
+                        >
+                          Save rate
+                        </Button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">Used for timesheet gross pay when they clock out.</p>
+                    </div>
+                    {upd.isPending && <p className="text-xs text-muted-foreground">Saving…</p>}
                   </div>
-                  {upd.isPending && <p className="text-xs text-muted-foreground">Saving…</p>}
                 </div>
-              </div>
               )}
               <div className="uc-card p-5">
                 <h3 className="text-sm font-semibold mb-3">Recent visits</h3>
@@ -357,5 +541,103 @@ export default function StaffDetail() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+const TEXT_KEYS = new Set(["right_to_work", "bank_details", "reference_1", "reference_2"]);
+
+function RenewDocumentDialog({
+  staffId, requirementKey, onClose, onDone,
+}: {
+  staffId: number;
+  requirementKey: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const isText = TEXT_KEYS.has(requirementKey);
+  const [expiresAt, setExpiresAt] = useState("");
+  const [textValue, setTextValue] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const uploadUrl = trpc.hr2.renewUploadUrl.useMutation();
+  const renew = trpc.hr2.renewDocument.useMutation({
+    onSuccess: () => {
+      toast.success("Document renewed — reminders reset");
+      onDone();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  async function submit() {
+    if (!expiresAt) {
+      toast.error("Set the new expiry date");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (isText) {
+        await renew.mutateAsync({
+          staffId, requirementKey, expiresAt, textValue: textValue.trim(),
+        });
+      } else {
+        if (!file) {
+          toast.error("Choose the renewed file");
+          return;
+        }
+        const target = await uploadUrl.mutateAsync({
+          staffId, requirementKey, fileName: file.name, size: file.size,
+        });
+        const put = await fetch(target.uploadUrl, {
+          method: "PUT",
+          body: file,
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+        });
+        if (!put.ok) throw new Error("Upload failed — try again");
+        await renew.mutateAsync({
+          staffId, requirementKey, expiresAt, fileName: file.name, key: target.key,
+        });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Renewal failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="capitalize">Renew {requirementKey.replaceAll("_", " ")}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="renew-exp">New expiry date</Label>
+            <Input id="renew-exp" type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+          </div>
+          {isText ? (
+            <div>
+              <Label htmlFor="renew-text">Updated value</Label>
+              <Textarea id="renew-text" rows={3} value={textValue} onChange={(e) => setTextValue(e.target.value)} />
+            </div>
+          ) : (
+            <div>
+              <Label htmlFor="renew-file">Renewed document</Label>
+              <Input id="renew-file" type="file" accept=".pdf,.jpg,.jpeg,.png,.heic,.doc,.docx"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            </div>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            The previous file is kept as superseded. Reminder escalation resets for this document.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" disabled={busy || renew.isPending || uploadUrl.isPending} onClick={() => void submit()}>
+            {busy ? "Saving…" : "Save renewal"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

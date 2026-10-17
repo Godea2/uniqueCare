@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import type { RouterOutputs } from "@/lib/router-types";
 import { PageHeader, Chip, Loading, ErrorState, EmptyState, fmtTime, StatCard } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { CalendarRange, Download, Lock, CalendarPlus, Percent, Route, HeartHandshake } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { CalendarRange, Download, Lock, CalendarPlus, Percent, Route, HeartHandshake, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 function mondayOf(d: Date) {
@@ -52,7 +52,24 @@ export default function WeekPlanner() {
     onError: (e) => toast.error(e.message),
   });
 
-  const exportCsv = trpc.rota.exportWeekCsv.useQuery({ weekId: selectedWeekId! }, { enabled: false });
+  const exportExcel = trpc.rota.exportWeekExcel.useQuery({ weekId: selectedWeekId! }, { enabled: false });
+  const previewImport = trpc.rota.previewWeekImport.useMutation({
+    onError: (e) => toast.error(e.message),
+  });
+  const applyImport = trpc.rota.applyWeekImport.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Imported ${r.applied} visit row(s)`);
+      setImportPreview(null);
+      setImportBase64(null);
+      utils.rota.weekData.invalidate();
+      utils.rota.weekInsights.invalidate();
+      utils.rota.kpis.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [importPreview, setImportPreview] = useState<RouterOutputs["rota"]["previewWeekImport"] | null>(null);
+  const [importBase64, setImportBase64] = useState<string | null>(null);
 
   const byDay = useMemo(() => {
     const days: Record<number, NonNullable<typeof dataQ.data>["visits"]> = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
@@ -73,7 +90,7 @@ export default function WeekPlanner() {
     <div className="space-y-5">
       <PageHeader
         title="Week planner"
-        subtitle="Generate from visit templates, review assignments, publish to care workers"
+        subtitle="Build from each client's master visit templates, auto-assign within hard rules, export/import Excel, then publish"
         actions={
           <div className="flex items-center gap-2 flex-wrap">
             <Input type="date" value={genDate} onChange={(e) => setGenDate(mondayOf(new Date(e.target.value)))} className="w-40" aria-label="Week starting (Monday)" />
@@ -86,18 +103,49 @@ export default function WeekPlanner() {
               </Button>
             )}
             {week && (
-              <Button variant="outline" onClick={async () => {
-                const r = await exportCsv.refetch();
-                if (r.data) {
-                  const blob = new Blob([r.data.csv], { type: "text/csv" });
-                  const a = document.createElement("a");
-                  a.href = URL.createObjectURL(blob);
-                  a.download = `rota-${week.weekStartDate}.csv`;
-                  a.click();
-                }
-              }}>
-                <Download className="h-4 w-4 mr-1.5" /> CSV
-              </Button>
+              <>
+                <Button variant="outline" onClick={async () => {
+                  const r = await exportExcel.refetch();
+                  if (r.data) {
+                    const bin = atob(r.data.base64);
+                    const bytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `rota-${week.weekStartDate}.xlsx`;
+                    a.click();
+                  }
+                }}>
+                  <Download className="h-4 w-4 mr-1.5" /> Excel template
+                </Button>
+                {week.status === "draft" && (
+                  <>
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!file || selectedWeekId == null) return;
+                        const buf = await file.arrayBuffer();
+                        const bytes = new Uint8Array(buf);
+                        let binary = "";
+                        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+                        const base64 = btoa(binary);
+                        setImportBase64(base64);
+                        const preview = await previewImport.mutateAsync({ weekId: selectedWeekId, base64 });
+                        setImportPreview(preview);
+                      }}
+                    />
+                    <Button variant="outline" disabled={previewImport.isPending} onClick={() => fileRef.current?.click()}>
+                      <Upload className="h-4 w-4 mr-1.5" /> {previewImport.isPending ? "Checking…" : "Upload Excel"}
+                    </Button>
+                  </>
+                )}
+              </>
             )}
           </div>
         }
@@ -216,8 +264,43 @@ export default function WeekPlanner() {
           visit={dataQ.data.visits.find((v) => Number(v.id) === assignVisit)!}
           staff={dataQ.data.staff}
           onClose={() => setAssignVisit(null)}
-          onDone={() => { utils.rota.weekData.invalidate(); setAssignVisit(null); }}
+          onDone={() => { utils.rota.weekData.invalidate(); utils.rota.weekInsights.invalidate(); setAssignVisit(null); }}
         />
+      )}
+
+      {importPreview && (
+        <Dialog open onOpenChange={(o) => { if (!o) { setImportPreview(null); setImportBase64(null); } }}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Import rota preview</DialogTitle>
+              <DialogDescription>
+                {importPreview.okCount} row(s) ready · {importPreview.errorCount} with errors.
+                Fix errors in Excel and re-upload, or confirm to apply valid rows only when there are zero errors.
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="max-h-80 space-y-2 overflow-y-auto text-sm">
+              {importPreview.rows.map((r) => (
+                <li key={r.rowNum} className={`rounded-lg border px-3 py-2 ${r.ok ? "border-green-200 bg-green-50/50" : "border-red-300 bg-red-50"}`}>
+                  <p className="font-medium">Row {r.rowNum}: {r.summary}</p>
+                  {!r.ok && (
+                    <ul className="mt-1 list-disc pl-4 text-xs text-red-800">
+                      {r.errors.map((err, i) => <li key={i}>{err}</li>)}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setImportPreview(null); setImportBase64(null); }}>Cancel</Button>
+              <Button
+                disabled={importPreview.errorCount > 0 || !importBase64 || applyImport.isPending || selectedWeekId == null}
+                onClick={() => applyImport.mutate({ weekId: selectedWeekId!, base64: importBase64! })}
+              >
+                {applyImport.isPending ? "Applying…" : "Confirm import"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
@@ -229,16 +312,24 @@ type StaffRow = NonNullable<RouterOutputs["rota"]["weekData"]>["staff"][number];
 function AssignDialog({ visit, staff, onClose, onDone }: {
   visit: VisitRow; staff: StaffRow[]; onClose: () => void; onDone: () => void;
 }) {
+  const isDouble = visit.callType === "double";
   const [staffId, setStaffId] = useState<number | null>(null);
+  const [secondId, setSecondId] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const check = trpc.rota.checkAssignment.useQuery(
     { visitId: Number(visit.id), staffId: staffId! },
     { enabled: staffId !== null },
   );
+  const check2 = trpc.rota.checkAssignment.useQuery(
+    { visitId: Number(visit.id), staffId: secondId! },
+    { enabled: isDouble && secondId !== null },
+  );
   const reassign = trpc.rota.reassignVisit.useMutation({
     onSuccess: () => { toast.success("Visit assigned"); onDone(); },
     onError: (e) => toast.error(e.message),
   });
+  const canAssign = staffId !== null && !!check.data?.ok
+    && (!isDouble || (secondId !== null && secondId !== staffId && !!check2.data?.ok));
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -249,10 +340,11 @@ function AssignDialog({ visit, staff, onClose, onDone }: {
           </DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          {(visit.visitType ?? "visit").replace(/_/g, " ")} · {visit.callType === "double" ? "double-handed (assign lead here)" : "single"} · currently {visit.status.replace(/_/g, " ")}
+          {(visit.visitType ?? "visit").replace(/_/g, " ")} · {isDouble ? "double-handed — pick lead then second" : "single"} · currently {visit.status.replace(/_/g, " ")}
           {visit.assignments.length > 0 && ` · assigned to ${visit.assignments.map((a) => a.staff?.fullName).join(", ")}`}
         </p>
-        <div className="mt-2 max-h-64 overflow-y-auto space-y-1" role="radiogroup" aria-label="Choose worker">
+        <p className="mt-2 text-xs font-medium text-muted-foreground">{isDouble ? "Lead carer" : "Carer"}</p>
+        <div className="max-h-40 overflow-y-auto space-y-1" role="radiogroup" aria-label="Choose lead worker">
           {staff.map((s) => (
             <button key={s.id} type="button" onClick={() => setStaffId(Number(s.id))}
               aria-pressed={staffId === Number(s.id)}
@@ -263,9 +355,29 @@ function AssignDialog({ visit, staff, onClose, onDone }: {
             </button>
           ))}
         </div>
+        {isDouble && (
+          <>
+            <p className="mt-3 text-xs font-medium text-muted-foreground">Second carer</p>
+            <div className="max-h-40 overflow-y-auto space-y-1" role="radiogroup" aria-label="Choose second worker">
+              {staff.filter((s) => Number(s.id) !== staffId).map((s) => (
+                <button key={s.id} type="button" onClick={() => setSecondId(Number(s.id))}
+                  aria-pressed={secondId === Number(s.id)}
+                  className={`uc-focus w-full flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${secondId === Number(s.id) ? "border-[--brand-600] bg-[--brand-50]" : "bg-white hover:bg-[--brand-50]/60"}`}
+                  style={{ borderColor: secondId === Number(s.id) ? undefined : "var(--line)" }}>
+                  <span className="font-medium">{s.fullName}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
         {staffId !== null && check.data && (
           <p className={`mt-2 rounded-lg border p-2.5 text-xs ${check.data.ok ? "border-green-300 bg-green-50 text-green-800" : "border-red-300 bg-red-50 text-red-800"}`}>
-            {check.data.ok ? "✓ Within all hard constraints (skills, availability, gender preference, no overlaps, hours cap)." : `✕ ${check.data.reason}`}
+            {check.data.ok ? "✓ Lead within hard constraints." : `✕ Lead: ${check.data.reason}`}
+          </p>
+        )}
+        {isDouble && secondId !== null && check2.data && (
+          <p className={`mt-1 rounded-lg border p-2.5 text-xs ${check2.data.ok ? "border-green-300 bg-green-50 text-green-800" : "border-red-300 bg-red-50 text-red-800"}`}>
+            {check2.data.ok ? "✓ Second within hard constraints." : `✕ Second: ${check2.data.reason}`}
           </p>
         )}
         <div className="mt-2">
@@ -274,8 +386,13 @@ function AssignDialog({ visit, staff, onClose, onDone }: {
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
-            disabled={staffId === null || !check.data?.ok || reassign.isPending}
-            onClick={() => reassign.mutate({ visitId: Number(visit.id), staffId: staffId!, reason: reason || undefined })}>
+            disabled={!canAssign || reassign.isPending}
+            onClick={() => reassign.mutate({
+              visitId: Number(visit.id),
+              staffId: staffId!,
+              secondStaffId: isDouble ? secondId! : undefined,
+              reason: reason || undefined,
+            })}>
             Assign visit
           </Button>
         </DialogFooter>

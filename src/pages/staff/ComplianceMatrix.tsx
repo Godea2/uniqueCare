@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, Loading, ErrorState, RagDot, AvatarDot, fmtDate } from "@/components/common";
 
@@ -31,10 +32,10 @@ export default function ComplianceMatrix() {
             {d.rows.map((row) => (
               <tr key={row.staff.id} className="border-b last:border-0 hover:bg-[--brand-50]/60" style={{ borderColor: "var(--line)" }}>
                 <td className="px-3 py-2 sticky left-0 bg-white">
-                  <span className="flex items-center gap-2">
+                  <Link to={`/staff/${row.staff.id}`} className="uc-focus flex items-center gap-2 hover:text-[--brand-700]">
                     <AvatarDot name={row.staff.fullName} color={row.staff.avatarColor} />
                     <span className="text-[13px] font-medium whitespace-nowrap">{row.staff.fullName}</span>
-                  </span>
+                  </Link>
                 </td>
                 {row.docs.map((cell) => (
                   <td key={cell.key} className="px-3 py-2">

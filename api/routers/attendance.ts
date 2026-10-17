@@ -10,14 +10,16 @@ import type {
   VisitLocationProbes,
   Visits,
 } from "@db/schema";
-import { getStaff, requireRole, audit, notifyRoles } from "../util";
+import { getStaff, requireRole, audit, notifyRoles, MANAGER_ALERT_ROLES, PAYROLL_ROLES } from "../util";
 import { geocodePostcode } from "../lib/geo";
 import {
-  computePaidMinutes,
   EARLY_CLOCK_OUT_REASONS,
+  getGeofenceRadiusM,
   isInsideGeofence,
   LEFT_GEOFENCE_GRACE_MS,
+  PROBE_INTERVAL_MS,
 } from "../lib/geofence";
+import { closeAttendance } from "../lib/attendance-session";
 
 const coords = z.object({
   lat: z.number().min(-90).max(90),
@@ -71,58 +73,6 @@ async function openAttendance(visitId: number, staffId: number) {
     .first<VisitAttendance>();
 }
 
-async function closeAttendance(
-  row: VisitAttendance,
-  opts: {
-    clockOutAt: Date;
-    lat?: number;
-    lng?: number;
-    accuracyM?: number;
-    reason: string;
-    earlyReasonText?: string | null;
-    leftGeofenceAt?: string | null;
-  },
-) {
-  const clockInAt = new Date(row.clockInAt);
-  const leftAt = opts.leftGeofenceAt != null
-    ? new Date(opts.leftGeofenceAt)
-    : (row.leftGeofenceAt ? new Date(row.leftGeofenceAt) : null);
-  const { paidMinutes, unpaidGraceMinutes } = computePaidMinutes({
-    clockInAt, clockOutAt: opts.clockOutAt, leftGeofenceAt: leftAt,
-  });
-  const staff = await db.from("staffProfiles").eq("id", row.staffId).first<StaffProfiles>();
-  const rate = staff?.hourlyRate ?? null;
-  const status = opts.reason === "auto_left_geofence" ? "auto_closed" : "completed";
-  await db.from("visitAttendance").eq("id", row.id).update({
-    clockOutAt: opts.clockOutAt.toISOString(),
-    clockOutLat: opts.lat != null ? String(opts.lat) : null,
-    clockOutLng: opts.lng != null ? String(opts.lng) : null,
-    clockOutAccuracyM: opts.accuracyM != null ? String(opts.accuracyM) : null,
-    clockOutReason: opts.reason,
-    earlyReasonText: opts.earlyReasonText ?? null,
-    status,
-    leftGeofenceAt: leftAt ? leftAt.toISOString() : row.leftGeofenceAt,
-    paidMinutes,
-    unpaidGraceMinutes,
-    hourlyRateSnapshot: rate,
-    updatedAt: new Date().toISOString(),
-  });
-
-  // Mark visit completed when every assigned carer has clocked out
-  const assignments = await db.from("visitAssignments")
-    .eq("visitId", row.visitId)
-    .in("status", ["assigned", "accepted"])
-    .many<VisitAssignments>();
-  const sessions = await db.from("visitAttendance").eq("visitId", row.visitId).many<VisitAttendance>();
-  const allDone = assignments.every((a) =>
-    sessions.some((s) => Number(s.staffId) === Number(a.staffId) && s.status !== "in_progress"));
-  if (allDone) {
-    await db.from("visits").eq("id", row.visitId).update({ status: "completed" });
-  }
-
-  return { paidMinutes, unpaidGraceMinutes, status, hourlyRateSnapshot: rate };
-}
-
 export const attendanceRouter = createRouter({
   /** Open sessions for the signed-in carer (usually 0 or 1). */
   myActive: authedQuery.query(async ({ ctx }) => {
@@ -132,6 +82,17 @@ export const attendanceRouter = createRouter({
       .eq("status", "in_progress")
       .order("clockInAt", "desc")
       .many<VisitAttendance>();
+  }),
+
+  /** Office geofence settings for My Rota copy. */
+  geofenceConfig: authedQuery.query(async ({ ctx }) => {
+    await getStaff(ctx);
+    const radiusM = await getGeofenceRadiusM();
+    return {
+      radiusM,
+      probeIntervalMs: PROBE_INTERVAL_MS,
+      leftGraceMs: LEFT_GEOFENCE_GRACE_MS,
+    };
   }),
 
   clockIn: authedQuery
@@ -154,16 +115,18 @@ export const attendanceRouter = createRouter({
         });
       }
 
+      const radiusM = await getGeofenceRadiusM();
       const point = await resolveClientPoint(client);
       const check = isInsideGeofence({
         lat: input.lat, lng: input.lng,
         clientLat: point.lat, clientLng: point.lng,
         accuracyM: input.accuracyM,
+        radiusM,
       });
       if (!check.inside) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `You must be at the client's address to clock in (about ${Math.round(check.distanceM)} m away; allowed ${Math.round(check.allowedM)} m including GPS accuracy).`,
+          message: `You must be within ${radiusM} m of the client's address to clock in (about ${Math.round(check.distanceM)} m away; allowed ${Math.round(check.allowedM)} m including GPS accuracy).`,
         });
       }
 
@@ -196,47 +159,66 @@ export const attendanceRouter = createRouter({
       visitId: z.number(),
       reason: z.enum(EARLY_CLOCK_OUT_REASONS).default("completed"),
       earlyReasonText: z.string().trim().max(500).optional(),
-    }).merge(coords.partial()))
+    }).merge(coords))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      await assertAssigned(input.visitId, Number(sc.staff.id));
+      const { visit, client } = await assertAssigned(input.visitId, Number(sc.staff.id));
       const open = await openAttendance(input.visitId, Number(sc.staff.id));
       if (!open) throw new TRPCError({ code: "BAD_REQUEST", message: "You are not clocked in to this visit." });
 
-      if (input.reason !== "completed" && input.reason !== "auto_left_geofence" && !input.earlyReasonText
-        && (input.reason === "early_other")) {
+      const now = new Date();
+      const scheduledEnd = new Date(visit.scheduledEnd);
+      const isEarly = now.getTime() < scheduledEnd.getTime() - 60_000; // 1 min tolerance
+      if (isEarly) {
+        if (input.reason === "completed" || input.reason === "auto_left_geofence") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This visit is still scheduled — choose an early clock-out reason.",
+          });
+        }
+        if (!input.earlyReasonText?.trim() || input.earlyReasonText.trim().length < 3) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Please explain why you are clocking out before the scheduled end.",
+          });
+        }
+      } else if (input.reason === "early_other" && !input.earlyReasonText?.trim()) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Please say why you are clocking out early." });
       }
 
-      // Prefer an at-address clock-out when coords are provided
-      if (input.lat != null && input.lng != null) {
-        const { client } = await assertAssigned(input.visitId, Number(sc.staff.id));
-        const point = await resolveClientPoint(client);
-        const check = isInsideGeofence({
-          lat: input.lat, lng: input.lng,
-          clientLat: point.lat, clientLng: point.lng,
-          accuracyM: input.accuracyM,
+      const radiusM = await getGeofenceRadiusM();
+      const point = await resolveClientPoint(client);
+      const check = isInsideGeofence({
+        lat: input.lat, lng: input.lng,
+        clientLat: point.lat, clientLng: point.lng,
+        accuracyM: input.accuracyM,
+        radiusM,
+      });
+      if (!check.inside) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `You must be within ${radiusM} m of the client's address to clock out (about ${Math.round(check.distanceM)} m away; allowed ${Math.round(check.allowedM)} m including GPS accuracy).`,
         });
-        // Early / completed clock-out is allowed outside the fence, but we record left_geofence_at
-        if (!check.inside && !open.leftGeofenceAt) {
-          await db.from("visitAttendance").eq("id", open.id).update({
-            leftGeofenceAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-          open.leftGeofenceAt = new Date().toISOString();
-        }
       }
 
       const result = await closeAttendance(open, {
-        clockOutAt: new Date(),
+        clockOutAt: now,
         lat: input.lat,
         lng: input.lng,
         accuracyM: input.accuracyM,
         reason: input.reason,
         earlyReasonText: input.earlyReasonText ?? null,
       });
+      if (isEarly) {
+        await notifyRoles(MANAGER_ALERT_ROLES, {
+          type: "early_clock_out",
+          title: `${sc.staff.fullName} clocked out early`,
+          body: `${client.firstName} ${client.lastName}: ${input.reason.replaceAll("_", " ")}${input.earlyReasonText ? ` — ${input.earlyReasonText}` : ""}. Scheduled end ${scheduledEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}.`,
+          link: "/rota/timesheets",
+        });
+      }
       await audit(sc.staff.fullName, "visit_clock_out", "visits", input.visitId, {
-        reason: input.reason, ...result,
+        reason: input.reason, early: isEarly, ...result,
       });
       return result;
     }),
@@ -254,11 +236,13 @@ export const attendanceRouter = createRouter({
       const open = await openAttendance(input.visitId, Number(sc.staff.id));
       if (!open) throw new TRPCError({ code: "BAD_REQUEST", message: "You are not clocked in to this visit." });
 
+      const radiusM = await getGeofenceRadiusM();
       const point = await resolveClientPoint(client);
       const check = isInsideGeofence({
         lat: input.lat, lng: input.lng,
         clientLat: point.lat, clientLng: point.lng,
         accuracyM: input.accuracyM,
+        radiusM,
       });
 
       let leftGeofenceAt = open.leftGeofenceAt;
@@ -278,30 +262,40 @@ export const attendanceRouter = createRouter({
           await db.from("visitAttendance").eq("id", open.id).update({
             leftGeofenceAt, updatedAt: new Date().toISOString(),
           });
-          await notifyRoles(["super_admin", "care_coordinator"], {
+          await notifyRoles(MANAGER_ALERT_ROLES, {
             type: "geofence_violation",
             title: `${sc.staff.fullName} left a visit geofence`,
-            body: `${client.firstName} ${client.lastName}: about ${Math.round(check.distanceM)} m from the address during an active visit.`,
+            body: `${client.firstName} ${client.lastName}: about ${Math.round(check.distanceM)} m from the address (fence ${radiusM} m) during an active visit.`,
             link: "/rota/timesheets",
           });
           violationNotified = true;
-        } else if (Date.now() - new Date(leftGeofenceAt).getTime() >= LEFT_GEOFENCE_GRACE_MS) {
-          await closeAttendance(open, {
-            clockOutAt: new Date(),
-            lat: input.lat, lng: input.lng, accuracyM: input.accuracyM,
-            reason: "auto_left_geofence",
-            leftGeofenceAt,
-          });
-          await notifyRoles(["super_admin", "care_coordinator"], {
-            type: "geofence_auto_clockout",
-            title: `${sc.staff.fullName} auto clocked out`,
-            body: `Left the geofence for 15+ minutes at ${client.firstName} ${client.lastName}. Grace period is unpaid.`,
+        } else {
+          // Still outside — re-alert managers on each 15-min probe while in violation
+          await notifyRoles(MANAGER_ALERT_ROLES, {
+            type: "geofence_violation",
+            title: `${sc.staff.fullName} still outside visit geofence`,
+            body: `${client.firstName} ${client.lastName}: still ~${Math.round(check.distanceM)} m away. Auto clock-out after 15 minutes outside (unpaid).`,
             link: "/rota/timesheets",
           });
-          await audit(sc.staff.fullName, "visit_auto_clock_out", "visits", input.visitId, {
-            distanceM: Math.round(check.distanceM),
-          });
-          autoClosed = true;
+          violationNotified = true;
+          if (Date.now() - new Date(leftGeofenceAt).getTime() >= LEFT_GEOFENCE_GRACE_MS) {
+            await closeAttendance(open, {
+              clockOutAt: new Date(),
+              lat: input.lat, lng: input.lng, accuracyM: input.accuracyM,
+              reason: "auto_left_geofence",
+              leftGeofenceAt,
+            });
+            await notifyRoles(MANAGER_ALERT_ROLES, {
+              type: "geofence_auto_clockout",
+              title: `${sc.staff.fullName} auto clocked out`,
+              body: `Left the geofence for 15+ minutes at ${client.firstName} ${client.lastName}. Those 15 minutes are unpaid.`,
+              link: "/rota/timesheets",
+            });
+            await audit(sc.staff.fullName, "visit_auto_clock_out", "visits", input.visitId, {
+              distanceM: Math.round(check.distanceM),
+            });
+            autoClosed = true;
+          }
         }
       }
 
@@ -345,7 +339,7 @@ export const attendanceRouter = createRouter({
       });
     }),
 
-  /** Admin/coordinator: payroll summary across staff. */
+  /** Admin/manager: payroll summary across staff. */
   payrollSummary: authedQuery
     .input(z.object({
       from: z.string(),
@@ -354,35 +348,116 @@ export const attendanceRouter = createRouter({
     }))
     .query(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      requireRole(sc, "super_admin", "admin", "care_coordinator");
-      const staff = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
-      const targets = input.staffId
-        ? staff.filter((s) => Number(s.id) === input.staffId)
-        : staff.filter((s) => ["care_worker", "team_leader", "supervisor"].includes(s.role));
+      requireRole(sc, ...PAYROLL_ROLES);
+      return payrollSummaryData(input);
+    }),
 
-      const rows = [];
-      for (const s of targets) {
-        const sheet = await buildTimesheet({
-          staffId: Number(s.id), from: input.from, to: input.to,
-        });
-        rows.push({
-          staffId: Number(s.id),
-          fullName: s.fullName,
-          hourlyRate: s.hourlyRate,
-          ...sheet.totals,
-          days: sheet.days,
-        });
+  /** Full visit session + 15-minute location trail (admin/manager, or own session). */
+  sessionDetail: authedQuery
+    .input(z.object({ attendanceId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      const row = await db.from("visitAttendance").eq("id", input.attendanceId).first<VisitAttendance>();
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Timesheet session not found" });
+      const privileged = PAYROLL_ROLES.includes(sc.staff.role as typeof PAYROLL_ROLES[number]);
+      if (!privileged && Number(row.staffId) !== Number(sc.staff.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only view your own location trail." });
       }
-      const totals = rows.reduce(
-        (acc, r) => ({
-          paidMinutes: acc.paidMinutes + r.paidMinutes,
-          unpaidGraceMinutes: acc.unpaidGraceMinutes + r.unpaidGraceMinutes,
-          grossPay: acc.grossPay + r.grossPay,
-          visits: acc.visits + r.visits,
-        }),
-        { paidMinutes: 0, unpaidGraceMinutes: 0, grossPay: 0, visits: 0 },
-      );
-      return { from: input.from, to: input.to, staff: rows, totals };
+      const visit = await db.from("visits").eq("id", row.visitId).first<Visits>();
+      const client = visit
+        ? await db.from("clients").eq("id", visit.clientId).first<Clients>()
+        : null;
+      const staff = await db.from("staffProfiles").eq("id", row.staffId).first<StaffProfiles>();
+      const probes = await db.from("visitLocationProbes")
+        .eq("attendanceId", row.id)
+        .order("at", "asc")
+        .many<VisitLocationProbes>();
+      return {
+        session: {
+          id: Number(row.id),
+          visitId: Number(row.visitId),
+          staffId: Number(row.staffId),
+          staffName: staff?.fullName ?? "",
+          clientName: client ? `${client.firstName} ${client.lastName}` : `Visit #${row.visitId}`,
+          clientAddress: client
+            ? [client.addressLine1, client.town, client.postcode].filter(Boolean).join(", ")
+            : null,
+          clockInAt: row.clockInAt,
+          clockOutAt: row.clockOutAt,
+          clockInLat: row.clockInLat,
+          clockInLng: row.clockInLng,
+          clockOutLat: row.clockOutLat,
+          clockOutLng: row.clockOutLng,
+          leftGeofenceAt: row.leftGeofenceAt,
+          paidMinutes: row.paidMinutes,
+          unpaidGraceMinutes: row.unpaidGraceMinutes,
+          status: row.status,
+          reason: row.clockOutReason,
+          earlyReasonText: row.earlyReasonText,
+          hourlyRateSnapshot: row.hourlyRateSnapshot,
+        },
+        probes: probes.map((p) => ({
+          id: Number(p.id),
+          at: p.at,
+          lat: p.lat,
+          lng: p.lng,
+          accuracyM: p.accuracyM,
+          distanceM: p.distanceM,
+          insideGeofence: p.insideGeofence,
+          violationNotified: p.violationNotified,
+        })),
+      };
+    }),
+
+  /** CSV for the payroll provider — one row per staff member in the period. */
+  payrollExportCsv: authedQuery
+    .input(z.object({
+      from: z.string(),
+      to: z.string(),
+      staffId: z.number().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, ...PAYROLL_ROLES);
+      const summary = await payrollSummaryData(input);
+      const header = [
+        "Staff ID", "Employee no", "Full name", "Period from", "Period to",
+        "Paid hours", "Unpaid grace hours", "Clock hours", "Hourly rate", "Gross pay", "Visits",
+      ];
+      const lines = [header];
+      for (const s of summary.staff) {
+        const rate = s.hourlyRate != null ? Number(s.hourlyRate) : 0;
+        lines.push([
+          String(s.staffId),
+          s.employeeNo ?? "",
+          s.fullName,
+          input.from,
+          input.to,
+          (s.paidMinutes / 60).toFixed(2),
+          (s.unpaidGraceMinutes / 60).toFixed(2),
+          (s.clockMinutes / 60).toFixed(2),
+          rate.toFixed(2),
+          s.grossPay.toFixed(2),
+          String(s.visits),
+        ]);
+      }
+      lines.push([
+        "", "", "TOTAL", input.from, input.to,
+        (summary.totals.paidMinutes / 60).toFixed(2),
+        (summary.totals.unpaidGraceMinutes / 60).toFixed(2),
+        (summary.totals.clockMinutes / 60).toFixed(2),
+        "",
+        summary.totals.grossPay.toFixed(2),
+        String(summary.totals.visits),
+      ]);
+      const csv = lines.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+      await audit(sc.staff.fullName, "payroll_exported", "organisations", undefined, {
+        from: input.from, to: input.to, staff: summary.staff.length,
+      });
+      return {
+        filename: `payroll-${input.from}_${input.to}.csv`,
+        csv,
+      };
     }),
 
   setHourlyRate: authedQuery
@@ -403,6 +478,38 @@ export const attendanceRouter = createRouter({
     }),
 });
 
+async function payrollSummaryData(input: { from: string; to: string; staffId?: number }) {
+  const staff = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+  const targets = input.staffId
+    ? staff.filter((s) => Number(s.id) === input.staffId)
+    : staff.filter((s) => ["care_worker", "team_leader", "supervisor"].includes(s.role));
+  const rows = [];
+  for (const s of targets) {
+    const sheet = await buildTimesheet({
+      staffId: Number(s.id), from: input.from, to: input.to,
+    });
+    rows.push({
+      staffId: Number(s.id),
+      fullName: s.fullName,
+      employeeNo: s.employeeNo,
+      hourlyRate: s.hourlyRate,
+      ...sheet.totals,
+      days: sheet.days,
+    });
+  }
+  const totals = rows.reduce(
+    (acc, r) => ({
+      paidMinutes: acc.paidMinutes + r.paidMinutes,
+      unpaidGraceMinutes: acc.unpaidGraceMinutes + r.unpaidGraceMinutes,
+      clockMinutes: acc.clockMinutes + r.clockMinutes,
+      grossPay: acc.grossPay + r.grossPay,
+      visits: acc.visits + r.visits,
+    }),
+    { paidMinutes: 0, unpaidGraceMinutes: 0, clockMinutes: 0, grossPay: 0, visits: 0 },
+  );
+  return { from: input.from, to: input.to, staff: rows, totals };
+}
+
 async function buildTimesheet(opts: { staffId: number; from: string; to: string }) {
   const fromIso = `${opts.from}T00:00:00.000Z`;
   const toIso = `${opts.to}T23:59:59.999Z`;
@@ -412,9 +519,9 @@ async function buildTimesheet(opts: { staffId: number; from: string; to: string 
     .lte("clockInAt", toIso)
     .order("clockInAt", "asc")
     .many<VisitAttendance>();
-  const closed = sessions.filter((s) => s.status !== "in_progress");
   const visits = await db.from("visits").many<Visits>();
   const clients = await db.from("clients").many<Clients>();
+  const staff = await db.from("staffProfiles").eq("id", opts.staffId).first<StaffProfiles>();
 
   type DayRow = {
     date: string;
@@ -424,6 +531,7 @@ async function buildTimesheet(opts: { staffId: number; from: string; to: string 
       clientName: string;
       clockInAt: string;
       clockOutAt: string | null;
+      clockMinutes: number;
       paidMinutes: number;
       unpaidGraceMinutes: number;
       hourlyRate: number;
@@ -433,20 +541,34 @@ async function buildTimesheet(opts: { staffId: number; from: string; to: string 
     }[];
     paidMinutes: number;
     unpaidGraceMinutes: number;
+    clockMinutes: number;
     grossPay: number;
   };
 
   const byDay = new Map<string, DayRow>();
-  for (const s of closed) {
+  for (const s of sessions) {
     const date = new Date(s.clockInAt).toISOString().slice(0, 10);
     const visit = visits.find((v) => v.id === s.visitId);
     const client = clients.find((c) => c.id === visit?.clientId);
-    const rate = Number(s.hourlyRateSnapshot ?? 0);
-    const paid = s.paidMinutes ?? 0;
-    const unpaid = s.unpaidGraceMinutes ?? 0;
+    const rate = Number(s.hourlyRateSnapshot ?? staff?.hourlyRate ?? 0);
+    const inProgress = s.status === "in_progress";
+    const clockEnd = s.clockOutAt ? new Date(s.clockOutAt) : new Date();
+    const clockMinutes = Math.max(0, Math.round((clockEnd.getTime() - new Date(s.clockInAt).getTime()) / 60000));
+    let paid = s.paidMinutes ?? 0;
+    let unpaid = s.unpaidGraceMinutes ?? 0;
+    if (inProgress) {
+      // Provisional: full elapsed so far counts as unpaid until clock-out finalises
+      paid = 0;
+      unpaid = 0;
+      if (s.leftGeofenceAt) {
+        paid = Math.max(0, Math.round((new Date(s.leftGeofenceAt).getTime() - new Date(s.clockInAt).getTime()) / 60000));
+      } else {
+        paid = clockMinutes;
+      }
+    }
     const gross = Math.round((paid / 60) * rate * 100) / 100;
     const day = byDay.get(date) ?? {
-      date, sessions: [], paidMinutes: 0, unpaidGraceMinutes: 0, grossPay: 0,
+      date, sessions: [], paidMinutes: 0, unpaidGraceMinutes: 0, clockMinutes: 0, grossPay: 0,
     };
     day.sessions.push({
       id: Number(s.id),
@@ -454,6 +576,7 @@ async function buildTimesheet(opts: { staffId: number; from: string; to: string 
       clientName: client ? `${client.firstName} ${client.lastName}` : `Visit #${s.visitId}`,
       clockInAt: s.clockInAt,
       clockOutAt: s.clockOutAt,
+      clockMinutes,
       paidMinutes: paid,
       unpaidGraceMinutes: unpaid,
       hourlyRate: rate,
@@ -461,9 +584,13 @@ async function buildTimesheet(opts: { staffId: number; from: string; to: string 
       reason: s.clockOutReason,
       status: s.status,
     });
-    day.paidMinutes += paid;
-    day.unpaidGraceMinutes += unpaid;
-    day.grossPay = Math.round((day.grossPay + gross) * 100) / 100;
+    // Only closed sessions roll into payroll totals
+    if (!inProgress) {
+      day.paidMinutes += paid;
+      day.unpaidGraceMinutes += unpaid;
+      day.grossPay = Math.round((day.grossPay + gross) * 100) / 100;
+    }
+    day.clockMinutes += clockMinutes;
     byDay.set(date, day);
   }
 
@@ -472,10 +599,11 @@ async function buildTimesheet(opts: { staffId: number; from: string; to: string 
     (acc, d) => ({
       paidMinutes: acc.paidMinutes + d.paidMinutes,
       unpaidGraceMinutes: acc.unpaidGraceMinutes + d.unpaidGraceMinutes,
+      clockMinutes: acc.clockMinutes + d.clockMinutes,
       grossPay: Math.round((acc.grossPay + d.grossPay) * 100) / 100,
-      visits: acc.visits + d.sessions.length,
+      visits: acc.visits + d.sessions.filter((s) => s.status !== "in_progress").length,
     }),
-    { paidMinutes: 0, unpaidGraceMinutes: 0, grossPay: 0, visits: 0 },
+    { paidMinutes: 0, unpaidGraceMinutes: 0, clockMinutes: 0, grossPay: 0, visits: 0 },
   );
   return {
     from: opts.from,

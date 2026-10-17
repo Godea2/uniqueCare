@@ -10,7 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { CalendarOff, MapPin, Users, LogIn, LogOut, Navigation, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
-import { PROBE_INTERVAL_MS, readLocation } from "@/lib/geolocation";
+import { PROBE_INTERVAL_MS, readLocation, requestVisitWakeLock } from "@/lib/geolocation";
+import {
+  enqueueProbe, isOnline, peekProbeQueue, replaceProbeQueue,
+} from "@/lib/location-queue";
 
 export default function MyRota() {
   const utils = trpc.useUtils();
@@ -20,6 +23,9 @@ export default function MyRota() {
   const [offOpen, setOffOpen] = useState(false);
   const [clockOutVisit, setClockOutVisit] = useState<number | null>(null);
   const probing = useRef(false);
+  const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
+  const geoCfg = trpc.attendance.geofenceConfig.useQuery();
+  const fenceM = geoCfg.data?.radiusM ?? 10;
 
   const clockIn = trpc.attendance.clockIn.useMutation({
     onSuccess: (r) => {
@@ -52,28 +58,77 @@ export default function MyRota() {
 
   const activeVisitId = (q.data ?? []).find((v) => v.myAttendance?.status === "in_progress")?.id;
 
-  // 15-minute location probes while a visit is open
+  // Flush queued probes when back online
   useEffect(() => {
-    if (!activeVisitId) return;
+    const flush = async () => {
+      if (!isOnline()) return;
+      const queue = peekProbeQueue();
+      if (!queue.length) return;
+      const remaining = [];
+      for (const item of queue) {
+        try {
+          await probe.mutateAsync({
+            visitId: item.visitId,
+            lat: item.lat, lng: item.lng, accuracyM: item.accuracyM,
+          });
+        } catch {
+          remaining.push(item);
+        }
+      }
+      replaceProbeQueue(remaining);
+      if (remaining.length < queue.length) utils.rota.myRota.invalidate();
+    };
+    window.addEventListener("online", flush);
+    void flush();
+    return () => window.removeEventListener("online", flush);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 15-minute battery-efficient probes + wake lock + re-probe on tab focus
+  useEffect(() => {
+    if (!activeVisitId) {
+      void wakeLockRef.current?.release().catch(() => {});
+      wakeLockRef.current = null;
+      return;
+    }
+
     const run = async () => {
       if (probing.current) return;
       probing.current = true;
       try {
-        const geo = await readLocation({ highAccuracy: true });
+        const geo = await readLocation({ purpose: "probe" });
+        if (!isOnline()) {
+          enqueueProbe({
+            visitId: Number(activeVisitId),
+            lat: geo.lat, lng: geo.lng, accuracyM: geo.accuracyM,
+          });
+          return;
+        }
         await probe.mutateAsync({
           visitId: Number(activeVisitId),
           lat: geo.lat, lng: geo.lng, accuracyM: geo.accuracyM,
         });
       } catch {
-        // silent — next interval retries; don't spam toasts while driving between rooms
+        // next interval / visibility retry — avoid toast spam indoors
       } finally {
         probing.current = false;
       }
     };
-    // first probe shortly after clock-in, then every 15 minutes
+
+    void requestVisitWakeLock().then((lock) => { wakeLockRef.current = lock; });
     const first = window.setTimeout(run, 30_000);
     const id = window.setInterval(run, PROBE_INTERVAL_MS);
-    return () => { window.clearTimeout(first); window.clearInterval(id); };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void run();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      void wakeLockRef.current?.release().catch(() => {});
+      wakeLockRef.current = null;
+    };
   }, [activeVisitId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (q.isLoading) return <Loading rows={6} />;
@@ -88,11 +143,21 @@ export default function MyRota() {
   const days = [...byDay.entries()].sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime());
 
   async function handleClockIn(visitId: number) {
+    if (!isOnline()) {
+      toast.error("You need a network connection to clock in — the server must verify you are at the address.");
+      return;
+    }
     try {
-      const geo = await readLocation({ highAccuracy: true });
+      const geo = await readLocation({ purpose: "clock" });
       clockIn.mutate({ visitId, lat: geo.lat, lng: geo.lng, accuracyM: geo.accuracyM });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not read location");
+      // One retry with a slightly stale reading for poor signal
+      try {
+        const geo = await readLocation({ purpose: "clock", maximumAgeMs: 30_000, timeoutMs: 30_000 });
+        clockIn.mutate({ visitId, lat: geo.lat, lng: geo.lng, accuracyM: geo.accuracyM });
+      } catch {
+        toast.error(e instanceof Error ? e.message : "Could not read location");
+      }
     }
   }
 
@@ -115,8 +180,10 @@ export default function MyRota() {
 
       <p className="rounded-lg border bg-[--brand-50]/60 px-3 py-2 text-xs text-muted-foreground" style={{ borderColor: "var(--line)" }}>
         <Navigation className="inline h-3.5 w-3.5 mr-1 text-[--brand-700]" />
-        Clock in when you arrive at the client's address (within about 3 metres, allowing for GPS accuracy).
-        Stay on the page — location is checked every 15 minutes. Leaving for 15+ minutes auto clock-outs; that grace is unpaid.
+        Clock in/out needs GPS and a network connection (within {fenceM} m, plus GPS accuracy).
+        Location is checked every 15 minutes while this page is open (battery-friendly). Brief offline probes are queued and sent when you reconnect.
+        If you leave or forget to clock out, the server auto clock-outs after 15 minutes — that grace is unpaid.
+        Early finishes need a reason (managers are notified).
       </p>
 
       {days.length === 0 && (
@@ -229,48 +296,69 @@ export default function MyRota() {
       <UnavailabilityDialog open={offOpen} onClose={() => setOffOpen(false)}
         onDone={() => { utils.rota.myUnavailability.invalidate(); setOffOpen(false); }} />
 
-      {clockOutVisit != null && (
-        <ClockOutDialog
-          visitId={clockOutVisit}
-          pending={clockOut.isPending}
-          onClose={() => setClockOutVisit(null)}
-          onConfirm={async (reason, earlyReasonText) => {
-            try {
-              let geo: { lat: number; lng: number; accuracyM: number } | undefined;
-              try { geo = await readLocation({ highAccuracy: true }); } catch { /* allow clock-out without GPS */ }
-              clockOut.mutate({
-                visitId: clockOutVisit,
-                reason,
-                earlyReasonText,
-                ...(geo ? { lat: geo.lat, lng: geo.lng, accuracyM: geo.accuracyM } : {}),
-              });
-            } catch (e) {
-              toast.error(e instanceof Error ? e.message : "Clock-out failed");
-            }
-          }}
-        />
-      )}
+      {clockOutVisit != null && (() => {
+        const v = visits.find((x) => Number(x.id) === clockOutVisit);
+        return (
+          <ClockOutDialog
+            visitId={clockOutVisit}
+            scheduledEnd={v?.scheduledEnd ?? null}
+            fenceM={fenceM}
+            pending={clockOut.isPending}
+            onClose={() => setClockOutVisit(null)}
+            onConfirm={async (reason, earlyReasonText) => {
+              if (!isOnline()) {
+                toast.error("You need a network connection to clock out — the server must verify your location.");
+                return;
+              }
+              try {
+                const geo = await readLocation({ purpose: "clock" });
+                clockOut.mutate({
+                  visitId: clockOutVisit,
+                  reason,
+                  earlyReasonText,
+                  lat: geo.lat,
+                  lng: geo.lng,
+                  accuracyM: geo.accuracyM,
+                });
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Clock-out needs your location at the address");
+              }
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }
 
 function ClockOutDialog({
-  visitId, pending, onClose, onConfirm,
+  scheduledEnd, fenceM, pending, onClose, onConfirm,
 }: {
   visitId: number;
+  scheduledEnd: string | Date | null;
+  fenceM: number;
   pending: boolean;
   onClose: () => void;
   onConfirm: (reason: "completed" | "early_client_request" | "early_no_access" | "early_emergency" | "early_other", text?: string) => void;
 }) {
-  const [reason, setReason] = useState<"completed" | "early_client_request" | "early_no_access" | "early_emergency" | "early_other">("completed");
+  const isEarly = scheduledEnd
+    ? Date.now() < new Date(scheduledEnd).getTime() - 60_000
+    : false;
+  const [reason, setReason] = useState<"completed" | "early_client_request" | "early_no_access" | "early_emergency" | "early_other">(
+    isEarly ? "early_client_request" : "completed",
+  );
   const [text, setText] = useState("");
+  const needsNotes = isEarly || reason === "early_other";
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Clock out</DialogTitle>
           <DialogDescription>
-            Confirm you are finishing visit #{visitId}. Early finishes need a reason. Time after leaving the geofence is unpaid.
+            You must be within {fenceM} m of the client’s address. GPS is required.
+            {isEarly
+              ? " This visit is still scheduled — an early reason and notes are required (managers are notified)."
+              : " Early finishes need a reason. Time after leaving the geofence is unpaid."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -279,7 +367,7 @@ function ClockOutDialog({
             <Select value={reason} onValueChange={(v) => setReason(v as typeof reason)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="completed">Visit completed</SelectItem>
+                {!isEarly && <SelectItem value="completed">Visit completed</SelectItem>}
                 <SelectItem value="early_client_request">Client asked me to leave early</SelectItem>
                 <SelectItem value="early_no_access">Could not gain access</SelectItem>
                 <SelectItem value="early_emergency">Emergency / incident</SelectItem>
@@ -287,9 +375,9 @@ function ClockOutDialog({
               </SelectContent>
             </Select>
           </div>
-          {reason !== "completed" && (
+          {needsNotes && (
             <div>
-              <Label htmlFor="early-note">Notes</Label>
+              <Label htmlFor="early-note">Notes (required)</Label>
               <Textarea id="early-note" value={text} onChange={(e) => setText(e.target.value)} rows={3}
                 placeholder="Briefly explain…" />
             </div>
@@ -298,10 +386,10 @@ function ClockOutDialog({
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
-            disabled={pending || (reason === "early_other" && text.trim().length < 3)}
+            disabled={pending || (needsNotes && text.trim().length < 3)}
             onClick={() => onConfirm(reason, text.trim() || undefined)}
           >
-            {pending ? "Saving…" : "Confirm clock out"}
+            {pending ? "Checking location…" : "Confirm clock out"}
           </Button>
         </DialogFooter>
       </DialogContent>

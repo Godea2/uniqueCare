@@ -51,7 +51,7 @@ export default function Reassignments() {
 }
 
 function ReqCard({ req, onPick }: { req: Req; onPick?: () => void }) {
-  const nearMisses = ((req.resolutionLog as { nearMisses?: { staffId: number; reasons: string[] }[] } | null)?.nearMisses) ?? [];
+  const nearMisses = ((req.resolutionLog as { nearMisses?: { staffId: number; reason?: string; reasons?: string[] }[] } | null)?.nearMisses) ?? [];
   return (
     <div className="uc-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -85,7 +85,7 @@ function ReqCard({ req, onPick }: { req: Req; onPick?: () => void }) {
             {nearMisses.slice(0, 5).map((nm, i) => (
               <li key={i}>
                 <span className="font-medium">Worker #{nm.staffId}:</span>{" "}
-                <span className="text-muted-foreground">{nm.reasons.join("; ")}</span>
+                <span className="text-muted-foreground">{nm.reason ?? nm.reasons?.join("; ") ?? "—"}</span>
               </li>
             ))}
           </ul>

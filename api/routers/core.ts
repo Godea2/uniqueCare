@@ -31,7 +31,10 @@ import {
   type VisitAssignments,
   type Visits,
 } from "@db/schema";
-import { getStaff, requireRole, audit, notify } from "../util";
+import {
+  getStaff, requireRole, audit, notify,
+  OFFICE_ROLES, CLIENT_DIRECTORY_ROLES, STAFF_DIRECTORY_ROLES,
+} from "../util";
 
 export const coreRouter = createRouter({
   /** Current signed-in user's staff profile */
@@ -137,8 +140,11 @@ export const coreRouter = createRouter({
     }),
 
   staffList: authedQuery.query(async ({ ctx }) => {
-    await getStaff(ctx);
-    return db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+    const sc = await getStaff(ctx);
+    const all = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+    const privileged = ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor"].includes(sc.staff.role);
+    if (privileged) return all;
+    return all.filter((s) => Number(s.id) === Number(sc.staff.id));
   }),
 
   /** Full staff 360° profile: HR, compliance, training, availability, clients, recent visits */
@@ -149,6 +155,7 @@ export const coreRouter = createRouter({
       const staff = await db.from("staffProfiles").eq("id", input.id).first<StaffProfiles>();
       if (!staff || staff.deletedAt) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found" });
       const isSelf = Number(sc.staff.id) === Number(staff.id);
+      // Use acting role so "view as" care worker only sees own profile.
       const privileged = ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor"].includes(sc.staff.role);
       if (!isSelf && !privileged) {
         throw new TRPCError({ code: "FORBIDDEN", message: "You can only view your own profile" });
@@ -255,6 +262,7 @@ export const coreRouter = createRouter({
       id: z.number(),
       workPattern: z.enum(["six_day", "five_day_flex"]).optional(),
       fixedDayOff: z.number().min(0).max(6).nullable().optional(),
+      flexibleDayOff: z.number().min(0).max(6).nullable().optional(),
       isStudent: z.boolean().optional(),
       contractedHours: z.number().min(0).max(60).optional(),
       maxWeeklyHours: z.number().min(0).max(60).optional(),
@@ -268,6 +276,7 @@ export const coreRouter = createRouter({
       const set: Partial<StaffProfiles> = {};
       if (input.workPattern !== undefined) set.workPattern = input.workPattern;
       if (input.fixedDayOff !== undefined) set.fixedDayOff = input.fixedDayOff;
+      if (input.flexibleDayOff !== undefined) set.flexibleDayOff = input.flexibleDayOff;
       if (input.isStudent !== undefined) {
         set.isStudent = input.isStudent;
         if (input.isStudent) set.maxWeeklyHours = "20";
@@ -278,6 +287,18 @@ export const coreRouter = createRouter({
       if (input.employmentType !== undefined) set.employmentType = input.employmentType;
       if (input.hourlyRate !== undefined) set.hourlyRate = input.hourlyRate == null ? null : String(input.hourlyRate);
       if (Object.keys(set).length === 0) return { ok: true };
+      const existing = await db.from("staffProfiles").eq("id", input.id).first<StaffProfiles>();
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found" });
+      const nextPattern = set.workPattern ?? existing.workPattern ?? "six_day";
+      const nextFixed = set.fixedDayOff !== undefined ? set.fixedDayOff : existing.fixedDayOff;
+      const nextFlex = set.flexibleDayOff !== undefined ? set.flexibleDayOff : existing.flexibleDayOff;
+      if (
+        nextPattern === "five_day_flex"
+        && nextFixed != null && nextFlex != null
+        && Number(nextFixed) === Number(nextFlex)
+      ) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Fixed and flexible days off must be different." });
+      }
       await db.from("staffProfiles").eq("id", input.id).update(set);
       await audit(sc.staff.fullName, "staff_pattern_updated", "staff_profile", input.id, set);
       return { ok: true };
@@ -285,7 +306,8 @@ export const coreRouter = createRouter({
 
   teams: authedQuery.query(async () => db.from("teams").many<Teams>()),
 
-  organisation: authedQuery.query(async () => {
+  organisation: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), ...OFFICE_ROLES);
     return (await db.from("organisations").first<Organisations>()) ?? null;
   }),
 
@@ -297,6 +319,10 @@ export const coreRouter = createRouter({
       screeningThreshold: z.number().min(50).max(100).optional(),
       signatoryName: z.string().trim().max(120).optional(),
       signatoryTitle: z.string().trim().max(120).optional(),
+      /** Visit clock-in/out geofence radius in metres (3–50). Default 10. */
+      geofenceRadiusM: z.number().min(3).max(50).optional(),
+      /** When true, carers with expired/missing DBS or right-to-work cannot be assigned. */
+      blockRotaOnExpiredMandatory: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
@@ -304,7 +330,8 @@ export const coreRouter = createRouter({
       let org = await db.from("organisations").first<Organisations>();
       if (!org) {
         await db.from("organisations").insert({
-          name: input.name ?? "Unique Care UK", settings: { timezone: "Europe/London", screeningThreshold: 85 },
+          name: input.name ?? "Unique Care UK",
+          settings: { timezone: "Europe/London", screeningThreshold: 85, geofenceRadiusM: 10 },
         });
         org = (await db.from("organisations").first<Organisations>())!;
       }
@@ -312,6 +339,10 @@ export const coreRouter = createRouter({
       if (input.screeningThreshold) settings.screeningThreshold = input.screeningThreshold;
       if (input.signatoryName !== undefined) settings.signatoryName = input.signatoryName;
       if (input.signatoryTitle !== undefined) settings.signatoryTitle = input.signatoryTitle;
+      if (input.geofenceRadiusM !== undefined) settings.geofenceRadiusM = input.geofenceRadiusM;
+      if (input.blockRotaOnExpiredMandatory !== undefined) {
+        settings.blockRotaOnExpiredMandatory = input.blockRotaOnExpiredMandatory;
+      }
       await db.from("organisations").eq("id", org.id).update({
         name: input.name ?? org.name,
         address: input.address ?? org.address,
@@ -383,29 +414,39 @@ export const coreRouter = createRouter({
     .input(z.object({ q: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      const seesCandidates = ["super_admin", "admin", "team_leader", "interview_panel"].includes(sc.staff.role);
+      const role = sc.staff.role;
+      const seesCandidates = ["super_admin", "admin", "team_leader", "interview_panel"].includes(role);
+      const seesStaffDirectory = STAFF_DIRECTORY_ROLES.includes(role as typeof STAFF_DIRECTORY_ROLES[number]);
+      const seesClients = CLIENT_DIRECTORY_ROLES.includes(role as typeof CLIENT_DIRECTORY_ROLES[number]);
+      const seesCrm = ["super_admin", "admin", "crm_agent", "care_coordinator", "team_leader"].includes(role);
       const q = `%${input.q.replace(/[%_\\]/g, "\\$&")}%`;
-      const [clientRows, staffRows, contactRows, ticketRows, candidateRows] = await Promise.all([
-        db.from("clients").or([
-          { op: "like", field: "firstName", value: q },
-          { op: "like", field: "lastName", value: q },
-          { op: "like", field: "clientRef", value: q },
-          { op: "like", field: "postcode", value: q },
-        ]).limit(5).many<Clients>(),
+      const [clientRowsRaw, staffRowsRaw, contactRowsRaw, ticketRowsRaw, candidateRows] = await Promise.all([
+        seesClients
+          ? db.from("clients").or([
+            { op: "like", field: "firstName", value: q },
+            { op: "like", field: "lastName", value: q },
+            { op: "like", field: "clientRef", value: q },
+            { op: "like", field: "postcode", value: q },
+          ]).limit(5).many<Clients>()
+          : Promise.resolve([] as Clients[]),
         db.from("staffProfiles").or([
           { op: "like", field: "fullName", value: q },
           { op: "like", field: "email", value: q },
         ]).limit(5).many<StaffProfiles>(),
-        db.from("crmContacts").or([
-          { op: "like", field: "firstName", value: q },
-          { op: "like", field: "lastName", value: q },
-          { op: "like", field: "phone", value: q },
-          { op: "like", field: "email", value: q },
-        ]).limit(5).many<CrmContacts>(),
-        db.from("tickets").or([
-          { op: "like", field: "ticketNo", value: q },
-          { op: "like", field: "subject", value: q },
-        ]).limit(5).many<Tickets>(),
+        seesCrm
+          ? db.from("crmContacts").or([
+            { op: "like", field: "firstName", value: q },
+            { op: "like", field: "lastName", value: q },
+            { op: "like", field: "phone", value: q },
+            { op: "like", field: "email", value: q },
+          ]).limit(5).many<CrmContacts>()
+          : Promise.resolve([] as CrmContacts[]),
+        seesCrm
+          ? db.from("tickets").or([
+            { op: "like", field: "ticketNo", value: q },
+            { op: "like", field: "subject", value: q },
+          ]).limit(5).many<Tickets>()
+          : Promise.resolve([] as Tickets[]),
         seesCandidates
           ? db.from("candidates").or([
             { op: "like", field: "firstName", value: q },
@@ -415,12 +456,15 @@ export const coreRouter = createRouter({
           ]).limit(5).many<Candidates>()
           : Promise.resolve([] as Candidates[]),
       ]);
+      const staffRows = seesStaffDirectory
+        ? staffRowsRaw
+        : staffRowsRaw.filter((s) => Number(s.id) === Number(sc.staff.id));
       const apps = candidateRows.length
         ? await db.from("applications").in("candidateId", candidateRows.map((c) => c.id)).order("createdAt", "desc").many<Applications>()
         : [];
       return {
-        clients: clientRows, staff: staffRows, contacts: contactRows,
-        tickets: ticketRows,
+        clients: clientRowsRaw, staff: staffRows, contacts: contactRowsRaw,
+        tickets: ticketRowsRaw,
         candidates: candidateRows.map((c) => ({
           ...c,
           applicationId: apps.find((a) => a.candidateId === c.id)?.id ?? null,
@@ -441,7 +485,7 @@ export const coreRouter = createRouter({
 
   // ── Automation rules ──
   automationRules: authedQuery.query(async ({ ctx }) => {
-    await getStaff(ctx);
+    requireRole(await getStaff(ctx), ...OFFICE_ROLES);
     return db.from("automationRules").many<AutomationRules>();
   }),
   toggleAutomation: authedQuery

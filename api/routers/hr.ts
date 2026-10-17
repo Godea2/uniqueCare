@@ -29,14 +29,18 @@ import {
   type TrainingEnrolments,
   type TrainingSessions,
 } from "@db/schema";
-import { getStaff, requireRole, audit, notifyRoles, ruleEnabled, canUseApp } from "../util";
+import { getStaff, requireRole, audit, notify, notifyRoles, ruleEnabled, canUseApp, COMPLIANCE_MATRIX_ROLES } from "../util";
 import type { TrpcContext } from "../context";
 import { geocodePostcode } from "../lib/geo";
 import { callAI } from "../ai/provider";
 import { sendEmail } from "../lib/mailer";
 import {
-  cvDownloadUrl, cvTicketValid, cvUploadTarget, documentDownloadUrl, readCv, removeCv, saveCv, sniffCv,
+  cvDownloadUrl, cvTicketValid, cvUploadTarget, documentDownloadUrl, documentUploadTarget,
+  inspectDocument, removeDocument, sniffDocument, readCv, removeCv, saveCv, sniffCv,
 } from "../lib/cv-store";
+import {
+  buildExpiryDashboard, clearReminderState, runExpiryReminderJob,
+} from "../lib/expiry-tracker";
 import { appUrl, orgProfile, portalUrl } from "../lib/app-url";
 import { jobRequirements, liveApplicationSchema, normaliseRequirements, syncJobForm } from "../lib/job-form";
 import { syncStaffAvailabilityFromApplication } from "../lib/availability-sync";
@@ -1112,14 +1116,17 @@ export const hrRouter2 = createRouter({
       return { ok: true };
     }),
 
-  /** Short-lived link to an uploaded compliance document (office staff only). */
+  /** Short-lived link to an uploaded compliance document (office staff, or own staff record). */
   documentUrl: authedQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      requireRole(sc, "super_admin", "admin", "team_leader");
       const doc = await db.from("complianceDocuments").eq("id", input.id).first<ComplianceDocuments>();
       if (!doc?.fileKey) throw new TRPCError({ code: "NOT_FOUND", message: "No file has been uploaded for this document." });
+      const isOwnStaffDoc = doc.ownerType === "staff" && Number(doc.ownerId) === Number(sc.staff.id);
+      if (!isOwnStaffDoc) {
+        requireRole(sc, "super_admin", "admin", "care_coordinator", "team_leader", "supervisor");
+      }
       await audit(sc.staff.fullName, "document_viewed", "compliance_documents", input.id);
       return { url: await documentDownloadUrl(doc.fileKey) };
     }),
@@ -1169,7 +1176,7 @@ export const hrRouter2 = createRouter({
   }),
 
   complianceMatrix: authedQuery.query(async ({ ctx }) => {
-    requireRole(await getStaff(ctx), "super_admin", "admin", "team_leader");
+    requireRole(await getStaff(ctx), ...COMPLIANCE_MATRIX_ROLES);
     const staff = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
     const docs = await db.from("complianceDocuments").eq("ownerType", "staff").many<ComplianceDocuments>();
     const reqs = await db.from("complianceRequirements").many<ComplianceRequirements>();
@@ -1183,14 +1190,17 @@ export const hrRouter2 = createRouter({
       if (exp && exp < in30) return "amber";
       return "green";
     };
-    const keyReqs = reqs.filter((r) => ["dbs_enhanced", "right_to_work", "photo_id", "health_declaration"].includes(r.key));
+    const keyReqs = reqs.filter((r) =>
+      ["dbs_enhanced", "right_to_work", "photo_id", "health_declaration", "driving_docs"].includes(r.key));
     const keyCourses = courses.filter((c) => c.mandatory).slice(0, 6);
     return {
       requirements: keyReqs, courses: keyCourses,
       rows: staff.map((s2) => ({
         staff: s2,
         docs: keyReqs.map((r) => {
-          const d = docs.filter((x) => x.ownerId === s2.id && x.requirementKey === r.key).sort((a, b) => Number(b.id) - Number(a.id))[0];
+          const d = docs
+            .filter((x) => x.ownerId === s2.id && x.requirementKey === r.key && x.status !== "superseded" && x.status !== "cancelled")
+            .sort((a, b) => Number(b.id) - Number(a.id))[0];
           return { key: r.key, status: d?.status ?? "missing", expiresAt: d?.expiresAt ?? null, rag: cell(d?.status, d?.expiresAt ?? null) };
         }),
         training: keyCourses.map((c) => {
@@ -1200,6 +1210,147 @@ export const hrRouter2 = createRouter({
       })),
     };
   }),
+
+  /** Traffic-light expiry board — staff docs, training, care/support plan reviews. */
+  expiryDashboard: authedQuery
+    .input(z.object({
+      staffId: z.number().optional(),
+      documentType: z.string().optional(),
+      rag: z.enum(["green", "amber", "red"]).optional(),
+      maxDaysToExpiry: z.number().int().min(-3650).max(3650).optional(),
+      includePlans: z.boolean().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      requireRole(await getStaff(ctx), ...COMPLIANCE_MATRIX_ROLES);
+      return buildExpiryDashboard(input ?? {});
+    }),
+
+  /** Manual / Settings trigger for the daily expiry reminder job. */
+  runExpiryReminders: authedQuery
+    .mutation(async ({ ctx }) => {
+      requireRole(await getStaff(ctx), "super_admin", "admin");
+      return runExpiryReminderJob();
+    }),
+
+  /** Step 1: signed upload URL for a staff document renewal. */
+  renewUploadUrl: authedQuery
+    .input(z.object({
+      staffId: z.number(),
+      requirementKey: z.string().min(1).max(60),
+      fileName: z.string().min(1).max(255),
+      size: z.number().int().positive(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      requireRole(await getStaff(ctx), ...COMPLIANCE_MATRIX_ROLES);
+      if (input.size > 10 * 1024 * 1024) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Files must be 10 MB or smaller." });
+      }
+      const staff = await db.from("staffProfiles").eq("id", input.staffId).first<StaffProfiles>();
+      if (!staff) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found." });
+      try {
+        return await documentUploadTarget(`staff-${input.staffId}`, input.fileName);
+      } catch (err) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: err instanceof Error ? err.message : "Upload failed.",
+        });
+      }
+    }),
+
+  /**
+   * Step 2: record renewed file (or text) with a new expiry.
+   * Supersedes the previous verified document and clears reminder state.
+   */
+  renewDocument: authedQuery
+    .input(z.object({
+      staffId: z.number(),
+      requirementKey: z.string().min(1).max(60),
+      expiresAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      fileName: z.string().min(1).max(255).optional(),
+      key: z.string().min(1).max(400).optional(),
+      textValue: z.string().trim().min(1).max(4000).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, ...COMPLIANCE_MATRIX_ROLES);
+      const staff = await db.from("staffProfiles").eq("id", input.staffId).first<StaffProfiles>();
+      if (!staff) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found." });
+      const req = await db.from("complianceRequirements").eq("key", input.requirementKey).first<ComplianceRequirements>();
+      const resolved = req
+        ? resolveComplianceRequirement(req)
+        : resolveComplianceRequirement({ key: input.requirementKey, label: input.requirementKey });
+
+      let fileKey: string | null = null;
+      let fileName: string | null = null;
+      let textValue: string | null = null;
+
+      if (resolved.inputKind === "text") {
+        if (!input.textValue?.trim()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Enter the renewed text value (e.g. share code)." });
+        }
+        textValue = input.textValue.trim();
+        fileName = textValue.length > 80 ? `${textValue.slice(0, 77)}…` : textValue;
+      } else {
+        if (!input.key || !input.fileName) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Upload the renewed document file first." });
+        }
+        if (!input.key.startsWith(`staff-${input.staffId}/`) || input.key.includes("..")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "That upload does not belong to this staff member." });
+        }
+        const stored = await inspectDocument(input.key);
+        if (!stored) throw new TRPCError({ code: "BAD_REQUEST", message: "The file did not reach storage. Try again." });
+        if (stored.size > 10 * 1024 * 1024) {
+          await removeDocument(input.key);
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Files must be 10 MB or smaller." });
+        }
+        if (!sniffDocument(stored.head, input.fileName)) {
+          await removeDocument(input.key);
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Upload a PDF, photo (JPG, PNG, HEIC) or Word document." });
+        }
+        fileKey = input.key;
+        fileName = input.fileName;
+      }
+
+      const previous = await db.from("complianceDocuments")
+        .eq("ownerType", "staff")
+        .eq("ownerId", input.staffId)
+        .eq("requirementKey", input.requirementKey)
+        .many<ComplianceDocuments>();
+      for (const old of previous) {
+        if (["verified", "uploaded", "requested"].includes(old.status)) {
+          await db.from("complianceDocuments").eq("id", old.id).update({ status: "superseded" });
+          await clearReminderState("compliance", Number(old.id));
+        }
+      }
+
+      const [row] = await db.from("complianceDocuments").insert<ComplianceDocuments>({
+        ownerType: "staff",
+        ownerId: input.staffId,
+        requirementKey: input.requirementKey,
+        fileName,
+        fileKey,
+        textValue,
+        status: "verified",
+        verifiedBy: sc.staff.fullName,
+        verifiedAt: new Date(),
+        expiresAt: input.expiresAt,
+      });
+
+      await audit(sc.staff.fullName, "document_renewed", "compliance_documents", row.id, {
+        staffId: input.staffId,
+        requirementKey: input.requirementKey,
+        expiresAt: input.expiresAt,
+        superseded: previous.map((p) => Number(p.id)),
+      });
+      await notify({
+        staffId: input.staffId,
+        type: "expiry_alert",
+        title: `${resolved.label} renewed`,
+        body: `Your ${resolved.label} is now on file until ${input.expiresAt}.`,
+        link: `/staff/${input.staffId}`,
+      });
+      return { id: Number(row.id) };
+    }),
 
   // ── Training ──
   courses: authedQuery.query(async () => db.from("trainingCourses").order("title", "asc").many<TrainingCourses>()),

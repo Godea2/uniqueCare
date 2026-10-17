@@ -17,14 +17,20 @@ import type {
   VisitAssignments,
   Visits,
 } from "@db/schema";
-import { getStaff, requireRole, audit, notify, notifyRoles } from "../util";
+import {
+  getStaff, requireRole, audit, notify, notifyRoles,
+  CQC_READINESS_ROLES, CQC_INCIDENT_ROLES, OFFICE_ROLES,
+} from "../util";
 import { callAI, modelName } from "../ai/provider";
 
 const planContentSchema = z.record(z.string(), z.string());
 
 export const cqcRouter = createRouter({
   // ── Templates ──
-  templates: authedQuery.query(async () => db.from("documentTemplates").order("id", "desc").many<DocumentTemplates>()),
+  templates: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), ...OFFICE_ROLES);
+    return db.from("documentTemplates").order("id", "desc").many<DocumentTemplates>();
+  }),
 
   updateTemplateStructure: authedQuery
     .input(z.object({
@@ -263,7 +269,7 @@ export const cqcRouter = createRouter({
             changeReason: `${input.type}: ${input.description.slice(0, 200)}`,
           });
         }
-        await notifyRoles(["team_leader", "admin", "super_admin"], {
+        await notifyRoles(["team_leader", "admin", "super_admin", "care_coordinator"], {
           type: "cqc", title: "Change event triggers plan review",
           body: input.description.slice(0, 140), link: "/clients/reviews",
         });
@@ -410,7 +416,8 @@ export const cqcRouter = createRouter({
     }),
 
   // ── Incidents ──
-  incidents: authedQuery.query(async () => {
+  incidents: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), ...CQC_INCIDENT_ROLES);
     const rows = await db.from("incidents").order("occurredAt", "desc").limit(100).many<Incidents>();
     const clientRows = await db.from("clients").many<Clients>();
     const staff = await db.from("staffProfiles").many<StaffProfiles>();
@@ -458,7 +465,8 @@ export const cqcRouter = createRouter({
     }),
 
   // ── CQC readiness dashboard ──
-  readiness: authedQuery.query(async () => {
+  readiness: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), ...CQC_READINESS_ROLES);
     const today = new Date().toISOString().slice(0, 10);
     const plans = await db.from("carePlans").eq("status", "approved").isNull("deletedAt").many<CarePlans>();
     const carePlansInDate = plans.filter((p) => p.planType === "care" && (!p.nextReviewDue || p.nextReviewDue >= today)).length;
@@ -470,14 +478,30 @@ export const cqcRouter = createRouter({
     const docs = await db.from("complianceDocuments").eq("ownerType", "staff").many<ComplianceDocuments>();
     const enr = await db.from("trainingEnrolments").eq("personType", "staff").many<TrainingEnrolments>();
     const in30 = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+    const activeDocs = docs.filter((d) => d.status !== "superseded" && d.status !== "cancelled");
     let compliantStaff = 0;
+    let docsValid = 0;
+    let docsExpiringSoon = 0;
+    let docsExpired = 0;
     for (const s2 of staff) {
-      const dbsOk = docs.some((d) => d.ownerId === s2.id && d.requirementKey === "dbs_enhanced" && d.status === "verified" && (!d.expiresAt || d.expiresAt >= today));
-      const rtwOk = docs.some((d) => d.ownerId === s2.id && d.requirementKey === "right_to_work" && d.status === "verified");
+      const staffDocs = activeDocs.filter((d) => Number(d.ownerId) === Number(s2.id) && d.status === "verified");
+      for (const d of staffDocs) {
+        if (!d.expiresAt) { docsValid++; continue; }
+        if (d.expiresAt < today) docsExpired++;
+        else if (d.expiresAt < in30) docsExpiringSoon++;
+        else docsValid++;
+      }
+      const dbs = staffDocs.filter((d) => d.requirementKey === "dbs_enhanced").sort((a, b) => Number(b.id) - Number(a.id))[0];
+      const rtw = staffDocs.filter((d) => d.requirementKey === "right_to_work").sort((a, b) => Number(b.id) - Number(a.id))[0];
+      const dbsOk = !!dbs && (!dbs.expiresAt || dbs.expiresAt >= today);
+      const rtwOk = !!rtw && (!rtw.expiresAt || rtw.expiresAt >= today);
       const training = enr.filter((e) => e.personId === s2.id);
       const trainingOk = training.length === 0 || training.filter((e) => e.status === "completed" && (!e.expiresAt || e.expiresAt >= in30)).length / training.length >= 0.8;
       if (dbsOk && rtwOk && trainingOk) compliantStaff++;
     }
+    // Count overdue reviews by due date as well as stored status
+    const openReviews = await db.from("planReviews").notIn("status", ["completed", "cancelled"]).many<PlanReviews>();
+    const overdueByDate = openReviews.filter((r) => r.dueDate < today || r.status === "overdue").length;
     const notes90 = await db.from("supervisorNotes").gte("createdAt", new Date(Date.now() - 90 * 864e5).toISOString()).count();
     const appraisalsInDate = await db.from("appraisals").gte("nextAppraisalDue", today).count();
     const now = new Date();
@@ -491,8 +515,9 @@ export const cqcRouter = createRouter({
       carePlansInDate, carePlansTotal,
       carePlansPct: carePlansTotal ? Math.round((carePlansInDate / carePlansTotal) * 100) : 100,
       supportPlansPct: supportTotal ? Math.round((supportInDate / supportTotal) * 100) : 100,
-      overdueReviews,
+      overdueReviews: Math.max(overdueReviews, overdueByDate),
       staffCompliancePct: staff.length ? Math.round((compliantStaff / staff.length) * 100) : 100,
+      documentExpiry: { valid: docsValid, expiringSoon: docsExpiringSoon, expired: docsExpired },
       supervisions90d: notes90,
       appraisalsInDate,
       missedVisits: missed,

@@ -350,6 +350,17 @@ export interface DbsVerifications {
   createdAt: string;
 }
 
+export interface DocumentExpiryReminders {
+  id: number;
+  subjectType: string;
+  subjectId: number;
+  lastRemindedAt: string | null;
+  lastLevel: string | null;
+  reminderCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DocumentTemplates {
   id: number;
   kind: string;
@@ -638,10 +649,12 @@ export interface StaffProfiles {
   wtdOptOut: boolean | null;
   /** Students are capped at 20h/week including travel in the rota engine */
   isStudent: boolean | null;
-  /** six_day (Sun off) | five_day_flex (fixed day off + flexible Sun) */
+  /** six_day (Sun off) | five_day_flex (one fixed + one flexible day off) */
   workPattern: string | null;
-  /** 0=Mon .. 6=Sun when workPattern is five_day_flex */
+  /** 0=Mon .. 6=Sun — fixed weekly day off when workPattern is five_day_flex */
   fixedDayOff: number | null;
+  /** 0=Mon .. 6=Sun — flexible day off when workPattern is five_day_flex (default Sun) */
+  flexibleDayOff: number | null;
   /** GBP per hour for timesheets / payroll */
   hourlyRate: string | null;
   status: string;

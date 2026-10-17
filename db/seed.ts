@@ -903,8 +903,8 @@ async function seed() {
     ["compliance_complete_offer", "All compliance verified → offer letter", "Generate and send the offer letter automatically."],
     ["offer_accepted_training", "Offer accepted → enrol training", "Enrol on mandatory online courses; invite to register for classroom training."],
     ["auto_reassign", "Worker unavailable → auto-reassign visits", "Run the assignment engine on affected visits; escalate failures."],
-    ["plan_review_alerts", "Plan review alerts", "Notify team leader 30/7 days before review due; escalate overdue."],
-    ["expiry_alerts", "Compliance & training expiry alerts", "Notify staff + admin at 60/30/7 days before expiry."],
+    ["plan_review_alerts", "Plan review alerts", "Notify care coordinator and registered manager 30/7 days before review due; escalate overdue."],
+    ["expiry_alerts", "Compliance & training expiry alerts", "Notify carer + admin/HR/coordinator/RM at 60/30/7 days before expiry; daily once expired."],
     ["sla_breach", "SLA breach → auto-escalate", "Escalate per policy and notify the next level."],
     ["safeguarding_alert", "Safeguarding ticket → alert immediately", "Set Urgent, alert Registered Manager and safeguarding lead."],
     ["complaint_clock", "Complaint procedure clock", "Acknowledgement in 3 working days; response in 20 working days."],
@@ -918,7 +918,7 @@ async function seed() {
   // ── Notifications for the office ──
   await db.from("notifications").insert<{ id: number }>([
     { staffId: staffIds[0], type: "safeguarding", title: "Safeguarding concern escalated", body: "UC-000106 requires immediate Registered Manager review.", link: "/crm/tickets" },
-    { staffId: staffIds[1], type: "compliance", title: "3 compliance documents expiring within 30 days", body: "DBS and training renewals due — see the compliance matrix.", link: "/staff/compliance" },
+    { staffId: staffIds[1], type: "compliance", title: "3 compliance documents expiring within 30 days", body: "DBS and training renewals due — see the expiry tracker.", link: "/staff/expiry" },
     { staffId: staffIds[2], type: "rota", title: "Unfilled visits this week", body: "Visits remain unassigned in the current rota week.", link: "/rota" },
     { staffId: staffIds[1], type: "hr", title: "Candidate ready for decision", body: "All panel scorecards submitted for 2 candidates.", link: "/recruitment/pipeline" },
   ]);

@@ -8,6 +8,7 @@ import type {
   ClientPreferences,
   ClientRequiredSkills,
   Clients,
+  ComplianceDocuments,
   ReassignmentRequests,
   RotaWeeks,
   StaffAvailability,
@@ -19,9 +20,19 @@ import type {
   VisitTemplates,
   Visits,
 } from "@db/schema";
-import { getStaff, requireRole, audit, notify, notifyRoles } from "../util";
-import { assignRota, type EngineVisit, type EngineWorker } from "../rota/engine";
+import {
+  getStaff, requireRole, audit, notify, notifyRoles,
+  ROTA_PLANNER_ROLES, ROTA_WRITE_ROLES, CLIENT_DIRECTORY_ROLES,
+} from "../util";
+import {
+  blockRotaOnExpiredMandatory, latestStaffDoc, staffMandatoryDocsOk, MANDATORY_ROTA_KEYS,
+} from "../lib/expiry-tracker";
+import { assignRota, REST_BREAK_MIN, STUDENT_MAX_WEEKLY_HOURS, type EngineVisit, type EngineWorker } from "../rota/engine";
 import { geocodePostcode, londonTime } from "../lib/geo";
+import {
+  buildWeekWorkbook, dayNameFromDate, normaliseCallType, normaliseClientKey, normaliseVisitType,
+  parseSheetDate, parseTimeToHm, parseWeekWorkbook, type WeekSheetRow,
+} from "../rota/week-sheet";
 
 const DAY = 24 * 60;
 
@@ -101,8 +112,22 @@ async function loadEngineInput(weekId: number, onlyVisitIds?: number[]) {
     };
   });
 
+  const blockExpired = await blockRotaOnExpiredMandatory();
+  const staffDocs = blockExpired
+    ? await db.from("complianceDocuments").eq("ownerType", "staff").many<ComplianceDocuments>()
+    : [];
+  const today = new Date().toISOString().slice(0, 10);
   const workers: EngineWorker[] = staff
     .filter((s2) => ["care_worker", "team_leader", "supervisor"].includes(s2.role))
+    .filter((s2) => {
+      if (!blockExpired) return true;
+      for (const key of MANDATORY_ROTA_KEYS) {
+        const d = latestStaffDoc(staffDocs, Number(s2.id), key);
+        if (!d || d.status !== "verified") return false;
+        if (d.expiresAt && d.expiresAt < today) return false;
+      }
+      return true;
+    })
     .map((w) => {
       const wAvail: Record<number, { start: number; end: number }[]> = {};
       for (const a of avail.filter((a) => a.staffId === w.id)) {
@@ -114,10 +139,12 @@ async function loadEngineInput(weekId: number, onlyVisitIds?: number[]) {
       }));
       const daysOff: number[] = [];
       const pattern = w.workPattern ?? "six_day";
-      if (pattern === "six_day") daysOff.push(6);
-      else {
+      if (pattern === "six_day") {
+        daysOff.push(6);
+      } else {
         if (w.fixedDayOff != null) daysOff.push(Number(w.fixedDayOff));
-        daysOff.push(6); // flexible day defaults to Sunday
+        const flex = w.flexibleDayOff != null ? Number(w.flexibleDayOff) : 6;
+        if (!daysOff.includes(flex)) daysOff.push(flex);
       }
       // end of last duty before this week (11-hour rest into Monday)
       const prevAsg = existingAssignments.filter((a) => Number(a.staffId) === Number(w.id));
@@ -182,7 +209,8 @@ async function applyAssignments(weekId: number, visitSubset: number[] | undefine
 
 export const rotaRouter = createRouter({
   // ── Clients ──
-  clients: authedQuery.query(async () => {
+  clients: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), ...CLIENT_DIRECTORY_ROLES);
     const rows = await db.from("clients").isNull("deletedAt").order("lastName", "asc").many<Clients>();
     const prefs = await db.from("clientPreferences").many<ClientPreferences>();
     const skills = await db.from("clientRequiredSkills").many<ClientRequiredSkills>();
@@ -206,7 +234,7 @@ export const rotaRouter = createRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      requireRole(sc, ...ROTA_WRITE_ROLES);
       const geo = await geocodePostcode(input.postcode);
       if (!geo) throw new TRPCError({ code: "BAD_REQUEST", message: "That postcode was not recognised. Check it and try again." });
       const refs = await db.from("clients").many<Clients>();
@@ -233,7 +261,8 @@ export const rotaRouter = createRouter({
 
   clientDetail: authedQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      requireRole(await getStaff(ctx), ...CLIENT_DIRECTORY_ROLES);
       const c = await db.from("clients").eq("id", input.id).first<Clients>();
       if (!c) throw new TRPCError({ code: "NOT_FOUND" });
       const pref = await db.from("clientPreferences").eq("clientId", c.id).first<ClientPreferences>() ?? null;
@@ -269,7 +298,7 @@ export const rotaRouter = createRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      requireRole(sc, ...ROTA_WRITE_ROLES);
       const pkg = (await db.from("carePackages").eq("clientId", input.clientId).many<CarePackages>()).pop();
       if (!pkg) throw new TRPCError({ code: "BAD_REQUEST", message: "This client has no care package yet." });
       for (const day of input.days) {
@@ -288,7 +317,7 @@ export const rotaRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      requireRole(sc, ...ROTA_WRITE_ROLES);
       const tpl = await db.from("visitTemplates").eq("id", input.id).first<VisitTemplates>();
       if (!tpl) throw new TRPCError({ code: "NOT_FOUND" });
       await db.from("visitTemplates").eq("id", input.id).delete();
@@ -297,7 +326,8 @@ export const rotaRouter = createRouter({
     }),
 
   // ── Rota weeks ──
-  weeks: authedQuery.query(async () => {
+  weeks: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), ...ROTA_PLANNER_ROLES);
     return db.from("rotaWeeks").order("weekStartDate", "desc").limit(12).many<RotaWeeks>();
   }),
 
@@ -305,7 +335,7 @@ export const rotaRouter = createRouter({
     .input(z.object({ weekStartDate: z.string() })) // YYYY-MM-DD (Monday)
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      requireRole(sc, ...ROTA_WRITE_ROLES);
       let week = await db.from("rotaWeeks").eq("weekStartDate", input.weekStartDate).first<RotaWeeks>();
       if (week && week.status !== "draft")
         throw new TRPCError({ code: "CONFLICT", message: "This week is already published/locked." });
@@ -344,7 +374,8 @@ export const rotaRouter = createRouter({
 
   weekData: authedQuery
     .input(z.object({ weekId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      requireRole(await getStaff(ctx), ...ROTA_PLANNER_ROLES);
       const week = await db.from("rotaWeeks").eq("id", input.weekId).first<RotaWeeks>();
       if (!week) throw new TRPCError({ code: "NOT_FOUND" });
       const vts = await db.from("visits").eq("rotaWeekId", input.weekId).order("scheduledStart", "asc").many<Visits>();
@@ -368,7 +399,7 @@ export const rotaRouter = createRouter({
     .input(z.object({ weekId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      requireRole(sc, ...ROTA_WRITE_ROLES);
       await db.from("rotaWeeks").eq("id", input.weekId).update({
         status: "published", publishedAt: new Date(), publishedBy: sc.staff.fullName,
       });
@@ -384,15 +415,29 @@ export const rotaRouter = createRouter({
     }),
 
   reassignVisit: authedQuery
-    .input(z.object({ visitId: z.number(), staffId: z.number(), reason: z.string().optional() }))
+    .input(z.object({
+      visitId: z.number(),
+      staffId: z.number(),
+      secondStaffId: z.number().optional(),
+      reason: z.string().optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      requireRole(sc, ...ROTA_WRITE_ROLES);
       const visit = await db.from("visits").eq("id", input.visitId).first<Visits>();
       if (!visit) throw new TRPCError({ code: "NOT_FOUND" });
-      // live constraint check
       const check = await checkAssignment(input.visitId, input.staffId);
       if (!check.ok) throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
+      if (visit.callType === "double") {
+        if (!input.secondStaffId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Double-handed visits need a second carer." });
+        }
+        if (input.secondStaffId === input.staffId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Lead and second carer must be different people." });
+        }
+        const check2 = await checkAssignment(input.visitId, input.secondStaffId);
+        if (!check2.ok) throw new TRPCError({ code: "BAD_REQUEST", message: `Second carer: ${check2.reason}` });
+      }
       await db.from("visitAssignments")
         .eq("visitId", input.visitId)
         .in("status", ["assigned", "accepted"])
@@ -401,9 +446,59 @@ export const rotaRouter = createRouter({
         visitId: input.visitId, staffId: input.staffId, slot: "lead", assignedBy: "user",
         assignmentReason: input.reason ?? "Manually assigned by coordinator.",
       });
-      await db.from("visits").eq("id", input.visitId).update({ status: "assigned" });
-      await notify({ staffId: input.staffId, type: "rota", title: "New visit assigned to you", body: `Visit on ${new Date(visit.scheduledStart).toLocaleString("en-GB")}.`, link: "/me" });
+      if (visit.callType === "double" && input.secondStaffId) {
+        await db.from("visitAssignments").insert({
+          visitId: input.visitId, staffId: input.secondStaffId, slot: "second", assignedBy: "user",
+          assignmentReason: input.reason ?? "Manually assigned by coordinator (second).",
+        });
+        await notify({
+          staffId: input.secondStaffId, type: "rota", title: "New visit assigned to you",
+          body: `Visit on ${new Date(visit.scheduledStart).toLocaleString("en-GB")}.`, link: "/me",
+        });
+      }
+      await db.from("visits").eq("id", input.visitId).update({
+        status: visit.callType === "double" ? "assigned" : "assigned",
+      });
+      await notify({
+        staffId: input.staffId, type: "rota", title: "New visit assigned to you",
+        body: `Visit on ${new Date(visit.scheduledStart).toLocaleString("en-GB")}.`, link: "/me",
+      });
+      const openReq = await db.from("reassignmentRequests")
+        .eq("visitId", input.visitId).eq("status", "manual_required").first<ReassignmentRequests>();
+      if (openReq) {
+        await db.from("reassignmentRequests").eq("id", openReq.id).update({
+          status: "auto_resolved",
+          resolvedStaffId: input.staffId,
+          resolutionLog: { manual: true, staffId: input.staffId, secondStaffId: input.secondStaffId ?? null } as never,
+        });
+      }
       await audit(sc.staff.fullName, "visit_reassigned", "visits", input.visitId, { staffId: input.staffId });
+      return { ok: true };
+    }),
+
+  /** Set / clear the primary carer for continuity of care. */
+  setClientPrimaryCarer: authedQuery
+    .input(z.object({ clientId: z.number(), staffId: z.number().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, ...ROTA_WRITE_ROLES);
+      const existing = await db.from("clientAssignedWorkers").eq("clientId", input.clientId).many<ClientAssignedWorkers>();
+      for (const w of existing) {
+        if (w.isPrimary) await db.from("clientAssignedWorkers").eq("id", w.id).update({ isPrimary: false });
+      }
+      if (input.staffId == null) {
+        await audit(sc.staff.fullName, "primary_carer_cleared", "clients", input.clientId);
+        return { ok: true };
+      }
+      const row = existing.find((w) => Number(w.staffId) === input.staffId);
+      if (row) {
+        await db.from("clientAssignedWorkers").eq("id", row.id).update({ isPrimary: true });
+      } else {
+        await db.from("clientAssignedWorkers").insert({
+          clientId: input.clientId, staffId: input.staffId, isPrimary: true,
+        });
+      }
+      await audit(sc.staff.fullName, "primary_carer_set", "clients", input.clientId, { staffId: input.staffId });
       return { ok: true };
     }),
 
@@ -416,7 +511,7 @@ export const rotaRouter = createRouter({
     .input(z.object({ clientId: z.number(), timeCritical: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      requireRole(sc, ...ROTA_WRITE_ROLES);
       await db.from("clients").eq("id", input.clientId).update({ timeCritical: input.timeCritical });
       await audit(
         sc.staff.fullName,
@@ -433,7 +528,7 @@ export const rotaRouter = createRouter({
     .input(z.object({ templateId: z.number(), flexibilityMinutes: z.number().min(0).max(60) }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
-      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      requireRole(sc, ...ROTA_WRITE_ROLES);
       await db.from("visitTemplates").eq("id", input.templateId).update({
         flexibilityMinutes: input.flexibilityMinutes,
       });
@@ -449,7 +544,8 @@ export const rotaRouter = createRouter({
    */
   weekInsights: authedQuery
     .input(z.object({ weekId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      requireRole(await getStaff(ctx), ...ROTA_PLANNER_ROLES);
       const vts = await db.from("visits").eq("rotaWeekId", input.weekId).order("scheduledStart", "asc").many<Visits>();
       const asg = await db.from("visitAssignments").in("status", ["assigned", "accepted"]).many<VisitAssignments>();
       const clientRows = await db.from("clients").many<Clients>();
@@ -460,7 +556,15 @@ export const rotaRouter = createRouter({
       const violations: { type: string; severity: "error" | "warning" | "info"; message: string }[] = [];
       const wkAsg = asg.filter((a) => vts.some((v) => v.id === a.visitId));
 
-      const REST = 11 * 60;
+      const week = await db.from("rotaWeeks").eq("id", input.weekId).first<RotaWeeks>();
+      const monday = week ? mondayOf(week.weekStartDate) : null;
+      const prevVisits = monday
+        ? await db.from("visits").lte("scheduledEnd", monday.toISOString()).gte("scheduledEnd", new Date(monday.getTime() - 2 * 864e5).toISOString()).many<Visits>()
+        : [];
+      const prevAsg = prevVisits.length
+        ? await db.from("visitAssignments").in("status", ["assigned", "accepted"]).many<VisitAssignments>()
+        : [];
+
       const byStaff = new Map<number, Visits[]>();
       for (const a of wkAsg) {
         const v = vts.find((x) => x.id === a.visitId);
@@ -481,10 +585,31 @@ export const rotaRouter = createRouter({
           if (end > g.last) g.last = end;
           byDay.set(key, g);
         }
+        // Cross-week boundary: last duty before Monday → first visit Mon
+        if (monday) {
+          const prevEnds = prevVisits
+            .filter((v) => prevAsg.some((a) => Number(a.visitId) === Number(v.id) && Number(a.staffId) === sid))
+            .map((v) => new Date(v.scheduledEnd).getTime());
+          if (prevEnds.length) {
+            const lastPrev = new Date(Math.max(...prevEnds));
+            const monKey = monday.toISOString().slice(0, 10);
+            const monFirst = byDay.get(monKey)?.first;
+            if (monFirst) {
+              const gapMin = (monFirst.getTime() - lastPrev.getTime()) / 60000;
+              if (gapMin < REST_BREAK_MIN) {
+                violations.push({
+                  type: "rest_break",
+                  severity: "error",
+                  message: `${name}: only ${Math.floor(gapMin / 60)}h ${Math.round(gapMin % 60)}m rest from previous week into ${monKey} (minimum 11h)`,
+                });
+              }
+            }
+          }
+        }
         const days = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
         for (let i = 1; i < days.length; i++) {
           const gapMin = (days[i][1].first.getTime() - days[i - 1][1].last.getTime()) / 60000;
-          if (gapMin < REST) {
+          if (gapMin < REST_BREAK_MIN) {
             violations.push({
               type: "rest_break",
               severity: "error",
@@ -569,7 +694,7 @@ export const rotaRouter = createRouter({
       const sc = await getStaff(ctx);
       const staffId = input.staffId ?? Number(sc.staff.id);
       if (input.staffId && input.staffId !== Number(sc.staff.id)) {
-        requireRole(sc, "super_admin", "admin", "care_coordinator");
+        requireRole(sc, ...ROTA_WRITE_ROLES);
       }
       const [row] = await db.from("staffUnavailability").insert<StaffUnavailability>({
         staffId, startsAt: new Date(input.startsAt), endsAt: new Date(input.endsAt),
@@ -617,7 +742,12 @@ export const rotaRouter = createRouter({
         } else if (req) {
           await db.from("reassignmentRequests").eq("id", req.id).update({
             status: "manual_required",
-            resolutionLog: { nearMisses: result.unassigned.find((u) => u.visitId === vid)?.reasons ?? [] } as never,
+            resolutionLog: {
+              nearMisses: (result.unassigned.find((u) => u.visitId === vid)?.reasons ?? []).map((r) => ({
+                staffId: r.staffId,
+                reason: r.reason,
+              })),
+            } as never,
           });
           await notifyRoles(["care_coordinator", "admin", "super_admin"], {
             type: "rota", title: "Reassignment needs manual review",
@@ -630,7 +760,8 @@ export const rotaRouter = createRouter({
       return { ok: true, affected: affectedVisits.length, autoResolved: resolved, manualRequired: manual };
     }),
 
-  reassignments: authedQuery.query(async () => {
+  reassignments: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), ...ROTA_PLANNER_ROLES);
     const reqs = await db.from("reassignmentRequests").order("createdAt", "desc").limit(50).many<ReassignmentRequests>();
     const staff = await db.from("staffProfiles").many<StaffProfiles>();
     const vts = await db.from("visits").many<Visits>();
@@ -685,7 +816,8 @@ export const rotaRouter = createRouter({
       });
   }),
 
-  kpis: authedQuery.query(async () => {
+  kpis: authedQuery.query(async ({ ctx }) => {
+    requireRole(await getStaff(ctx), ...ROTA_PLANNER_ROLES);
     const now = new Date();
     const monday = new Date(now); monday.setHours(0, 0, 0, 0); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
     const weekEnd = new Date(monday.getTime() + 7 * 864e5);
@@ -715,67 +847,369 @@ export const rotaRouter = createRouter({
 
   exportWeekCsv: authedQuery
     .input(z.object({ weekId: z.number() }))
-    .query(async ({ input }) => {
-      const vts = await db.from("visits").eq("rotaWeekId", input.weekId).order("scheduledStart", "asc").many<Visits>();
-      const asg = await db.from("visitAssignments").in("status", ["assigned", "accepted"]).many<VisitAssignments>();
-      const clientRows = await db.from("clients").many<Clients>();
-      const staff = await db.from("staffProfiles").many<StaffProfiles>();
-      const rows = [["Date", "Start", "End", "Client", "Address", "Visit type", "Call type", "Worker(s)", "Status"]];
-      for (const v of vts) {
-        const c = clientRows.find((x) => x.id === v.clientId);
-        const names = asg.filter((a) => a.visitId === v.id).map((a) => staff.find((s2) => s2.id === a.staffId)?.fullName ?? "").filter(Boolean).join(" & ");
-        rows.push([
-          new Date(v.scheduledStart).toLocaleDateString("en-GB"),
-          new Date(v.scheduledStart).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
-          new Date(v.scheduledEnd).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
-          c ? `${c.firstName} ${c.lastName}` : "", c?.addressLine1 ?? "",
-          v.visitType ?? "", v.callType, names || "UNASSIGNED", v.status,
-        ]);
+    .query(async ({ ctx, input }) => {
+      requireRole(await getStaff(ctx), ...ROTA_PLANNER_ROLES);
+      const sheet = await weekSheetRows(input.weekId);
+      const header = ["Day", "Date", "Client", "Visit type", "Call type", "Start", "End", "Carer", "Notes"];
+      const lines = [header, ...sheet.map((r) => [r.day, r.date, r.client, r.visitType, r.callType, r.start, r.end, r.carer, r.notes])];
+      return { csv: lines.map((r) => r.map((c2) => `"${String(c2).replace(/"/g, '""')}"`).join(",")).join("\n") };
+    }),
+
+  /** Excel template (one row per visit), pre-filled from the current week. */
+  exportWeekExcel: authedQuery
+    .input(z.object({ weekId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      requireRole(await getStaff(ctx), ...ROTA_PLANNER_ROLES);
+      const sheet = await weekSheetRows(input.weekId);
+      const buf = await buildWeekWorkbook(sheet);
+      return { filename: `rota-week.xlsx`, base64: buf.toString("base64") };
+    }),
+
+  /** Validate an uploaded rota template against clients, carers and hard rules. */
+  previewWeekImport: authedQuery
+    .input(z.object({ weekId: z.number(), base64: z.string().min(8) }))
+    .mutation(async ({ ctx, input }) => {
+      requireRole(await getStaff(ctx), ...ROTA_WRITE_ROLES);
+      const week = await db.from("rotaWeeks").eq("id", input.weekId).first<RotaWeeks>();
+      if (!week) throw new TRPCError({ code: "NOT_FOUND", message: "Rota week not found" });
+      if (week.status !== "draft") {
+        throw new TRPCError({ code: "CONFLICT", message: "Only draft weeks can be imported into. Unlock/regenerate as draft first." });
       }
-      return { csv: rows.map((r) => r.map((c2) => `"${String(c2).replace(/"/g, '""')}"`).join(",")).join("\n") };
+      const rows = await parseWeekWorkbook(Buffer.from(input.base64, "base64"));
+      return validateImportRows(week, rows);
+    }),
+
+  /** Apply a validated rota template to the draft week (replaces visit assignments for matched rows). */
+  applyWeekImport: authedQuery
+    .input(z.object({ weekId: z.number(), base64: z.string().min(8) }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, ...ROTA_WRITE_ROLES);
+      const week = await db.from("rotaWeeks").eq("id", input.weekId).first<RotaWeeks>();
+      if (!week) throw new TRPCError({ code: "NOT_FOUND", message: "Rota week not found" });
+      if (week.status !== "draft") {
+        throw new TRPCError({ code: "CONFLICT", message: "Only draft weeks can be imported into." });
+      }
+      const rows = await parseWeekWorkbook(Buffer.from(input.base64, "base64"));
+      const preview = await validateImportRows(week, rows);
+      if (preview.errorCount > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Fix ${preview.errorCount} row error(s) before applying.`,
+        });
+      }
+      let applied = 0;
+      for (const row of preview.rows) {
+        if (!row.ok || !row.parsed) continue;
+        const p = row.parsed;
+        let visit = (await db.from("visits").eq("rotaWeekId", week.id).many<Visits>())
+          .find((v) =>
+            Number(v.clientId) === p.clientId
+            && new Date(v.scheduledStart).toISOString().slice(0, 16) === p.startIso.slice(0, 16));
+        if (!visit) {
+          const [created] = await db.from("visits").insert<Visits>({
+            rotaWeekId: week.id,
+            clientId: p.clientId,
+            scheduledStart: new Date(p.startIso),
+            scheduledEnd: new Date(p.endIso),
+            callType: p.callType,
+            visitType: p.visitType,
+            status: "unassigned",
+            notes: p.notes || null,
+          });
+          visit = created;
+        } else {
+          await db.from("visits").eq("id", visit.id).update({
+            scheduledStart: new Date(p.startIso),
+            scheduledEnd: new Date(p.endIso),
+            callType: p.callType,
+            visitType: p.visitType,
+            notes: p.notes || null,
+          });
+        }
+        await db.from("visitAssignments")
+          .eq("visitId", visit.id)
+          .in("status", ["assigned", "accepted"])
+          .update({ status: "reassigned" });
+        if (p.staffIds.length) {
+          for (let i = 0; i < p.staffIds.length; i++) {
+            await db.from("visitAssignments").insert({
+              visitId: visit.id,
+              staffId: p.staffIds[i],
+              slot: i === 0 ? "lead" : "second",
+              assignedBy: "import",
+              assignmentReason: "Imported from rota template",
+            });
+          }
+          await db.from("visits").eq("id", visit.id).update({
+            status: p.callType === "double" && p.staffIds.length < 2 ? "partially_assigned" : "assigned",
+          });
+        } else {
+          await db.from("visits").eq("id", visit.id).update({ status: "unassigned" });
+        }
+        applied++;
+      }
+      await audit(sc.staff.fullName, "rota_imported", "rota_weeks", week.id, { rows: applied });
+      return { ok: true, applied };
     }),
 });
 
+async function weekSheetRows(weekId: number) {
+  const vts = await db.from("visits").eq("rotaWeekId", weekId).order("scheduledStart", "asc").many<Visits>();
+  const asg = await db.from("visitAssignments").in("status", ["assigned", "accepted"]).many<VisitAssignments>();
+  const clientRows = await db.from("clients").many<Clients>();
+  const staff = await db.from("staffProfiles").many<StaffProfiles>();
+  return vts.map((v) => {
+    const c = clientRows.find((x) => x.id === v.clientId);
+    const names = asg.filter((a) => a.visitId === v.id)
+      .map((a) => staff.find((s2) => s2.id === a.staffId)?.fullName ?? "")
+      .filter(Boolean)
+      .join(" & ");
+    const start = new Date(v.scheduledStart);
+    return {
+      day: dayNameFromDate(start),
+      date: start.toLocaleDateString("en-GB"),
+      client: c ? `${c.firstName} ${c.lastName}` : "",
+      visitType: (v.visitType ?? "visit").replace(/_/g, " "),
+      callType: v.callType,
+      start: start.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false }),
+      end: new Date(v.scheduledEnd).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false }),
+      carer: names,
+      notes: v.notes ?? "",
+    };
+  });
+}
+
+type ImportParsed = {
+  clientId: number;
+  staffIds: number[];
+  visitType: string;
+  callType: "single" | "double";
+  startIso: string;
+  endIso: string;
+  notes: string;
+};
+
+async function validateImportRows(week: RotaWeeks, rows: WeekSheetRow[]) {
+  const clients = await db.from("clients").eq("status", "active").many<Clients>();
+  const staff = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+  const clientByName = new Map(clients.map((c) => [normaliseClientKey(`${c.firstName} ${c.lastName}`), c]));
+  const staffByName = new Map(staff.map((s) => [normaliseClientKey(s.fullName), s]));
+
+  const out: {
+    rowNum: number;
+    ok: boolean;
+    errors: string[];
+    summary: string;
+    parsed: ImportParsed | null;
+  }[] = [];
+
+  for (const row of rows) {
+    const errors: string[] = [];
+    const dateIso = parseSheetDate(row.date);
+    if (!dateIso) errors.push("Invalid date (use DD/MM/YYYY)");
+    const startHm = parseTimeToHm(row.start);
+    const endHm = parseTimeToHm(row.end);
+    if (!startHm) errors.push("Invalid start time");
+    if (!endHm) errors.push("Invalid end time");
+    const client = clientByName.get(normaliseClientKey(row.client));
+    if (!client) errors.push(`Unknown client "${row.client}"`);
+    const callType = normaliseCallType(row.callType || "single");
+    if (!callType) errors.push(`Invalid call type "${row.callType}"`);
+    const visitType = normaliseVisitType(row.visitType || "visit");
+    const carerNames = row.carer
+      ? row.carer.split(/\s*&\s*|\s*,\s*/).map((n) => n.trim()).filter(Boolean)
+      : [];
+    const staffIds: number[] = [];
+    for (const name of carerNames) {
+      const s = staffByName.get(normaliseClientKey(name));
+      if (!s) errors.push(`Unknown carer "${name}"`);
+      else if (s.status !== "active") errors.push(`${name} is not active`);
+      else staffIds.push(Number(s.id));
+    }
+    if (callType === "double" && staffIds.length === 1) {
+      errors.push("Double-handed visit needs two carers (Name & Name)");
+    }
+    if (dateIso && week.weekStartDate) {
+      const mon = week.weekStartDate.slice(0, 10);
+      const sun = new Date(`${mon}T12:00:00Z`);
+      sun.setUTCDate(sun.getUTCDate() + 6);
+      const sunIso = sun.toISOString().slice(0, 10);
+      if (dateIso < mon || dateIso > sunIso) {
+        errors.push(`Date is outside week ${mon} → ${sunIso}`);
+      }
+    }
+
+    let parsed: ImportParsed | null = null;
+    if (!errors.length && client && startHm && endHm && callType && dateIso) {
+      const start = londonTime(dateIso, startHm);
+      const end = londonTime(dateIso, endHm);
+      if (end.getTime() <= start.getTime()) errors.push("End must be after start");
+      else {
+        parsed = {
+          clientId: Number(client.id),
+          staffIds,
+          visitType,
+          callType,
+          startIso: start.toISOString(),
+          endIso: end.toISOString(),
+          notes: row.notes,
+        };
+        for (const sid of staffIds) {
+          // Temporary visit-shaped check via synthetic overlap against existing week visits
+          const probe = await checkAssignmentWindow({
+            staffId: sid,
+            clientId: Number(client.id),
+            start,
+            end,
+            excludeVisitId: null,
+            weekId: Number(week.id),
+          });
+          if (!probe.ok) errors.push(probe.reason ?? "Rule breach");
+        }
+      }
+    }
+    if (errors.length) parsed = null;
+    out.push({
+      rowNum: row.rowNum,
+      ok: errors.length === 0,
+      errors,
+      summary: `${row.day || "—"} ${row.date} · ${row.client} · ${row.start}–${row.end} · ${row.carer || "unassigned"}`,
+      parsed,
+    });
+  }
+  return {
+    rows: out,
+    errorCount: out.filter((r) => !r.ok).length,
+    okCount: out.filter((r) => r.ok).length,
+  };
+}
+
+/** Hard-constraint check for an existing visit + worker (manual assign / reassign). */
 async function checkAssignment(visitId: number, staffId: number): Promise<{ ok: boolean; reason?: string }> {
   const visit = await db.from("visits").eq("id", visitId).first<Visits>();
   if (!visit) return { ok: false, reason: "Visit not found" };
-  const worker = await db.from("staffProfiles").eq("id", staffId).first<StaffProfiles>();
+  return checkAssignmentWindow({
+    staffId,
+    clientId: Number(visit.clientId),
+    start: new Date(visit.scheduledStart),
+    end: new Date(visit.scheduledEnd),
+    excludeVisitId: Number(visit.id),
+    weekId: Number(visit.rotaWeekId),
+  });
+}
+
+async function checkAssignmentWindow(opts: {
+  staffId: number;
+  clientId: number;
+  start: Date;
+  end: Date;
+  excludeVisitId: number | null;
+  weekId: number;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const worker = await db.from("staffProfiles").eq("id", opts.staffId).first<StaffProfiles>();
   if (!worker || worker.status !== "active") return { ok: false, reason: "Worker is not active" };
-  const reqSkills = (await db.from("clientRequiredSkills").eq("clientId", visit.clientId).many<ClientRequiredSkills>()).map((r) => r.skill);
+
+  if (await blockRotaOnExpiredMandatory()) {
+    const docsOk = await staffMandatoryDocsOk(opts.staffId);
+    if (!docsOk.ok) return docsOk;
+  }
+
+  const reqSkills = (await db.from("clientRequiredSkills").eq("clientId", opts.clientId).many<ClientRequiredSkills>()).map((r) => r.skill);
   const wSkills = (worker.skills as string[]) ?? [];
   const missing = reqSkills.filter((sk) => !wSkills.includes(sk));
   if (missing.length) return { ok: false, reason: `Missing required skills: ${missing.join(", ")}` };
-  const pref = await db.from("clientPreferences").eq("clientId", visit.clientId).first<ClientPreferences>();
-  if (pref && ((pref.excludedStaffIds as number[]) ?? []).includes(staffId))
+
+  const pref = await db.from("clientPreferences").eq("clientId", opts.clientId).first<ClientPreferences>();
+  if (pref && ((pref.excludedStaffIds as number[]) ?? []).includes(opts.staffId)) {
     return { ok: false, reason: "Client has excluded this worker" };
-  if (pref && pref.preferredGender !== "any" && worker.gender && pref.preferredGender !== worker.gender)
+  }
+  if (pref && pref.preferredGender !== "any" && worker.gender && pref.preferredGender !== worker.gender) {
     return { ok: false, reason: `Client prefers ${pref.preferredGender} carers` };
-  const start = new Date(visit.scheduledStart);
-  const end = new Date(visit.scheduledEnd);
+  }
+
+  const start = opts.start;
+  const end = opts.end;
   const dow = (start.getDay() + 6) % 7;
+
+  const pattern = worker.workPattern ?? "six_day";
+  const daysOff: number[] = [];
+  if (pattern === "six_day") daysOff.push(6);
+  else {
+    if (worker.fixedDayOff != null) daysOff.push(Number(worker.fixedDayOff));
+    daysOff.push(worker.flexibleDayOff != null ? Number(worker.flexibleDayOff) : 6);
+  }
+  if (daysOff.includes(dow)) return { ok: false, reason: "Worker is on a pattern day off" };
+
   const windows = await db.from("staffAvailability")
-    .eq("staffId", staffId)
+    .eq("staffId", opts.staffId)
     .eq("dayOfWeek", dow)
     .many<StaffAvailability>();
   const startMin = start.getHours() * 60 + start.getMinutes();
   const endMin = end.getHours() * 60 + end.getMinutes();
-  if (!windows.some((w) => toMin(w.startTime) <= startMin && toMin(w.endTime) >= endMin))
+  if (!windows.some((w) => toMin(w.startTime) <= startMin && toMin(w.endTime) >= endMin)) {
     return { ok: false, reason: "Outside the worker's weekly availability" };
+  }
+
   const un = await db.from("staffUnavailability")
-    .eq("staffId", staffId)
+    .eq("staffId", opts.staffId)
     .eq("status", "approved")
     .many<StaffUnavailability>();
-  if (un.some((u) => new Date(u.startsAt) < end && new Date(u.endsAt) > start))
+  if (un.some((u) => new Date(u.startsAt) < end && new Date(u.endsAt) > start)) {
     return { ok: false, reason: "Worker has approved unavailability over this time" };
+  }
+
   const otherAsg = await db.from("visitAssignments")
-    .eq("staffId", staffId)
+    .eq("staffId", opts.staffId)
     .in("status", ["assigned", "accepted"])
     .many<VisitAssignments>();
+  const TRAVEL_BUF = 15;
   for (const a of otherAsg) {
-    if (a.visitId === visitId) continue;
+    if (opts.excludeVisitId != null && Number(a.visitId) === opts.excludeVisitId) continue;
     const ov = await db.from("visits").eq("id", a.visitId).first<Visits>();
-    if (ov && new Date(ov.scheduledStart).getTime() - 15 * 60000 < end.getTime() && new Date(ov.scheduledEnd).getTime() + 15 * 60000 > start.getTime())
-      return { ok: false, reason: "Overlaps another visit (incl. 15 min travel buffer)" };
+    if (!ov) continue;
+    const os = new Date(ov.scheduledStart).getTime();
+    const oe = new Date(ov.scheduledEnd).getTime();
+    if (os - TRAVEL_BUF * 60000 < end.getTime() && oe + TRAVEL_BUF * 60000 > start.getTime()) {
+      return { ok: false, reason: "Overlaps another visit (incl. travel buffer)" };
+    }
   }
+
+  // 11-hour rest vs other duties the same / previous calendar day
+  const dayStart = new Date(start); dayStart.setHours(0, 0, 0, 0);
+  const prevDayStart = new Date(dayStart.getTime() - 864e5);
+  const nextDayEnd = new Date(dayStart.getTime() + 2 * 864e5);
+  for (const a of otherAsg) {
+    if (opts.excludeVisitId != null && Number(a.visitId) === opts.excludeVisitId) continue;
+    const ov = await db.from("visits").eq("id", a.visitId).first<Visits>();
+    if (!ov) continue;
+    const os = new Date(ov.scheduledStart);
+    const oe = new Date(ov.scheduledEnd);
+    if (oe < prevDayStart || os > nextDayEnd) continue;
+    const gapAfter = (start.getTime() - oe.getTime()) / 60000;
+    const gapBefore = (os.getTime() - end.getTime()) / 60000;
+    if (gapAfter >= 0 && gapAfter < REST_BREAK_MIN && os.toDateString() !== start.toDateString()) {
+      return { ok: false, reason: "Breaks the 11-hour rest rule" };
+    }
+    if (gapBefore >= 0 && gapBefore < REST_BREAK_MIN && os.toDateString() !== start.toDateString()) {
+      return { ok: false, reason: "Breaks the 11-hour rest rule" };
+    }
+  }
+
+  if (worker.isStudent) {
+    const weekVisits = await db.from("visits").eq("rotaWeekId", opts.weekId).many<Visits>();
+    let mins = (end.getTime() - start.getTime()) / 60000;
+    for (const a of otherAsg) {
+      if (opts.excludeVisitId != null && Number(a.visitId) === opts.excludeVisitId) continue;
+      const ov = weekVisits.find((v) => Number(v.id) === Number(a.visitId));
+      if (!ov) continue;
+      mins += (new Date(ov.scheduledEnd).getTime() - new Date(ov.scheduledStart).getTime()) / 60000;
+      mins += a.travelMinutesFromPrevious ?? 0;
+    }
+    if (mins / 60 > STUDENT_MAX_WEEKLY_HOURS) {
+      return { ok: false, reason: `Student would exceed ${STUDENT_MAX_WEEKLY_HOURS}h/week (incl. travel)` };
+    }
+  }
+
   return { ok: true };
 }

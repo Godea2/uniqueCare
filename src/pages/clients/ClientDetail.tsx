@@ -19,14 +19,16 @@ function VisitPatternForm({ clientId, onSaved }: { clientId: number; onSaved: ()
   const [duration, setDuration] = useState(30);
   const [visitType, setVisitType] = useState("personal care");
   const [callType, setCallType] = useState<"single" | "double">("single");
+  const [windowMin, setWindowMin] = useState(60);
   const add = trpc.rota.addVisitTemplate.useMutation({
-    onSuccess: () => { onSaved(); toast.success("Regular visit added"); },
+    onSuccess: () => { onSaved(); toast.success("Regular visit added to master pattern"); },
     onError: (e) => toast.error(e.message),
   });
   const toggle = (d: number) => setDays((s) => (s.includes(d) ? s.filter((x) => x !== d) : [...s, d].sort()));
   return (
     <section className="uc-card p-5">
-      <h2 className="uc-label mb-3">Add a regular visit</h2>
+      <h2 className="uc-label mb-1">Master rota template</h2>
+      <p className="mb-3 text-xs text-muted-foreground">Reusable weekly pattern — Generate week creates visits from these.</p>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Days">
         {DAYS.map((label, d) => (
           <button key={label} type="button" aria-pressed={days.includes(d)} onClick={() => toggle(d)}
@@ -50,11 +52,26 @@ function VisitPatternForm({ clientId, onSaved }: { clientId: number; onSaved: ()
             </SelectContent>
           </Select>
         </div>
+        <div>
+          <Label htmlFor="vt-win">Time window ±</Label>
+          <Select value={String(windowMin)} onValueChange={(v) => setWindowMin(Number(v))}>
+            <SelectTrigger id="vt-win"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="60">60 min (preferred)</SelectItem>
+              <SelectItem value="30">30 min</SelectItem>
+              <SelectItem value="15">15 min</SelectItem>
+              <SelectItem value="0">Exact time only</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       <Button className="mt-3" size="sm"
         disabled={days.length === 0 || !startTime || duration < 15 || visitType.trim().length < 2 || add.isPending}
-        onClick={() => add.mutate({ clientId, days, startTime, durationMinutes: duration, visitType: visitType.trim(), callType })}>
-        <Plus className="mr-1 h-3.5 w-3.5" /> Add visit
+        onClick={() => add.mutate({
+          clientId, days, startTime, durationMinutes: duration, visitType: visitType.trim(), callType,
+          flexibilityMinutes: windowMin,
+        })}>
+        <Plus className="mr-1 h-3.5 w-3.5" /> Add to master pattern
       </Button>
     </section>
   );
@@ -76,6 +93,21 @@ export default function ClientDetail() {
     },
     onError: (e) => toast.error(e.message),
   });
+  const setPrimary = trpc.rota.setClientPrimaryCarer.useMutation({
+    onSuccess: () => {
+      utils.rota.clientDetail.invalidate({ id: clientId });
+      toast.success("Primary carer updated");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const setWindow = trpc.rota.setTemplateWindow.useMutation({
+    onSuccess: () => {
+      utils.rota.clientDetail.invalidate({ id: clientId });
+      toast.success("Template window updated");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const carersQ = trpc.core.staffList.useQuery();
 
   if (q.isLoading) return <Loading rows={6} />;
   if (q.error) return <ErrorState message={q.error.message} onRetry={() => q.refetch()} />;
@@ -178,10 +210,39 @@ export default function ClientDetail() {
           </div>
         </TabsContent>
 
-        <TabsContent value="workers" className="mt-4">
+        <TabsContent value="workers" className="mt-4 space-y-4">
           <div className="uc-card p-5">
+            <h2 className="uc-label mb-2">Primary carer (continuity of care)</h2>
+            <p className="mb-3 text-xs text-muted-foreground">
+              The rota engine strongly prefers this carer for every visit. Time-critical clients still keep their ±30 min window.
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-56 flex-1">
+                <Label htmlFor="primary-carer">Primary carer</Label>
+                <Select
+                  value={d.workers.find((w) => w.isPrimary)?.staffId != null ? String(d.workers.find((w) => w.isPrimary)!.staffId) : "none"}
+                  onValueChange={(v) => setPrimary.mutate({
+                    clientId,
+                    staffId: v === "none" ? null : Number(v),
+                  })}
+                >
+                  <SelectTrigger id="primary-carer"><SelectValue placeholder="Choose carer" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No primary carer</SelectItem>
+                    {(carersQ.data ?? [])
+                      .filter((s) => s.status === "active" && ["care_worker", "team_leader", "supervisor"].includes(s.role))
+                      .map((s) => (
+                        <SelectItem key={s.id} value={String(s.id)}>{s.fullName}</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <div className="uc-card p-5">
+            <h2 className="uc-label mb-2">Regular carers</h2>
             {d.workers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No regular carers assigned yet — assignments build up as visits are allocated.</p>
+              <p className="text-sm text-muted-foreground">No regular carers yet — set a primary above, or they build up as visits are allocated.</p>
             ) : (
               <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
                 {d.workers.map((w) => (
@@ -218,7 +279,22 @@ export default function ClientDetail() {
                     <td className="px-4 py-2.5 text-xs">{t.startTime}</td>
                     <td className="px-4 py-2.5 text-xs">{t.durationMinutes} min</td>
                     <td className={`px-4 py-2.5 text-xs ${c.timeCritical ? "text-red-700 font-medium" : ""}`}>
-                      ±{c.timeCritical ? 30 : (t.flexibilityMinutes ?? 60)} min
+                      {c.timeCritical ? (
+                        <span>±30 min (time-critical)</span>
+                      ) : (
+                        <Select
+                          value={String(t.flexibilityMinutes ?? 60)}
+                          onValueChange={(v) => setWindow.mutate({ templateId: Number(t.id), flexibilityMinutes: Number(v) })}
+                        >
+                          <SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="60">±60 min</SelectItem>
+                            <SelectItem value="30">±30 min</SelectItem>
+                            <SelectItem value="15">±15 min</SelectItem>
+                            <SelectItem value="0">Exact</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-xs">{t.visitType.replace(/_/g, " ")}</td>
                     <td className="px-4 py-2.5 text-xs">{t.callType === "double" ? "Yes" : "No"}</td>

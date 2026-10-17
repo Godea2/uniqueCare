@@ -34,11 +34,16 @@ export default function Settings() {
 
 function OrgSection({ org }: { org: RouterOutputs["core"]["organisation"] }) {
   const utils = trpc.useUtils();
-  const settings = (org?.settings ?? null) as { screeningThreshold?: number; signatoryName?: string; signatoryTitle?: string } | null;
+  const settings = (org?.settings ?? null) as {
+    screeningThreshold?: number; signatoryName?: string; signatoryTitle?: string; geofenceRadiusM?: number;
+    blockRotaOnExpiredMandatory?: boolean;
+  } | null;
   const [f, setF] = useState({
     name: org?.name ?? "Unique Care UK", address: org?.address ?? "", cqcLocationId: org?.cqcLocationId ?? "",
     screeningThreshold: settings?.screeningThreshold ?? 85,
     signatoryName: settings?.signatoryName ?? "", signatoryTitle: settings?.signatoryTitle ?? "",
+    geofenceRadiusM: settings?.geofenceRadiusM ?? 10,
+    blockRotaOnExpiredMandatory: settings?.blockRotaOnExpiredMandatory === true,
   });
   const save = trpc.core.updateOrganisation.useMutation({
     onSuccess: () => { utils.core.organisation.invalidate(); toast.success("Saved"); },
@@ -70,12 +75,52 @@ function OrgSection({ org }: { org: RouterOutputs["core"]["organisation"] }) {
           <Input id="o-sigt" value={f.signatoryTitle} placeholder="Registered Manager"
             onChange={(e) => setF((s) => ({ ...s, signatoryTitle: e.target.value }))} />
         </div>
+        <div className="md:col-span-2 rounded-xl border p-3" style={{ borderColor: "var(--line)" }}>
+          <Label htmlFor="o-geo">Visit geofence radius ({f.geofenceRadiusM} metres)</Label>
+          <input
+            id="o-geo"
+            type="range"
+            min={3}
+            max={50}
+            step={1}
+            value={f.geofenceRadiusM}
+            onChange={(e) => setF((s) => ({ ...s, geofenceRadiusM: Number(e.target.value) }))}
+            className="mt-2 w-full accent-[--brand-600]"
+          />
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Staff must be within this distance of the client’s address to clock in or clock out (plus GPS accuracy).
+            Default 10 m (CQC-style doorstep). Location is probed every 15 minutes while My Rota is open; a server job also auto clock-outs after 15 minutes outside or past the visit end if the app is closed (grace unpaid).
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {[3, 5, 10, 15, 25].map((m) => (
+              <Button key={m} type="button" size="sm" variant={f.geofenceRadiusM === m ? "default" : "outline"} className="h-7"
+                onClick={() => setF((s) => ({ ...s, geofenceRadiusM: m }))}>
+                {m} m
+              </Button>
+            ))}
+          </div>
+        </div>
+        <div className="md:col-span-2 rounded-xl border p-3 flex items-start justify-between gap-3" style={{ borderColor: "var(--line)" }}>
+          <div>
+            <Label htmlFor="o-block-rota">Block rota assignment when DBS or right-to-work is expired</Label>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              When on, carers with missing or expired mandatory documents cannot be assigned (manual or auto).
+            </p>
+          </div>
+          <Switch
+            id="o-block-rota"
+            checked={f.blockRotaOnExpiredMandatory}
+            onCheckedChange={(v) => setF((s) => ({ ...s, blockRotaOnExpiredMandatory: v }))}
+          />
+        </div>
       </div>
       {!org && <p className="mt-3 text-xs text-amber-700">No organisation is saved yet. Saving creates it.</p>}
       <Button className="mt-3" size="sm" disabled={save.isPending || f.name.trim().length < 2}
         onClick={() => save.mutate({
           name: f.name.trim(), address: f.address || undefined, cqcLocationId: f.cqcLocationId || undefined,
           screeningThreshold: f.screeningThreshold, signatoryName: f.signatoryName, signatoryTitle: f.signatoryTitle,
+          geofenceRadiusM: f.geofenceRadiusM,
+          blockRotaOnExpiredMandatory: f.blockRotaOnExpiredMandatory,
         })}>
         Save organisation
       </Button>

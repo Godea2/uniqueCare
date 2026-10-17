@@ -53,7 +53,8 @@ const NAV: NavGroup[] = [
     group: "Staff",
     items: [
       { label: "Directory", path: "/staff", icon: Users, roles: ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor"] },
-      { label: "Compliance matrix", path: "/staff/compliance", icon: ClipboardCheck, roles: MGMT },
+      { label: "Compliance matrix", path: "/staff/compliance", icon: ClipboardCheck, roles: ["super_admin", "admin", "care_coordinator", "team_leader"] },
+      { label: "Expiry tracker", path: "/staff/expiry", icon: AlertTriangle, roles: ["super_admin", "admin", "care_coordinator", "team_leader"] },
       { label: "Supervision notes", path: "/staff/supervision", icon: ClipboardList, roles: ["super_admin", "admin", "team_leader", "supervisor"] },
       { label: "Appraisals", path: "/staff/appraisals", icon: Star, roles: MGMT },
     ],
@@ -64,15 +65,15 @@ const NAV: NavGroup[] = [
       { label: "Directory", path: "/clients", icon: Users, roles: ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor", "crm_agent"] },
       { label: "Care plans", path: "/clients/care-plans", icon: FileText, roles: ["super_admin", "admin", "team_leader", "care_coordinator"] },
       { label: "Support plans", path: "/clients/support-plans", icon: FileText, roles: ["super_admin", "admin", "team_leader"] },
-      { label: "Reviews", path: "/clients/reviews", icon: CalendarDays, roles: MGMT },
+      { label: "Reviews", path: "/clients/reviews", icon: CalendarDays, roles: ["super_admin", "admin", "team_leader", "care_coordinator"] },
       { label: "Change events", path: "/clients/change-events", icon: AlertTriangle, roles: MGMT },
     ],
   },
   {
     group: "Rota",
     items: [
-      { label: "Week planner", path: "/rota", icon: CalendarRange, roles: ["super_admin", "admin", "care_coordinator"] },
-      { label: "Reassignments", path: "/rota/reassignments", icon: CalendarDays, roles: ["super_admin", "admin", "care_coordinator"] },
+      { label: "Week planner", path: "/rota", icon: CalendarRange, roles: ["super_admin", "admin", "care_coordinator", "team_leader"] },
+      { label: "Reassignments", path: "/rota/reassignments", icon: CalendarDays, roles: ["super_admin", "admin", "care_coordinator", "team_leader"] },
       { label: "Timesheets", path: "/rota/timesheets", icon: ClipboardList, roles: ["super_admin", "admin", "care_coordinator", "care_worker", "team_leader", "supervisor"] },
       { label: "My Rota", path: "/me", icon: CalendarDays, roles: ALL },
     ],
@@ -223,11 +224,28 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </div>
       <div className="px-3 pb-3">
         <div className="uc-side-profile flex items-center gap-3 p-3">
-          <AvatarDot name={staff?.fullName ?? user.name ?? "?"} color={staff?.avatarColor} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-medium text-white">{staff?.fullName ?? user.name}</p>
-            <p className="truncate text-[11px] text-white/55">{role ? ROLE_LABELS[role] : ""}</p>
-          </div>
+          {staff?.id != null ? (
+            <Link
+              to={`/staff/${staff.id}`}
+              onClick={onNavigate}
+              className="uc-focus flex min-w-0 flex-1 items-center gap-3 rounded-md"
+              aria-label="Open my profile"
+            >
+              <AvatarDot name={staff.fullName ?? user.name ?? "?"} color={staff.avatarColor} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-medium text-white">{staff.fullName ?? user.name}</p>
+                <p className="truncate text-[11px] text-white/55">{role ? ROLE_LABELS[role] : "My profile"}</p>
+              </div>
+            </Link>
+          ) : (
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <AvatarDot name={user.name ?? "?"} color={undefined} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-medium text-white">{user.name}</p>
+                <p className="truncate text-[11px] text-white/55">{role ? ROLE_LABELS[role] : ""}</p>
+              </div>
+            </div>
+          )}
           <button
             onClick={logout}
             aria-label="Sign out"
@@ -473,7 +491,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               {search.data.staff.length > 0 && (
                 <CommandGroup heading="Staff">
                   {search.data.staff.map((s2) => (
-                    <CommandItem key={s2.id} onSelect={() => { navigate(`/staff`); setSearchOpen(false); }}>
+                    <CommandItem key={s2.id} onSelect={() => { navigate(`/staff/${s2.id}`); setSearchOpen(false); }}>
                       {s2.fullName} <span className="ml-2 text-xs text-muted-foreground">{s2.jobTitle}</span>
                     </CommandItem>
                   ))}

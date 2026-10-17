@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, StatCard, Loading, ErrorState } from "@/components/common";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 export default function Readiness() {
+  const navigate = useNavigate();
   const q = trpc.cqc.readiness.useQuery();
   const kpisQ = trpc.rota.kpis.useQuery();
 
@@ -54,10 +55,10 @@ export default function Readiness() {
       key: "Well-led", icon: Star,
       stats: [
         { label: "Staff compliance", value: `${d.staffCompliancePct}%`, bad: d.staffCompliancePct < 90 },
-        { label: "Supervisions (90 days)", value: d.supervisions90d, bad: false },
-        { label: "Appraisals in date", value: d.appraisalsInDate, bad: false },
+        { label: "Docs expiring soon", value: d.documentExpiry?.expiringSoon ?? 0, bad: (d.documentExpiry?.expiringSoon ?? 0) > 0 },
+        { label: "Docs expired", value: d.documentExpiry?.expired ?? 0, bad: (d.documentExpiry?.expired ?? 0) > 0 },
       ],
-      to: "/staff/compliance",
+      to: "/staff/expiry",
     },
   ];
 
@@ -98,7 +99,14 @@ export default function Readiness() {
         <StatCard label="Care plans in date" value={`${d.carePlansPct}%`} hint={`${d.carePlansInDate} of ${d.carePlansTotal}`} icon={FileText} tone={d.carePlansPct >= 90 ? "good" : "warn"} />
         <StatCard label="Overdue reviews" value={d.overdueReviews} hint="Annual + change-triggered" icon={ClipboardList} tone={d.overdueReviews > 0 ? "bad" : "good"} />
         <StatCard label="Staff compliance" value={`${d.staffCompliancePct}%`} hint="DBS + RTW + training" icon={Users} tone={d.staffCompliancePct >= 90 ? "good" : "warn"} />
-        <StatCard label="Open safeguarding" value={d.openSafeguarding} hint="Management only" icon={ShieldAlert} tone={d.openSafeguarding > 0 ? "bad" : "good"} />
+        <StatCard
+          label="Document expiry"
+          value={d.documentExpiry?.expired ?? 0}
+          hint={`${d.documentExpiry?.expiringSoon ?? 0} soon · ${d.documentExpiry?.valid ?? 0} valid`}
+          icon={ShieldAlert}
+          tone={(d.documentExpiry?.expired ?? 0) > 0 ? "bad" : (d.documentExpiry?.expiringSoon ?? 0) > 0 ? "warn" : "good"}
+          onClick={() => navigate("/staff/expiry")}
+        />
       </div>
 
       <div className="uc-card p-5">

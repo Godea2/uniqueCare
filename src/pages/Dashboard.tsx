@@ -55,10 +55,16 @@ export default function Dashboard() {
   if (["super_admin", "admin"].includes(role))
     tiles.push({
       label: "Documents to verify", value: d.docsToVerify,
-      hint: `${d.expiringCompliance} expiring within 30 days`, icon: FileCheck2, to: "/recruitment/compliance",
+      hint: "Recruitment uploads awaiting check", icon: FileCheck2, to: "/recruitment/compliance",
       tone: d.docsToVerify > 0 ? "warn" : "good",
     });
-  if (["super_admin", "admin", "team_leader"].includes(role))
+  if (["super_admin", "admin", "care_coordinator", "team_leader"].includes(role))
+    tiles.push({
+      label: "Expiring documents", value: d.expiringCompliance,
+      hint: "Within 30 days — open tracker", icon: FileCheck2, to: "/staff/expiry",
+      tone: d.expiringCompliance > 0 ? "warn" : "good",
+    });
+  if (["super_admin", "admin", "team_leader", "care_coordinator"].includes(role))
     tiles.push({
       label: "Plan reviews due", value: d.reviewsDue,
       hint: `${d.overdueReviews} overdue`, icon: ClipboardList, to: "/clients/reviews",

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, Chip, Loading, ErrorState, AvatarDot } from "@/components/common";
@@ -17,6 +17,8 @@ const ROLE_LABELS: Record<StaffRole, string> = {
   care_worker: "Care Worker", crm_agent: "CRM Agent",
 };
 
+const DIRECTORY_ROLES = new Set(["super_admin", "admin", "care_coordinator", "team_leader", "supervisor"]);
+
 const STATUS_LABELS = {
   active: "Active",
   onboarding: "Onboarding (not offered visits yet)",
@@ -26,13 +28,26 @@ const STATUS_LABELS = {
 type StaffStatus = keyof typeof STATUS_LABELS;
 
 export default function StaffDirectory() {
+  const navigate = useNavigate();
   const q = trpc.core.staffList.useQuery();
   const meQ = trpc.core.me.useQuery();
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [editing, setEditing] = useState<StaffProfiles | null>(null);
 
-  if (q.isLoading) return <Loading rows={8} />;
+  const myRole = meQ.data?.role;
+  const myId = meQ.data?.id != null ? Number(meQ.data.id) : null;
+  const canBrowseDirectory = !!myRole && DIRECTORY_ROLES.has(myRole);
+
+  useEffect(() => {
+    if (meQ.isLoading || !meQ.data) return;
+    if (!canBrowseDirectory && myId != null) {
+      navigate(`/staff/${myId}`, { replace: true });
+    }
+  }, [meQ.isLoading, meQ.data, canBrowseDirectory, myId, navigate]);
+
+  if (q.isLoading || meQ.isLoading) return <Loading rows={8} />;
+  if (!canBrowseDirectory) return <Loading rows={4} />;
   if (q.error) return <ErrorState message={q.error.message} onRetry={() => q.refetch()} />;
 
   const myRealRole = meQ.data?.homeRole ?? meQ.data?.role;

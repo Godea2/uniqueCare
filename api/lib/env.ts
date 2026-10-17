@@ -12,4 +12,6 @@ export const env = {
   isProduction: process.env.NODE_ENV === "production",
   supabaseUrl: required("SUPABASE_URL"),
   supabaseServiceRoleKey: required("SUPABASE_SERVICE_ROLE_KEY"),
+  /** Bearer secret for Vercel cron /api/cron/expiry-reminders (optional in dev). */
+  cronSecret: process.env.CRON_SECRET ?? "",
 };

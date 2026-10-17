@@ -9,7 +9,7 @@ const tables: TableKey[] = [
   "candidates", "applications", "cvVersions", "emailOutbox", "rateLimitEvents", "preInterviewForms",
   "interviewSlots", "interviewBookings", "interviewScorecards", "complianceRequirements",
   "complianceDocuments", "references", "offerLetters", "outgoingDocuments", "trainingCourses", "trainingSessions",
-  "trainingEnrolments", "dbsVerifications", "documentTemplates", "carePlans", "planReviews",
+  "trainingEnrolments", "dbsVerifications", "documentExpiryReminders", "documentTemplates", "carePlans", "planReviews",
   "clientChangeEvents", "supervisorNotes", "appraisals", "incidents", "notifications",
   "automationRules", "auditLog", "aiRuns", "crmOrganisations", "crmContacts", "crmContactRelationships",
   "interactions", "tickets", "ticketWatchers", "ticketComments", "ticketEvents", "teams", "slaPolicies",

@@ -15,6 +15,8 @@ import {
   signupHandler,
   verifyHandler,
 } from "./auth-http";
+import { runExpiryReminderJob } from "./lib/expiry-tracker";
+import { runAutoClockOutSweep } from "./lib/attendance-session";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -25,6 +27,39 @@ app.post("/api/auth/refresh", refreshHandler);
 app.post("/api/auth/forgot", forgotHandler);
 app.post("/api/auth/verify", verifyHandler);
 app.post("/api/auth/set-password", setPasswordHandler);
+
+function assertCronAuth(c: { req: { header: (n: string) => string | undefined } }) {
+  const auth = c.req.header("authorization") ?? "";
+  const secret = env.cronSecret;
+  return !!secret && auth === `Bearer ${secret}`;
+}
+
+/** Daily document / plan-review expiry reminders. */
+async function expiryCronHandler(c: { req: { header: (n: string) => string | undefined }; json: (b: unknown, s?: number) => Response }) {
+  if (!assertCronAuth(c)) return c.json({ error: "Unauthorized" }, 401);
+  try {
+    const result = await runExpiryReminderJob();
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Reminder job failed" }, 500);
+  }
+}
+app.get("/api/cron/expiry-reminders", expiryCronHandler);
+app.post("/api/cron/expiry-reminders", expiryCronHandler);
+
+/** Auto clock-out sweep when carers close the app (every 5 minutes). */
+async function attendanceSweepHandler(c: { req: { header: (n: string) => string | undefined }; json: (b: unknown, s?: number) => Response }) {
+  if (!assertCronAuth(c)) return c.json({ error: "Unauthorized" }, 401);
+  try {
+    const result = await runAutoClockOutSweep();
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Attendance sweep failed" }, 500);
+  }
+}
+app.get("/api/cron/attendance-sweep", attendanceSweepHandler);
+app.post("/api/cron/attendance-sweep", attendanceSweepHandler);
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

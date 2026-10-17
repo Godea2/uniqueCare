@@ -4,7 +4,8 @@ import {
   isInsideGeofence,
   allowedDistanceM,
   computePaidMinutes,
-  GEOFENCE_RADIUS_M,
+  DEFAULT_GEOFENCE_RADIUS_M,
+  clampGeofenceRadiusM,
 } from "./geofence";
 
 describe("geofence", () => {
@@ -12,8 +13,7 @@ describe("geofence", () => {
     expect(haversineMetres(51.5, -0.12, 51.5, -0.12)).toBeLessThan(0.01);
   });
 
-  it("allows clock-in within 3m + accuracy", () => {
-    // ~2m north of a point near London
+  it("allows clock-in within radius + accuracy (default 10m)", () => {
     const client = { lat: 51.5074, lng: -0.1278 };
     const carer = { lat: 51.507418, lng: -0.1278 }; // ≈2m
     const r = isInsideGeofence({
@@ -21,7 +21,19 @@ describe("geofence", () => {
     });
     expect(r.distanceM).toBeLessThan(3);
     expect(r.inside).toBe(true);
-    expect(r.allowedM).toBe(GEOFENCE_RADIUS_M + 5);
+    expect(r.allowedM).toBe(DEFAULT_GEOFENCE_RADIUS_M + 5);
+  });
+
+  it("uses a tighter office-configured radius", () => {
+    const r = isInsideGeofence({
+      lat: 51.50745, lng: -0.1278, // ~5.5m north
+      clientLat: 51.5074, clientLng: -0.1278,
+      accuracyM: 1,
+      radiusM: 3,
+    });
+    expect(r.allowedM).toBe(4);
+    expect(r.distanceM).toBeGreaterThan(4);
+    expect(r.inside).toBe(false);
   });
 
   it("rejects a carer clearly away from the client", () => {
@@ -35,7 +47,13 @@ describe("geofence", () => {
   });
 
   it("defaults accuracy to 10m when omitted", () => {
-    expect(allowedDistanceM(null)).toBe(GEOFENCE_RADIUS_M + 10);
+    expect(allowedDistanceM(null)).toBe(DEFAULT_GEOFENCE_RADIUS_M + 10);
+  });
+
+  it("clamps office radius between 3 and 50 metres", () => {
+    expect(clampGeofenceRadiusM(1)).toBe(3);
+    expect(clampGeofenceRadiusM(10)).toBe(10);
+    expect(clampGeofenceRadiusM(99)).toBe(50);
   });
 
   it("stops paid time when the carer left the geofence", () => {

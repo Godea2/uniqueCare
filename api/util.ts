@@ -107,6 +107,18 @@ export function requireRole(sc: StaffCtx, ...roles: StaffRole[]) {
   }
 }
 
+/** Shared role sets — keep in sync with src/lib/roles.ts nav / route guards. */
+export const ROTA_PLANNER_ROLES: StaffRole[] = ["super_admin", "admin", "care_coordinator", "team_leader"];
+export const ROTA_WRITE_ROLES: StaffRole[] = ["super_admin", "admin", "care_coordinator"];
+export const PAYROLL_ROLES: StaffRole[] = ["super_admin", "admin", "care_coordinator", "team_leader"];
+export const COMPLIANCE_MATRIX_ROLES: StaffRole[] = ["super_admin", "admin", "care_coordinator", "team_leader"];
+export const STAFF_DIRECTORY_ROLES: StaffRole[] = ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor"];
+export const CLIENT_DIRECTORY_ROLES: StaffRole[] = ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor", "crm_agent"];
+export const CQC_READINESS_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader"];
+export const CQC_INCIDENT_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader", "supervisor"];
+export const OFFICE_ROLES: StaffRole[] = ["super_admin", "admin"];
+export const MANAGER_ALERT_ROLES: StaffRole[] = ["super_admin", "care_coordinator"];
+
 export function roleAtLeast(sc: StaffCtx, role: StaffRole) {
   if (ROLE_RANK[sc.staff.role as StaffRole] < ROLE_RANK[role]) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Insufficient role" });
