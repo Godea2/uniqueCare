@@ -34,31 +34,31 @@ function assertCronAuth(c: { req: { header: (n: string) => string | undefined } 
   return !!secret && auth === `Bearer ${secret}`;
 }
 
-/** Daily document / plan-review expiry reminders. */
-async function expiryCronHandler(c: { req: { header: (n: string) => string | undefined }; json: (b: unknown, s?: number) => Response }) {
+/**
+ * Daily jobs (Hobby-compatible: once per day).
+ * - Document / plan-review expiry reminders
+ * - Auto clock-out sweep for forgotten sessions
+ * Between runs, probes + timesheet lazy-sweep still close open visits.
+ */
+async function dailyCronHandler(c: { req: { header: (n: string) => string | undefined }; json: (b: unknown, s?: number) => Response }) {
   if (!assertCronAuth(c)) return c.json({ error: "Unauthorized" }, 401);
   try {
-    const result = await runExpiryReminderJob();
-    return c.json({ ok: true, ...result });
+    const [expiry, attendance] = await Promise.all([
+      runExpiryReminderJob(),
+      runAutoClockOutSweep(),
+    ]);
+    return c.json({ ok: true, expiry, attendance });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : "Reminder job failed" }, 500);
+    return c.json({ error: err instanceof Error ? err.message : "Daily cron failed" }, 500);
   }
 }
-app.get("/api/cron/expiry-reminders", expiryCronHandler);
-app.post("/api/cron/expiry-reminders", expiryCronHandler);
-
-/** Auto clock-out sweep when carers close the app (every 5 minutes). */
-async function attendanceSweepHandler(c: { req: { header: (n: string) => string | undefined }; json: (b: unknown, s?: number) => Response }) {
-  if (!assertCronAuth(c)) return c.json({ error: "Unauthorized" }, 401);
-  try {
-    const result = await runAutoClockOutSweep();
-    return c.json({ ok: true, ...result });
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : "Attendance sweep failed" }, 500);
-  }
-}
-app.get("/api/cron/attendance-sweep", attendanceSweepHandler);
-app.post("/api/cron/attendance-sweep", attendanceSweepHandler);
+app.get("/api/cron/daily", dailyCronHandler);
+app.post("/api/cron/daily", dailyCronHandler);
+/** @deprecated aliases — kept so old Vercel cron configs still hit something useful */
+app.get("/api/cron/expiry-reminders", dailyCronHandler);
+app.post("/api/cron/expiry-reminders", dailyCronHandler);
+app.get("/api/cron/attendance-sweep", dailyCronHandler);
+app.post("/api/cron/attendance-sweep", dailyCronHandler);
 
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
