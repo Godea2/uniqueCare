@@ -339,10 +339,12 @@
     background-image: var(--sidebar-gradient);
   }
   .uc-side-group {
-    color: rgb(255 255 255 / 0.45);
+    color: rgb(255 255 255 / 0.92);
+    letter-spacing: 0.01em;
   }
   .uc-side-group:hover {
-    color: rgb(255 255 255 / 0.85);
+    color: #fff;
+    background: rgb(255 255 255 / 0.08);
   }
   .uc-side-link {
     color: rgb(255 255 255 / 0.78);

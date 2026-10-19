@@ -267,11 +267,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               {!singleton && (
                 <button
                   onClick={() => setExpanded((s) => ({ ...s, [g.group]: isCollapsed }))}
-                  className="uc-focus uc-side-group flex w-full items-center justify-between rounded-full px-3 py-2 text-[12px] font-medium transition-colors"
+                  className="uc-focus uc-side-group flex w-full items-center justify-between rounded-full px-3 py-2.5 text-[13.5px] font-semibold transition-colors"
                   aria-expanded={!isCollapsed}
                 >
                   {g.group}
-                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", isCollapsed && "-rotate-90")} strokeWidth={1.75} aria-hidden />
+                  <ChevronDown className={cn("h-4 w-4 opacity-80 transition-transform", isCollapsed && "-rotate-90")} strokeWidth={2.25} aria-hidden />
                 </button>
               )}
               {!isCollapsed && g.items.map((item) => {
