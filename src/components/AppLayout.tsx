@@ -74,7 +74,8 @@ const NAV: NavGroup[] = [
     items: [
       { label: "Week planner", path: "/rota", icon: CalendarRange, roles: ["super_admin", "admin", "care_coordinator", "team_leader"] },
       { label: "Reassignments", path: "/rota/reassignments", icon: CalendarDays, roles: ["super_admin", "admin", "care_coordinator", "team_leader"] },
-      { label: "Timesheets", path: "/rota/timesheets", icon: ClipboardList, roles: ["super_admin", "admin", "care_coordinator", "care_worker", "team_leader", "supervisor"] },
+      { label: "My timesheet", path: "/me/timesheet", icon: ClipboardList, roles: ALL },
+      { label: "Timesheets", path: "/rota/timesheets", icon: ClipboardList, roles: ["super_admin", "admin", "care_coordinator", "team_leader"] },
       { label: "My Rota", path: "/me", icon: CalendarDays, roles: ALL },
     ],
   },

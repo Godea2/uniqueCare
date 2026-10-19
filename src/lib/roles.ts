@@ -15,6 +15,8 @@ export const INTERVIEW_ROLES: StaffRole[] = ["super_admin", "admin", "interview_
 export const TIMESHEET_ROLES: StaffRole[] = [
   "super_admin", "admin", "care_coordinator", "care_worker", "team_leader", "supervisor",
 ];
+/** Admin/manager payroll board (not the carer's own "My timesheet"). */
+export const PAYROLL_VIEW_ROLES: StaffRole[] = ["super_admin", "admin", "care_coordinator", "team_leader"];
 
 export function roleAllowed(role: string | null | undefined, allowed: StaffRole[]): boolean {
   return !!role && allowed.includes(role as StaffRole);

@@ -19,7 +19,10 @@ import {
   LEFT_GEOFENCE_GRACE_MS,
   PROBE_INTERVAL_MS,
 } from "../lib/geofence";
-import { closeAttendance } from "../lib/attendance-session";
+import { closeAttendance, notifyAutoClockOut, runAutoClockOutSweep } from "../lib/attendance-session";
+
+/** Clock-in opens 45 minutes before the scheduled start; closes at the scheduled end. */
+const CLOCK_IN_EARLY_MS = 45 * 60_000;
 
 const coords = z.object({
   lat: z.number().min(-90).max(90),
@@ -115,6 +118,22 @@ export const attendanceRouter = createRouter({
         });
       }
 
+      const now = new Date();
+      const earliest = new Date(new Date(visit.scheduledStart).getTime() - CLOCK_IN_EARLY_MS);
+      const latest = new Date(visit.scheduledEnd);
+      if (now < earliest) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Too early — clock-in opens at ${earliest.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}.`,
+        });
+      }
+      if (now > latest) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This visit's scheduled window has ended — ask the office if you still need to record attendance.",
+        });
+      }
+
       const radiusM = await getGeofenceRadiusM();
       const point = await resolveClientPoint(client);
       const check = isInsideGeofence({
@@ -130,7 +149,6 @@ export const attendanceRouter = createRouter({
         });
       }
 
-      const now = new Date();
       const [row] = await db.from("visitAttendance").insert<VisitAttendance>({
         visitId: visit.id,
         staffId: sc.staff.id,
@@ -285,11 +303,11 @@ export const attendanceRouter = createRouter({
               reason: "auto_left_geofence",
               leftGeofenceAt,
             });
-            await notifyRoles(MANAGER_ALERT_ROLES, {
-              type: "geofence_auto_clockout",
-              title: `${sc.staff.fullName} auto clocked out`,
-              body: `Left the geofence for 15+ minutes at ${client.firstName} ${client.lastName}. Those 15 minutes are unpaid.`,
-              link: "/rota/timesheets",
+            await notifyAutoClockOut({
+              staffId: Number(sc.staff.id),
+              staffName: sc.staff.fullName,
+              clientLabel: `${client.firstName} ${client.lastName}`,
+              detail: `Left the geofence for 15+ minutes at ${client.firstName} ${client.lastName}. Those 15 minutes are unpaid.`,
             });
             await audit(sc.staff.fullName, "visit_auto_clock_out", "visits", input.visitId, {
               distanceM: Math.round(check.distanceM),
@@ -332,6 +350,7 @@ export const attendanceRouter = createRouter({
     }))
     .query(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
+      await runAutoClockOutSweep().catch(() => {});
       return buildTimesheet({
         staffId: Number(sc.staff.id),
         from: input.from,
@@ -349,6 +368,7 @@ export const attendanceRouter = createRouter({
     .query(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, ...PAYROLL_ROLES);
+      await runAutoClockOutSweep().catch(() => {});
       return payrollSummaryData(input);
     }),
 
@@ -419,10 +439,12 @@ export const attendanceRouter = createRouter({
     .query(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, ...PAYROLL_ROLES);
+      await runAutoClockOutSweep().catch(() => {});
       const summary = await payrollSummaryData(input);
       const header = [
         "Staff ID", "Employee no", "Full name", "Period from", "Period to",
         "Paid hours", "Unpaid grace hours", "Clock hours", "Hourly rate", "Gross pay", "Visits",
+        "Auto closed", "Early clock-outs",
       ];
       const lines = [header];
       for (const s of summary.staff) {
@@ -439,6 +461,8 @@ export const attendanceRouter = createRouter({
           rate.toFixed(2),
           s.grossPay.toFixed(2),
           String(s.visits),
+          String(s.autoClosed),
+          String(s.early),
         ]);
       }
       lines.push([
@@ -449,6 +473,8 @@ export const attendanceRouter = createRouter({
         "",
         summary.totals.grossPay.toFixed(2),
         String(summary.totals.visits),
+        String(summary.totals.autoClosed),
+        String(summary.totals.early),
       ]);
       const csv = lines.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
       await audit(sc.staff.fullName, "payroll_exported", "organisations", undefined, {
@@ -478,6 +504,12 @@ export const attendanceRouter = createRouter({
     }),
 });
 
+function isEarlyClockOut(reason: string | null | undefined, earlyText: string | null | undefined) {
+  if (!reason) return false;
+  if (reason.startsWith("early_")) return true;
+  return !!earlyText?.trim();
+}
+
 async function payrollSummaryData(input: { from: string; to: string; staffId?: number }) {
   const staff = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
   const targets = input.staffId
@@ -504,8 +536,10 @@ async function payrollSummaryData(input: { from: string; to: string; staffId?: n
       clockMinutes: acc.clockMinutes + r.clockMinutes,
       grossPay: acc.grossPay + r.grossPay,
       visits: acc.visits + r.visits,
+      autoClosed: acc.autoClosed + r.autoClosed,
+      early: acc.early + r.early,
     }),
-    { paidMinutes: 0, unpaidGraceMinutes: 0, clockMinutes: 0, grossPay: 0, visits: 0 },
+    { paidMinutes: 0, unpaidGraceMinutes: 0, clockMinutes: 0, grossPay: 0, visits: 0, autoClosed: 0, early: 0 },
   );
   return { from: input.from, to: input.to, staff: rows, totals };
 }
@@ -595,6 +629,9 @@ async function buildTimesheet(opts: { staffId: number; from: string; to: string 
   }
 
   const days = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
+  const closed = sessions.filter((s) => s.status !== "in_progress");
+  const autoClosed = closed.filter((s) => s.status === "auto_closed" || s.clockOutReason === "auto_left_geofence").length;
+  const early = closed.filter((s) => isEarlyClockOut(s.clockOutReason, s.earlyReasonText)).length;
   const totals = days.reduce(
     (acc, d) => ({
       paidMinutes: acc.paidMinutes + d.paidMinutes,
@@ -610,6 +647,6 @@ async function buildTimesheet(opts: { staffId: number; from: string; to: string 
     to: opts.to,
     openSessions: sessions.filter((s) => s.status === "in_progress").length,
     days,
-    totals,
+    totals: { ...totals, autoClosed, early },
   };
 }

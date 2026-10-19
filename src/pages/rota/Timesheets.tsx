@@ -45,11 +45,13 @@ type DayRow = {
   sessions: DaySession[];
 };
 
-export default function Timesheets() {
+export default function Timesheets({ forceMine = false }: { forceMine?: boolean }) {
   const meQ = trpc.core.me.useQuery();
   const role = meQ.data?.homeRole ?? meQ.data?.role;
-  const isAdmin = role === "super_admin" || role === "admin" || role === "care_coordinator" || role === "team_leader";
-  const canExport = role === "super_admin" || role === "admin" || role === "care_coordinator";
+  const isAdmin = !forceMine && (
+    role === "super_admin" || role === "admin" || role === "care_coordinator" || role === "team_leader"
+  );
+  const canExport = isAdmin && (role === "super_admin" || role === "admin" || role === "care_coordinator");
 
   const [from, setFrom] = useState(() => mondayOf());
   const [to, setTo] = useState(() => sundayOf(mondayOf()));
@@ -133,12 +135,16 @@ export default function Timesheets() {
       {isAdmin ? (
         payQ.isLoading ? <Loading rows={6} /> : payQ.error ? <ErrorState message={payQ.error.message} onRetry={() => payQ.refetch()} /> : (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               <Stat label="Paid hours" value={fmtMinutes(payQ.data!.totals.paidMinutes)} />
               <Stat label="Clock hours" value={fmtMinutes(payQ.data!.totals.clockMinutes)} />
               <Stat label="Unpaid grace" value={fmtMinutes(payQ.data!.totals.unpaidGraceMinutes)} />
               <Stat label="Visits clocked" value={String(payQ.data!.totals.visits)} />
               <Stat label="Gross pay" value={fmtMoney(payQ.data!.totals.grossPay)} />
+              <Stat
+                label="Flags (auto / early)"
+                value={`${payQ.data!.totals.autoClosed} / ${payQ.data!.totals.early}`}
+              />
             </div>
             {payQ.data!.staff.length === 0 ? (
               <EmptyState icon={ClipboardList} title="No clocked visits in this period" hint="Carers clock in from My Rota when they arrive at a client." />
@@ -154,6 +160,11 @@ export default function Timesheets() {
                           {" · "}{fmtMinutes(s.paidMinutes)} paid
                           {" · "}{fmtMinutes(s.clockMinutes)} clocked
                           {" · "}{fmtMoney(s.grossPay)}
+                          {(s.autoClosed > 0 || s.early > 0) && (
+                            <span className="text-amber-800">
+                              {" · "}flags: {s.autoClosed} auto / {s.early} early
+                            </span>
+                          )}
                           {!s.hourlyRate && <span className="text-amber-700"> — set hourly rate on their profile for payroll</span>}
                         </p>
                       </div>

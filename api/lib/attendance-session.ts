@@ -7,7 +7,29 @@ import type {
   Visits,
 } from "@db/schema";
 import { computePaidMinutes } from "./geofence";
-import { audit, notifyRoles, MANAGER_ALERT_ROLES } from "../util";
+import { audit, notify, notifyRoles, MANAGER_ALERT_ROLES } from "../util";
+
+/** Tell the carer + managers that a session was auto-closed. */
+export async function notifyAutoClockOut(opts: {
+  staffId: number;
+  staffName: string;
+  clientLabel: string;
+  detail: string;
+}) {
+  await notify({
+    staffId: opts.staffId,
+    type: "geofence_auto_clockout",
+    title: "You were automatically clocked out",
+    body: `${opts.detail} See your timesheet for paid hours (grace after leaving is unpaid).`,
+    link: "/me/timesheet",
+  });
+  await notifyRoles([...MANAGER_ALERT_ROLES], {
+    type: "geofence_auto_clockout",
+    title: `${opts.staffName} auto clocked out`,
+    body: opts.detail,
+    link: "/rota/timesheets",
+  });
+}
 
 export async function closeAttendance(
   row: VisitAttendance,
@@ -89,11 +111,11 @@ export async function runAutoClockOutSweep(): Promise<{ closed: number; forgotte
           reason: "auto_left_geofence",
           leftGeofenceAt: row.leftGeofenceAt,
         });
-        await notifyRoles([...MANAGER_ALERT_ROLES], {
-          type: "geofence_auto_clockout",
-          title: `${staffName} auto clocked out`,
-          body: `Left the geofence for 15+ minutes at ${clientLabel}. Those 15 minutes are unpaid. (Server sweep — app was not open.)`,
-          link: "/rota/timesheets",
+        await notifyAutoClockOut({
+          staffId: Number(row.staffId),
+          staffName,
+          clientLabel,
+          detail: `Left the geofence for 15+ minutes at ${clientLabel}. Those 15 minutes are unpaid. (Server sweep — app was not open.)`,
         });
         await audit("System", "visit_auto_clock_out", "visits", row.visitId, {
           staffId: row.staffId, via: "sweep_left_geofence",
@@ -116,11 +138,11 @@ export async function runAutoClockOutSweep(): Promise<{ closed: number; forgotte
           reason: "auto_left_geofence",
           leftGeofenceAt: leftAt,
         });
-        await notifyRoles([...MANAGER_ALERT_ROLES], {
-          type: "geofence_auto_clockout",
-          title: `${staffName} auto clocked out (forgotten)`,
-          body: `Still clocked in after the scheduled end at ${clientLabel}. Paid time stopped at the leave/end time; grace is unpaid.`,
-          link: "/rota/timesheets",
+        await notifyAutoClockOut({
+          staffId: Number(row.staffId),
+          staffName,
+          clientLabel,
+          detail: `Still clocked in after the scheduled end at ${clientLabel}. Paid time stopped at the leave/end time; grace is unpaid.`,
         });
         await audit("System", "visit_auto_clock_out", "visits", row.visitId, {
           staffId: row.staffId, via: "sweep_forgotten",

@@ -169,7 +169,7 @@ export default function MyRota() {
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
-              <Link to="/rota/timesheets"><ClipboardList className="h-4 w-4 mr-1.5" /> Timesheet</Link>
+              <Link to="/me/timesheet"><ClipboardList className="h-4 w-4 mr-1.5" /> Timesheet</Link>
             </Button>
             <Button variant="outline" onClick={() => setOffOpen(true)}>
               <CalendarOff className="h-4 w-4 mr-1.5" /> Report unavailability
@@ -199,8 +199,11 @@ export default function MyRota() {
               const att = v.myAttendance;
               const inProgress = att?.status === "in_progress";
               const done = att && att.status !== "in_progress";
-              const startSoon = Math.abs(new Date(v.scheduledStart).getTime() - Date.now()) < 3 * 3600_000
-                || (new Date(v.scheduledStart) <= new Date() && new Date(v.scheduledEnd) >= new Date(Date.now() - 3600_000));
+              // Match server: clock-in opens 45 min before start and closes at scheduled end
+              const startMs = new Date(v.scheduledStart).getTime();
+              const endMs = new Date(v.scheduledEnd).getTime();
+              const nowMs = Date.now();
+              const startSoon = nowMs >= startMs - 45 * 60_000 && nowMs <= endMs;
               return (
                 <article key={v.id} className={`uc-card p-4 ${inProgress ? "ring-2 ring-[--brand-500]" : ""}`}>
                   <div className="flex items-start justify-between gap-2">

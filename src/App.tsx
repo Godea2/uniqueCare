@@ -64,6 +64,7 @@ import {
   CLIENT_DIRECTORY_ROLES,
   ROTA_PLANNER_ROLES,
   TIMESHEET_ROLES,
+  PAYROLL_VIEW_ROLES,
   CQC_READINESS_ROLES,
   CQC_INCIDENT_ROLES,
 } from "./lib/roles";
@@ -134,7 +135,8 @@ export default function App() {
 
       <Route path="/rota" element={<Guard roles={ROTA_PLANNER_ROLES}><WeekPlanner /></Guard>} />
       <Route path="/rota/reassignments" element={<Guard roles={ROTA_PLANNER_ROLES}><Reassignments /></Guard>} />
-      <Route path="/rota/timesheets" element={<Guard roles={TIMESHEET_ROLES}><Timesheets /></Guard>} />
+      <Route path="/rota/timesheets" element={<Guard roles={PAYROLL_VIEW_ROLES}><Timesheets /></Guard>} />
+      <Route path="/me/timesheet" element={<Guard roles={TIMESHEET_ROLES}><Timesheets forceMine /></Guard>} />
       <Route path="/me" element={<Guard roles={ALL_ROLES}><MyRota /></Guard>} />
 
       <Route path="/crm/tickets" element={<Guard roles={CRM_ROLES}><Tickets /></Guard>} />
