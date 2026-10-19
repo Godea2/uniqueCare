@@ -3,7 +3,11 @@ import { trpc } from "@/providers/trpc";
 import { PageHeader, Loading, ErrorState, fmtDateTime } from "@/components/common";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const ENTITY_TYPES = ["applications", "job_postings", "compliance_documents", "rota_weeks", "visits", "care_plans", "tickets", "crm_contacts", "clients", "incidents", "appraisals", "organisations"];
+const ENTITY_TYPES = [
+  "applications", "job_postings", "compliance_documents", "rota_weeks", "visits",
+  "care_plans", "plan_reviews", "tickets", "crm_contacts", "clients", "incidents",
+  "appraisals", "organisations",
+];
 
 export default function AuditLog() {
   const [entityType, setEntityType] = useState("all");

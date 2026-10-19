@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router";
+import { Routes, Route, Navigate, useParams } from "react-router";
 import AppLayout from "./components/AppLayout";
 import RequireRoles from "./components/RequireRoles";
 import Login from "./pages/Login";
@@ -26,9 +26,7 @@ import Appraisals from "./pages/staff/Appraisals";
 
 import ClientDirectory from "./pages/clients/ClientDirectory";
 import ClientDetail from "./pages/clients/ClientDetail";
-import Plans from "./pages/clients/Plans";
 import PlanEditor from "./pages/clients/PlanEditor";
-import Reviews from "./pages/clients/Reviews";
 import ChangeEvents from "./pages/clients/ChangeEvents";
 
 import WeekPlanner from "./pages/rota/WeekPlanner";
@@ -44,6 +42,9 @@ import Tasks from "./pages/crm/Tasks";
 import CrmReports from "./pages/crm/CrmReports";
 
 import Readiness from "./pages/cqc/Readiness";
+import CareSupportPlans from "./pages/cqc/CareSupportPlans";
+import PlanReviews from "./pages/cqc/PlanReviews";
+import ReviewEditor from "./pages/cqc/ReviewEditor";
 import Incidents from "./pages/cqc/Incidents";
 import InspectionPack from "./pages/cqc/InspectionPack";
 
@@ -67,19 +68,23 @@ import {
   PAYROLL_VIEW_ROLES,
   CQC_READINESS_ROLES,
   CQC_INCIDENT_ROLES,
+  CQC_PLAN_ROLES,
 } from "./lib/roles";
 import type { StaffRole } from "@db/schema";
 
 const SUPERVISION_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader", "supervisor"];
-const CARE_PLAN_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader", "care_coordinator"];
-const SUPPORT_PLAN_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader"];
-const REVIEW_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader", "care_coordinator"];
 const CRM_ROLES: StaffRole[] = ["super_admin", "admin", "crm_agent", "care_coordinator", "team_leader"];
 const CRM_REPORT_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader", "crm_agent", "care_coordinator"];
 const ALL_ROLES: StaffRole[] = [
   "super_admin", "admin", "care_coordinator", "team_leader", "supervisor",
   "interview_panel", "care_worker", "crm_agent",
 ];
+
+/** Preserve :id when redirecting legacy /clients/plans/:id → /cqc/plans/:id */
+function RedirectPlanEditor() {
+  const { id } = useParams();
+  return <Navigate to={`/cqc/plans/${id}`} replace />;
+}
 
 function P({ children }: { children: React.ReactNode }) {
   return <AppLayout>{children}</AppLayout>;
@@ -126,10 +131,11 @@ export default function App() {
       <Route path="/staff/:id" element={<P><StaffDetail /></P>} />
 
       <Route path="/clients" element={<Guard roles={CLIENT_DIRECTORY_ROLES}><ClientDirectory /></Guard>} />
-      <Route path="/clients/care-plans" element={<Guard roles={CARE_PLAN_ROLES}><Plans kind="care" /></Guard>} />
-      <Route path="/clients/support-plans" element={<Guard roles={SUPPORT_PLAN_ROLES}><Plans kind="support" /></Guard>} />
-      <Route path="/clients/plans/:id" element={<Guard roles={CARE_PLAN_ROLES}><PlanEditor /></Guard>} />
-      <Route path="/clients/reviews" element={<Guard roles={REVIEW_ROLES}><Reviews /></Guard>} />
+      {/* Legacy plan routes → CQC workspace (must be before /clients/:id) */}
+      <Route path="/clients/care-plans" element={<Navigate to="/cqc/plans" replace />} />
+      <Route path="/clients/support-plans" element={<Navigate to="/cqc/plans" replace />} />
+      <Route path="/clients/reviews" element={<Navigate to="/cqc/plan-reviews" replace />} />
+      <Route path="/clients/plans/:id" element={<RedirectPlanEditor />} />
       <Route path="/clients/change-events" element={<Guard roles={CQC_READINESS_ROLES}><ChangeEvents /></Guard>} />
       <Route path="/clients/:id" element={<Guard roles={CLIENT_DIRECTORY_ROLES}><ClientDetail /></Guard>} />
 
@@ -147,6 +153,10 @@ export default function App() {
       <Route path="/crm/reports" element={<Guard roles={CRM_REPORT_ROLES}><CrmReports /></Guard>} />
 
       <Route path="/cqc" element={<Guard roles={CQC_READINESS_ROLES}><Readiness /></Guard>} />
+      <Route path="/cqc/plans" element={<Guard roles={CQC_PLAN_ROLES}><CareSupportPlans /></Guard>} />
+      <Route path="/cqc/plans/:id" element={<Guard roles={CQC_PLAN_ROLES}><PlanEditor /></Guard>} />
+      <Route path="/cqc/plan-reviews" element={<Guard roles={CQC_PLAN_ROLES}><PlanReviews /></Guard>} />
+      <Route path="/cqc/plan-reviews/:id" element={<Guard roles={CQC_PLAN_ROLES}><ReviewEditor /></Guard>} />
       <Route path="/cqc/incidents" element={<Guard roles={CQC_INCIDENT_ROLES}><Incidents /></Guard>} />
       <Route path="/cqc/inspection-pack" element={<Guard roles={OFFICE_ROLES}><InspectionPack /></Guard>} />
 

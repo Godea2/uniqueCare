@@ -33,7 +33,7 @@ export default function Readiness() {
         { label: "Support plans in date", value: `${d.supportPlansPct}%`, bad: d.supportPlansPct < 90 },
         { label: "Overdue reviews", value: d.overdueReviews, bad: d.overdueReviews > 0 },
       ],
-      to: "/clients/reviews",
+      to: "/cqc/plan-reviews",
     },
     {
       key: "Caring", icon: Users,

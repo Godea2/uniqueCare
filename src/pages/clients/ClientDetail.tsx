@@ -1,8 +1,8 @@
-import { useParams, Link } from "react-router";
+import { useParams, Link, useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, Chip, Loading, ErrorState, fmtDate, fmtTime, AvatarDot } from "@/components/common";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Trash2, Plus } from "lucide-react";
+import { ArrowLeft, Trash2, Plus, FileText } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { roleAllowed, CQC_PLAN_WRITE_ROLES } from "@/lib/roles";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -80,6 +81,9 @@ function VisitPatternForm({ clientId, onSaved }: { clientId: number; onSaved: ()
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>();
   const clientId = Number(id);
+  const navigate = useNavigate();
+  const meQ = trpc.core.me.useQuery();
+  const canCreatePlans = roleAllowed(meQ.data?.role, CQC_PLAN_WRITE_ROLES);
   const q = trpc.rota.clientDetail.useQuery({ id: clientId });
   const utils = trpc.useUtils();
   const remove = trpc.rota.removeVisitTemplate.useMutation({
@@ -107,6 +111,13 @@ export default function ClientDetail() {
     },
     onError: (e) => toast.error(e.message),
   });
+  const createPlan = trpc.cqc.createPlan.useMutation({
+    onSuccess: (r) => {
+      toast.success(`${r.planType === "care" ? "Care" : "Support"} plan v${r.version} created`);
+      navigate(`/cqc/plans/${r.id}`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const carersQ = trpc.core.staffList.useQuery();
 
   if (q.isLoading) return <Loading rows={6} />;
@@ -122,7 +133,30 @@ export default function ClientDetail() {
       <PageHeader
         title={`${c.firstName} ${c.lastName}`}
         subtitle={`${c.clientRef} · ${c.addressLine1}, ${c.town}, ${c.postcode}`}
-        actions={<Chip value={c.status} />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip value={c.status} />
+            {canCreatePlans && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={createPlan.isPending}
+                  onClick={() => createPlan.mutate({ clientId, planType: "support" })}
+                >
+                  <FileText className="h-3.5 w-3.5 mr-1" /> New support plan
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={createPlan.isPending}
+                  onClick={() => createPlan.mutate({ clientId, planType: "care" })}
+                >
+                  <FileText className="h-3.5 w-3.5 mr-1" /> New care plan
+                </Button>
+              </>
+            )}
+          </div>
+        }
       />
       <div className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm ${
         c.timeCritical ? "border-red-300 bg-red-50 text-red-900" : "bg-white text-muted-foreground"

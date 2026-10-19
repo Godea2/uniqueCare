@@ -9,6 +9,20 @@ import type {
   VisitTemplates,
 } from "./schema";
 import { defaultCareWorkerForm } from "../contracts/form-schema";
+import {
+  CARE_PLAN_ASSESSMENT_TEMPLATE,
+  CARE_PLAN_ASSESSMENT_NAME,
+  CARE_PLAN_ASSESSMENT_VERSION,
+  CARE_PLAN_ASSESSMENT_SECTIONS,
+  emptyCarePlanAssessmentContent,
+} from "../contracts/care-plan-assessment";
+import {
+  SUPPORT_PLAN_TEMPLATE,
+  SUPPORT_PLAN_NAME,
+  SUPPORT_PLAN_VERSION,
+  SUPPORT_PLAN_SECTIONS,
+  emptySupportPlanContent,
+} from "../contracts/support-plan";
 
 // Deterministic PRNG so re-seeds are stable
 let _seed = 42;
@@ -142,35 +156,6 @@ async function seed() {
   }
 
   // ── Document templates ──
-  const carePlanStructure = [
-    { key: "about_me", title: "About me", required: true, guidance: "Who I am, my story, what matters to me" },
-    { key: "important_people", title: "Important people in my life", required: true },
-    { key: "health_conditions", title: "My health conditions", required: true },
-    { key: "medication_support", title: "Medication support", required: true },
-    { key: "mobility", title: "Mobility and moving & handling", required: true },
-    { key: "personal_care", title: "Personal care", required: true },
-    { key: "nutrition", title: "Nutrition and hydration", required: true },
-    { key: "continence", title: "Continence", required: false },
-    { key: "skin", title: "Skin integrity", required: false },
-    { key: "communication", title: "Communication and sensory needs", required: true },
-    { key: "mental_health", title: "Mental health, cognition and capacity (MCA)", required: true },
-    { key: "social_needs", title: "Social, cultural and spiritual needs", required: false },
-    { key: "risks", title: "Risks and how we reduce them", required: true },
-    { key: "visit_schedule", title: "My visit schedule and tasks", required: true },
-    { key: "outcomes", title: "My outcomes and goals", required: true },
-    { key: "consent", title: "Consent", required: true },
-    { key: "review_date", title: "Review date", required: true },
-  ];
-  const supportPlanStructure = [
-    { key: "outcomes", title: "Outcomes I want to achieve", required: true },
-    { key: "how_supported", title: "How I want to be supported", required: true },
-    { key: "working", title: "What's working / not working", required: true },
-    { key: "independence", title: "Independence and daily living", required: true },
-    { key: "community", title: "Community and relationships", required: false },
-    { key: "positive_risk", title: "Risks I choose to take (positive risk-taking)", required: true },
-    { key: "contingency", title: "Contingency plans", required: true },
-    { key: "review", title: "Review", required: true },
-  ];
   const supNoteStructure = [
     { key: "staff_member", title: "Staff member", required: true },
     { key: "date_type", title: "Date and type", required: true },
@@ -186,8 +171,20 @@ async function seed() {
     { key: "staff_comments", title: "Staff comments", required: false },
   ];
   await db.from("documentTemplates").insert<{ id: number }>([
-    { kind: "care_plan", version: 1, name: "Care plan (standard)", structure: carePlanStructure, active: true },
-    { kind: "support_plan", version: 1, name: "Support plan (person-centred)", structure: supportPlanStructure, active: true },
+    {
+      kind: "care_plan",
+      version: CARE_PLAN_ASSESSMENT_VERSION,
+      name: CARE_PLAN_ASSESSMENT_NAME,
+      structure: CARE_PLAN_ASSESSMENT_TEMPLATE,
+      active: true,
+    },
+    {
+      kind: "support_plan",
+      version: SUPPORT_PLAN_VERSION,
+      name: SUPPORT_PLAN_NAME,
+      structure: SUPPORT_PLAN_TEMPLATE,
+      active: true,
+    },
     { kind: "supervisor_note", version: 1, name: "Supervisor note (CQC key questions)", structure: supNoteStructure, active: true },
     { kind: "offer_letter", version: 1, name: "Offer of employment — care worker", structure: [
       { key: "role", title: "Role and start date" }, { key: "pay", title: "Pay and hours" }, { key: "terms", title: "Terms" },
@@ -802,9 +799,16 @@ async function seed() {
     const reviewDue = overdueReview
       ? dateStr(new Date(Date.now() - ri(3, 20) * 864e5))
       : dateStr(new Date(Date.now() + ri(30, 340) * 864e5));
-    const content: Record<string, string> = {};
-    for (const sec of carePlanStructure) {
-      content[sec.key] = `${c.firstName} (${c.clientRef}) — ${sec.title.toLowerCase()} recorded from assessment and reviewed with family. Person-centred detail held on file.`;
+    const content = emptyCarePlanAssessmentContent();
+    for (const sec of CARE_PLAN_ASSESSMENT_SECTIONS) {
+      if (sec.layout === "fields") {
+        for (const f of sec.fields ?? []) {
+          if (f.type === "textarea" || f.type === "text") {
+            (content[sec.key] as Record<string, string>)[f.key] =
+              `${c.firstName} (${c.clientRef}) — ${f.label.toLowerCase()} recorded from assessment.`;
+          }
+        }
+      }
     }
     const [pr] = await db.from("carePlans").insert<{ id: number }>({
       clientId: c.id, templateId: careTpl.id, planType: "care", version: 1,
@@ -822,8 +826,17 @@ async function seed() {
       });
     }
     if (i % 4 === 0) {
-      const sc: Record<string, string> = {};
-      for (const sec of supportPlanStructure) sc[sec.key] = `${c.firstName} — recorded at review.`;
+      const sc = emptySupportPlanContent();
+      for (const sec of SUPPORT_PLAN_SECTIONS) {
+        if (sec.layout === "fields") {
+          for (const f of sec.fields ?? []) {
+            if (f.type === "textarea" || f.type === "text") {
+              (sc[sec.key] as Record<string, string>)[f.key] =
+                `${c.firstName} - ${f.label.toLowerCase()} recorded at review.`;
+            }
+          }
+        }
+      }
       await db.from("carePlans").insert<{ id: number }>({
         clientId: c.id, templateId: supportTpl.id, planType: "support", version: 1,
         status: "approved", content: sc, approvedBy: "Ngozi Eze",

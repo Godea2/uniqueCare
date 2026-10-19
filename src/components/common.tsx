@@ -213,7 +213,19 @@ export function ErrorState({ message, onRetry }: { message?: string; onRetry?: (
 export function AiBadge() {
   return (
     <span className="inline-flex items-center gap-1 rounded-md bg-violet-100 border border-violet-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
-      ✦ AI draft — review required
+      ✦ AI draft — human approval required
+    </span>
+  );
+}
+
+/** Compact per-section marker for inspectors (pairs with ai_provenance). */
+export function AiSectionBadge({ title }: { title?: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 rounded bg-violet-100 border border-violet-200 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-800"
+      title={title ?? "This section was drafted by AI and must be checked by a competent person"}
+    >
+      ✦ AI
     </span>
   );
 }

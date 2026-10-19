@@ -162,7 +162,7 @@ export default function ExpiryDashboard() {
                 </td>
                 <td className="px-3 py-2">
                   {row.subjectType === "plan_review" ? (
-                    <Link to="/clients/reviews" className="text-xs text-[--brand-700] hover:underline">Reviews</Link>
+                    <Link to="/cqc/plan-reviews" className="text-xs text-[--brand-700] hover:underline">Reviews</Link>
                   ) : row.staffId != null ? (
                     <Link to={`/staff/${row.staffId}`} className="text-xs text-[--brand-700] hover:underline">Renew</Link>
                   ) : null}

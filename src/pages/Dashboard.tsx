@@ -67,7 +67,7 @@ export default function Dashboard() {
   if (["super_admin", "admin", "team_leader", "care_coordinator"].includes(role))
     tiles.push({
       label: "Plan reviews due", value: d.reviewsDue,
-      hint: `${d.overdueReviews} overdue`, icon: ClipboardList, to: "/clients/reviews",
+      hint: `${d.overdueReviews} overdue`, icon: ClipboardList, to: "/cqc/plan-reviews",
       tone: d.overdueReviews > 0 ? "bad" : d.reviewsDue > 0 ? "warn" : "good",
     });
   tiles.push({

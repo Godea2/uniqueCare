@@ -454,7 +454,7 @@ export async function runExpiryReminderJob(): Promise<{
           type: "plan_review_alert",
           title: `${kind} plan review ${days < 0 ? "overdue" : "due soon"}`,
           body: `${who}: ${kind.toLowerCase()} plan review ${when}.`,
-          link: "/clients/reviews",
+          link: "/cqc/plan-reviews",
         });
         await markReminded("plan_review", Number(r.id), band.level);
         planReminders++;

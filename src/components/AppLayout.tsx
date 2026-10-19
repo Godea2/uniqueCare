@@ -63,9 +63,6 @@ const NAV: NavGroup[] = [
     group: "Clients",
     items: [
       { label: "Directory", path: "/clients", icon: Users, roles: ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor", "crm_agent"] },
-      { label: "Care plans", path: "/clients/care-plans", icon: FileText, roles: ["super_admin", "admin", "team_leader", "care_coordinator"] },
-      { label: "Support plans", path: "/clients/support-plans", icon: FileText, roles: ["super_admin", "admin", "team_leader"] },
-      { label: "Reviews", path: "/clients/reviews", icon: CalendarDays, roles: ["super_admin", "admin", "team_leader", "care_coordinator"] },
       { label: "Change events", path: "/clients/change-events", icon: AlertTriangle, roles: MGMT },
     ],
   },
@@ -91,7 +88,9 @@ const NAV: NavGroup[] = [
   {
     group: "CQC",
     items: [
-      { label: "Readiness dashboard", path: "/cqc", icon: ShieldCheck, roles: MGMT },
+      { label: "Readiness dashboard", path: "/cqc", icon: ShieldCheck, roles: MGMT.concat(["care_coordinator"]) },
+      { label: "Care & support plans", path: "/cqc/plans", icon: FileText, roles: ["super_admin", "admin", "care_coordinator", "team_leader"] },
+      { label: "Plan reviews", path: "/cqc/plan-reviews", icon: CalendarDays, roles: ["super_admin", "admin", "care_coordinator", "team_leader"] },
       { label: "Incidents", path: "/cqc/incidents", icon: AlertTriangle, roles: MGMT.concat(["supervisor"]) },
       { label: "Inspection pack", path: "/cqc/inspection-pack", icon: Stethoscope, roles: ["super_admin", "admin"] },
     ],

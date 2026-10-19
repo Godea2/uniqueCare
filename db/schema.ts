@@ -175,6 +175,8 @@ export interface CarePlans {
   content: unknown | null;
   aiModel: string | null;
   aiGeneratedAt: string | null;
+  /** Per-section AI draft transparency { sections: { [key]: { generatedAt, model, actorName } } } */
+  aiProvenance?: unknown | null;
   approvedBy: string | null;
   approvedAt: string | null;
   nextReviewDue: string | null;
@@ -555,8 +557,18 @@ export interface PlanReviews {
   dueDate: string;
   trigger: string;
   status: string;
+  /** Manager meeting notes feeding AI draft */
+  meetingNotes?: string | null;
+  /** Structured paper review form content */
+  content?: unknown | null;
+  aiGeneratedAt?: string | null;
+  aiModel?: string | null;
+  aiProvenance?: unknown | null;
   completedAt: string | null;
+  completedBy?: string | null;
+  lockedAt?: string | null;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface PreInterviewForms {

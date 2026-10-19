@@ -9,7 +9,7 @@ const routes = [
   "/", "/recruitment/jobs", "/recruitment/forms", "/recruitment/pipeline", "/recruitment/interviews",
   "/recruitment/compliance", "/recruitment/training",
   "/staff", "/staff/compliance", "/staff/supervision", "/staff/appraisals",
-  "/clients", "/clients/care-plans", "/clients/support-plans", "/clients/reviews", "/clients/change-events",
+  "/clients", "/clients/change-events", "/cqc/plans", "/cqc/plan-reviews",
   "/rota", "/rota/reassignments", "/me",
   "/crm/tickets", "/crm/contacts", "/crm/tasks", "/crm/reports",
   "/cqc", "/cqc/incidents", "/cqc/inspection-pack",

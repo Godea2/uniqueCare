@@ -7,7 +7,7 @@ const TOKEN = process.argv[2];
 const detailRoutes = [
   "/recruitment/pipeline/14",         // offer-accepted candidate — full journey detail
   "/clients/1",                       // client detail
-  "/clients/plans/8",                 // plan editor (in_review)
+  "/cqc/plans/8",                     // plan editor (in_review)
   "/crm/tickets/1",                   // ticket detail
   "/crm/contacts/1",                  // contact detail
   "/apply/domiciliary-care-worker-erdington-yardley-1b8aqw", // public apply form
@@ -79,7 +79,7 @@ const detailRoutes = [
     } else errors.push("no candidate cards in pipeline");
   });
 
-  await check("/clients/plans/8", async (p, errors) => {
+  await check("/cqc/plans/8", async (p, errors) => {
     const approve = p.locator("button", { hasText: /approve|generate|save/i }).first();
     if (!(await approve.count())) errors.push("no action buttons in plan editor");
   });

@@ -241,22 +241,34 @@ function TemplatesSection({ templates, onChanged }: { templates: Tpl[]; onChange
         </Button>
       </div>
       <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
-        {templates.map((t) => (
+        {templates.map((t) => {
+          const structure = t.structure as { format?: string; sections?: unknown[] } | unknown[] | null;
+          const isAssessment = !!structure && !Array.isArray(structure)
+            && (structure.format === "full_assessment_v1" || structure.format === "person_centred_v1");
+          const sectionCount = Array.isArray(structure)
+            ? structure.length
+            : (structure?.sections?.length ?? 0);
+          return (
           <li key={t.id} className="py-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="text-sm font-medium">
                 {t.name} <span className="text-xs text-muted-foreground">v{t.version} · {t.kind.replace(/_/g, " ")}</span>
               </p>
-              <p className="text-xs text-muted-foreground">{((t.structure as unknown[]) ?? []).length} sections</p>
+              <p className="text-xs text-muted-foreground">
+                {sectionCount} sections{isAssessment ? " · structured full assessment" : ""}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               {t.active ? <Chip value="active" label="active" /> : (
                 <Button size="sm" variant="outline" className="h-7" onClick={() => activate.mutate({ id: Number(t.id) })}>Activate</Button>
               )}
-              <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditId(Number(t.id))}>Edit sections</Button>
+              {!isAssessment && (
+                <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditId(Number(t.id))}>Edit sections</Button>
+              )}
             </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
       {editId !== null && (
         <EditTemplateDialog tpl={templates.find((t) => Number(t.id) === editId)!} onClose={() => setEditId(null)} onChanged={onChanged} />
