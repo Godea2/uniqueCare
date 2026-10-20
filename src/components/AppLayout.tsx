@@ -208,54 +208,21 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   // onNavigate is passed by the drawer so tapping a link closes it.
   const sidebarBody = (onNavigate?: () => void) => (
     <>
-      <div className="relative z-[1] px-5 pb-3 pt-5 flex items-center justify-between">
-        <Link to="/" data-tour="shell-home" onClick={onNavigate} className="flex items-center gap-2 uc-focus rounded-md" aria-label="UniqueCare Connect home">
-          <img src="/logo-white.png" alt="Unique Care UK" className="h-8 w-auto" />
+      <div className="relative z-[1] flex items-center justify-between px-5 pb-4 pt-6">
+        <Link to="/" data-tour="shell-home" onClick={onNavigate} className="uc-focus flex items-center gap-2.5 rounded-lg" aria-label="UniqueCare Connect home">
+          <img src="/logo.png" alt="Unique Care UK" className="h-8 w-auto" />
         </Link>
         {onNavigate && (
           <button
             onClick={onNavigate}
             aria-label="Close menu"
-            className="uc-focus flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+            className="uc-focus flex h-8 w-8 items-center justify-center rounded-xl text-[--ink-500] transition-colors hover:bg-[--nav-hover] hover:text-[--brand-900]"
           >
             <X className="h-4 w-4" strokeWidth={1.75} aria-hidden />
           </button>
         )}
       </div>
-      <div className="relative z-[1] px-3 pb-4">
-        <div className="uc-side-profile flex items-center gap-3 p-3">
-          {staff?.id != null ? (
-            <Link
-              to={`/staff/${staff.id}`}
-              onClick={onNavigate}
-              className="uc-focus flex min-w-0 flex-1 items-center gap-3 rounded-md"
-              aria-label="Open my profile"
-            >
-              <AvatarDot name={staff.fullName ?? user.name ?? "?"} color={staff.avatarColor} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-medium text-white">{staff.fullName ?? user.name}</p>
-                <p className="truncate text-[11px] text-white/55">{role ? ROLE_LABELS[role] : "My profile"}</p>
-              </div>
-            </Link>
-          ) : (
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              <AvatarDot name={user.name ?? "?"} color={undefined} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-medium text-white">{user.name}</p>
-                <p className="truncate text-[11px] text-white/55">{role ? ROLE_LABELS[role] : ""}</p>
-              </div>
-            </div>
-          )}
-          <button
-            onClick={logout}
-            aria-label="Sign out"
-            className="uc-focus flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            <LogOut className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-          </button>
-        </div>
-      </div>
-      <nav className="relative z-[1] flex-1 space-y-4 px-3 pb-4" aria-label="Main">
+      <nav className="relative z-[1] flex-1 space-y-5 overflow-y-auto px-3 pb-4" aria-label="Main">
         {groups.map((g) => {
           const singleton = g.group === "Overview";
           const holdsCurrentPage = g.items.some((item) =>
@@ -267,15 +234,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               {!singleton && (
                 <button
                   onClick={() => setExpanded((s) => ({ ...s, [g.group]: isCollapsed }))}
-                  className="uc-focus uc-side-group mb-1 flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors"
+                  className="uc-focus uc-side-group mb-1.5 flex w-full items-center justify-between rounded-lg px-3 py-1.5 transition-colors"
                   aria-expanded={!isCollapsed}
                 >
                   {g.group}
-                  <ChevronDown className={cn("h-3.5 w-3.5 opacity-70 transition-transform", isCollapsed && "-rotate-90")} strokeWidth={2.25} aria-hidden />
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", isCollapsed && "-rotate-90")} strokeWidth={2.25} aria-hidden />
                 </button>
               )}
               {!isCollapsed && (
-                <div className={cn("space-y-0.5", !singleton && "ml-0.5 border-l border-white/10 pl-2")}>
+                <div className="space-y-0.5">
                   {g.items.map((item) => {
                     const active = location.pathname === item.path ||
                       (item.path !== "/" && location.pathname.startsWith(item.path));
@@ -285,7 +252,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                         to={item.path}
                         onClick={onNavigate}
                         className={cn(
-                          "flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] uc-focus",
+                          "flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] uc-focus",
                           active ? "uc-nav-active" : "uc-side-link",
                         )}
                         aria-current={active ? "page" : undefined}
@@ -301,35 +268,66 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           );
         })}
       </nav>
-      <div className="relative z-[1] px-3 pb-4">
-        <p className="px-2 pt-3 text-[10px] leading-relaxed text-white/40">
-          UniqueCare Connect · v1.0 · CQC-registered · Data: UK
+      <div className="relative z-[1] mt-auto space-y-3 border-t border-[--card-line] px-3 py-4">
+        <div className="uc-side-profile flex items-center gap-3 p-3">
+          {staff?.id != null ? (
+            <Link
+              to={`/staff/${staff.id}`}
+              onClick={onNavigate}
+              className="uc-focus flex min-w-0 flex-1 items-center gap-3 rounded-md"
+              aria-label="Open my profile"
+            >
+              <AvatarDot name={staff.fullName ?? user.name ?? "?"} color={staff.avatarColor} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-semibold text-[--brand-900]">{staff.fullName ?? user.name}</p>
+                <p className="truncate text-[11px] text-[--ink-500]">{role ? ROLE_LABELS[role] : "My profile"}</p>
+              </div>
+            </Link>
+          ) : (
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <AvatarDot name={user.name ?? "?"} color={undefined} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-semibold text-[--brand-900]">{user.name}</p>
+                <p className="truncate text-[11px] text-[--ink-500]">{role ? ROLE_LABELS[role] : ""}</p>
+              </div>
+            </div>
+          )}
+          <button
+            onClick={logout}
+            aria-label="Sign out"
+            className="uc-focus flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[--ink-500] transition-colors hover:bg-white hover:text-[--brand-900]"
+          >
+            <LogOut className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+          </button>
+        </div>
+        <p className="px-1 text-[10px] leading-relaxed text-[--ink-500]">
+          UniqueCare Connect · CQC-registered · UK data
         </p>
       </div>
     </>
   );
 
   return (
-    <div className="min-h-screen w-full md:p-4" style={{ backgroundColor: "var(--frame-bg)" }}>
-      <div className="uc-frame flex min-h-screen md:min-h-0 md:h-[calc(100vh-2rem)] max-md:!rounded-none" style={{ backgroundColor: "var(--app-bg)" }}>
-      {/* ── Colour-rail sidebar: logo + profile top, nav below ── */}
-      <aside data-tour="shell-nav" className="no-print uc-sidebar hidden md:flex w-[17.5rem] shrink-0 flex-col overflow-y-auto">
+    <div className="flex min-h-screen w-full bg-[--app-bg]">
+      <div className="uc-frame flex min-h-screen w-full">
+      {/* ── Light product nav ── */}
+      <aside data-tour="shell-nav" className="no-print uc-sidebar hidden md:flex w-[17.75rem] shrink-0 flex-col">
         {sidebarBody()}
       </aside>
 
       {/* ── Mobile drawer nav ── */}
       {mobileNav && (
         <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Menu">
-          <div className="absolute inset-0 bg-black/40 uc-fade-in" onClick={() => setMobileNav(false)} aria-hidden />
-          <aside className="uc-sidebar uc-slide-in absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col overflow-y-auto shadow-2xl">
+          <div className="absolute inset-0 bg-[--brand-900]/40 uc-fade-in" onClick={() => setMobileNav(false)} aria-hidden />
+          <aside className="uc-sidebar uc-slide-in absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col shadow-xl">
             {sidebarBody(() => setMobileNav(false))}
           </aside>
         </div>
       )}
 
-      {/* ── Right column: white header + scrolling content ── */}
+      {/* ── Right column ── */}
       <div className="flex min-w-0 flex-1 flex-col">
-      <header className="no-print uc-topbar sticky top-0 z-40 flex h-16 shrink-0 items-center gap-2 sm:gap-3 px-3 sm:px-4 md:px-6">
+      <header className="no-print uc-topbar sticky top-0 z-40 flex h-[3.75rem] shrink-0 items-center gap-2 px-3 sm:gap-3 sm:px-4 md:px-6">
         <button
           className="uc-focus uc-topbar-circle h-9 w-9 shrink-0 md:hidden"
           onClick={() => setMobileNav(true)}
@@ -344,11 +342,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <button
           data-tour="shell-search"
           onClick={() => setSearchOpen(true)}
-          className="uc-focus uc-topbar-pill ml-2 hidden sm:flex items-center gap-2.5 rounded-full px-4 py-2 text-[13px] w-80"
+          className="uc-focus uc-topbar-pill ml-1 hidden w-full max-w-md items-center gap-2.5 rounded-xl px-4 py-2 text-[13px] sm:flex"
         >
-          <Search className="h-4 w-4 text-[#8a94ab]" strokeWidth={1.75} aria-hidden />
-          <span className="text-[#8a94ab]">Search clients, staff, tickets…</span>
-          <kbd className="ml-auto rounded-full bg-white px-1.5 py-0.5 text-[10px] text-[#8a94ab] shadow-sm">⌘K</kbd>
+          <Search className="h-4 w-4 text-[--ink-500]" strokeWidth={1.75} aria-hidden />
+          <span className="text-[--ink-500]">Search clients, staff, tickets…</span>
+          <kbd className="ml-auto rounded-md bg-[--app-bg] px-1.5 py-0.5 text-[10px] font-medium text-[--ink-500]">⌘K</kbd>
         </button>
 
         <div className="ml-auto flex items-center gap-2">

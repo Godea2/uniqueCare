@@ -10,35 +10,25 @@ const FEATURES = [
 
 export default function AuthShell({ children }: { children: ReactNode }) {
   return (
-    <div className="grid min-h-screen md:grid-cols-2">
-      <div
-        className="relative hidden flex-col justify-between overflow-hidden p-10 text-white md:flex"
-        style={{ backgroundImage: "var(--sidebar-gradient)" }}
-      >
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(500px 280px at 10% 0%, rgb(255 255 255 / 0.12), transparent 55%), radial-gradient(420px 260px at 90% 90%, rgb(5 134 191 / 0.35), transparent 50%)",
-          }}
-          aria-hidden
-        />
+    <div className="grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
+      <div className="uc-hero relative hidden flex-col justify-between overflow-hidden p-10 text-white lg:flex lg:min-h-screen lg:rounded-none">
         <img src="/logo-white.png" alt="Unique Care UK" className="relative z-[1] h-10 w-auto self-start" />
-        <div className="relative z-[1]">
-          <h1 className="font-display text-3xl font-semibold leading-tight tracking-tight text-white">
+        <div className="relative z-[1] max-w-lg">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">
+            Operations platform
+          </p>
+          <h1 className="mt-3 font-display text-4xl font-bold leading-[1.1] tracking-tight text-white">
             UniqueCare Connect
           </h1>
-          <p className="mt-3 max-w-md text-[15px] leading-relaxed text-white/85">
-            One secure system for the whole care operation — recruitment and onboarding,
-            the weekly rota, CQC compliance and the CRM, with every call, visit and
-            document in one place.
+          <p className="mt-4 text-[15px] leading-relaxed text-white/85">
+            One secure system for recruitment, the weekly rota, CQC care plans and the CRM —
+            built for Unique Care UK.
           </p>
-          <ul className="mt-8 grid max-w-md grid-cols-2 gap-3">
+          <ul className="mt-8 grid grid-cols-2 gap-3">
             {FEATURES.map((feature) => (
               <li
                 key={feature.label}
-                className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm"
-                style={{ background: "rgb(255 255 255 / 0.1)", border: "1px solid rgb(255 255 255 / 0.14)" }}
+                className="flex items-center gap-2.5 rounded-xl border border-white/15 bg-white/10 px-3 py-2.5 text-sm backdrop-blur-sm"
               >
                 <feature.icon className="h-4 w-4 shrink-0" aria-hidden />
                 {feature.label}
@@ -50,15 +40,9 @@ export default function AuthShell({ children }: { children: ReactNode }) {
           CQC-registered domiciliary care · Data hosted in the UK · UK GDPR compliant
         </p>
       </div>
-      <div
-        className="flex items-center justify-center overflow-y-auto p-8"
-        style={{
-          background:
-            "radial-gradient(700px 360px at 80% 0%, rgb(5 134 191 / 0.08), transparent 55%), linear-gradient(180deg, #f7fafc 0%, var(--brand-50) 100%)",
-        }}
-      >
-        <div className="w-full max-w-sm py-6">
-          <img src="/logo.png" alt="Unique Care UK" className="mb-8 h-10 w-auto md:hidden" />
+      <div className="uc-canvas flex items-center justify-center overflow-y-auto p-6 sm:p-10">
+        <div className="w-full max-w-md py-6">
+          <img src="/logo.png" alt="Unique Care UK" className="mb-8 h-10 w-auto lg:hidden" />
           {children}
         </div>
       </div>

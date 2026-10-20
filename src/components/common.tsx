@@ -16,19 +16,19 @@ export function PageHeader({
   title, subtitle, actions,
 }: { title: string; subtitle?: string; actions?: ReactNode }) {
   return (
-    <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-[--card-line] pb-6">
       <div data-tour="page-header" className="min-w-0">
-        <h1 className="font-display text-[1.65rem] font-semibold leading-tight tracking-tight text-[--brand-900] sm:text-[1.85rem]">
+        <h1 className="font-display text-[1.75rem] font-bold leading-[1.15] tracking-tight text-[--brand-900] sm:text-[2rem]">
           {title}
         </h1>
         {subtitle && (
-          <p className="mt-1.5 max-w-2xl text-[13.5px] leading-relaxed text-[--ink-500]">
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[--ink-500]">
             {subtitle}
           </p>
         )}
       </div>
       {actions && (
-        <div className="flex flex-wrap items-center gap-2 pb-0.5" data-tour="page-actions">
+        <div className="flex flex-wrap items-center gap-2" data-tour="page-actions">
           {actions}
         </div>
       )}
@@ -167,7 +167,7 @@ const CHIP_STYLES: Record<string, string> = {
 export function Chip({ value, label }: { value: string; label?: string }) {
   const style = CHIP_STYLES[value] ?? "bg-slate-100 text-slate-700 border-slate-200";
   return (
-    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap", style)}>
+    <span className={cn("inline-flex items-center rounded-lg border px-2 py-0.5 text-[11px] font-semibold capitalize whitespace-nowrap", style)}>
       {label ?? value.replace(/_/g, " ")}
     </span>
   );

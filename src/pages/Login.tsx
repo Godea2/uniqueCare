@@ -31,9 +31,9 @@ export default function Login() {
 
   return (
     <AuthShell>
-      <div className="uc-card p-8">
-        <h2 className="font-display text-2xl font-semibold tracking-tight">Staff sign in</h2>
-        <p className="mt-1.5 text-sm text-[--ink-500]">
+      <div className="uc-card p-8 shadow-[var(--elev-2)]">
+        <h2 className="font-display text-[1.75rem] font-bold tracking-tight text-[--brand-900]">Staff sign in</h2>
+        <p className="mt-2 text-sm leading-relaxed text-[--ink-500]">
           Sign in with the email and password for your Unique Care UK account.
         </p>
         <form className="mt-6 space-y-4" onSubmit={submit}>
