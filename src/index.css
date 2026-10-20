@@ -4,65 +4,66 @@
 
 @layer base {
   :root {
-    /* Unique Care UK brand palette — blue extracted from logo (#0586BF) */
-    --brand-900: #082f52; /* deep navy: headings */
-    --brand-700: #0575a8; /* hover / active / links (AA on white) */
-    --brand-600: #0586bf; /* PRIMARY — exact logo blue */
-    --brand-500: #2ba0d4; /* focus rings */
-    --brand-400: #6fc2e4;
-    --brand-100: #dcf0f9; /* tinted backgrounds, selected rows */
-    --brand-50: #f2fafd; /* page background */
+    /* Unique Care UK — Atlantic care palette (logo blue #0586BF) */
+    --brand-900: #06263f;
+    --brand-700: #046992;
+    --brand-600: #0586bf;
+    --brand-500: #1a9fd1;
+    --brand-400: #5bb8de;
+    --brand-100: #d7eef8;
+    --brand-50: #f0f8fc;
     --white: #ffffff;
-    --ink-900: #0f172a;
-    --ink-500: #64748b;
-    --line: #e3e9f2;
+    --ink-900: #0c1524;
+    --ink-600: #3d4a5c;
+    --ink-500: #5c6b7e;
+    --line: #e2eaf2;
 
-    /* Reference-style chrome — app floats as one big rounded panel */
-    --frame-bg: #dcdff0;    /* lavender-grey backdrop around the frame */
-    --app-bg: #eef1f9;      /* soft periwinkle panel background */
-    --card-line: #e7e9f2;   /* card borders on panel bg */
-    --topbar: #ffffff;      /* white content header (reference style) */
+    /* Atmospheric chrome — misted canvas, not flat grey SaaS */
+    --frame-bg: #c5d6e4;
+    --app-bg: #f4f7fb;
+    --card-line: #e4ecf3;
+    --topbar: rgb(255 255 255 / 0.82);
 
-    /* Pastel tint palette (reference-style metric tiles & board columns) */
-    --tint-blue: #e8f3fb;
-    --tint-green: #e7f7ee;
-    --tint-amber: #fdf2df;
-    --tint-red: #fdecec;
-    --tint-violet: #efebfd;
-    --tint-pink: #fdeef5;
-    --tint-teal: #e6f7f6;
-    --tint-slate: #edf0f6;
+    --tint-blue: #e6f3fb;
+    --tint-green: #e5f6ec;
+    --tint-amber: #fdf3e3;
+    --tint-red: #fceeee;
+    --tint-violet: #eef0f8;
+    --tint-pink: #fceef4;
+    --tint-teal: #e4f5f4;
+    --tint-slate: #eef1f6;
 
-    /* status colours, used only for meaning */
     --success: #15803d;
     --warning: #b45309;
     --danger: #b91c1c;
     --info: #1565c0;
 
-    /* ── Elevation system (layered, low-saturation shadows) ── */
-    --elev-1: 0 1px 2px rgb(15 18 35 / 0.05), 0 1px 3px rgb(15 18 35 / 0.04);
-    --elev-2: 0 1px 2px rgb(15 18 35 / 0.05), 0 4px 12px rgb(15 18 35 / 0.06);
-    --elev-3: 0 2px 4px rgb(15 18 35 / 0.05), 0 10px 24px rgb(15 18 35 / 0.09);
-    --elev-4: 0 4px 8px rgb(15 18 35 / 0.06), 0 18px 44px rgb(15 18 35 / 0.13);
-    --elev-brand: 0 1px 2px rgb(5 134 191 / 0.35), 0 6px 16px rgb(5 134 191 / 0.28);
-    --elev-frame: 0 24px 64px -24px rgb(15 18 35 / 0.35), 0 4px 16px rgb(15 18 35 / 0.08);
-    --inner-hi: inset 0 1px 0 rgb(255 255 255 / 0.65);
+    /* Soft single-plane elevation (avoid stacked “AI shadow” stacks) */
+    --elev-1: 0 1px 2px rgb(6 38 63 / 0.04);
+    --elev-2: 0 2px 8px rgb(6 38 63 / 0.06);
+    --elev-3: 0 8px 24px rgb(6 38 63 / 0.08);
+    --elev-4: 0 16px 40px rgb(6 38 63 / 0.12);
+    --elev-brand: 0 2px 10px rgb(5 134 191 / 0.28);
+    --elev-frame: 0 20px 50px -20px rgb(6 38 63 / 0.28);
+    --inner-hi: inset 0 1px 0 rgb(255 255 255 / 0.7);
 
-    /* Brand gradients */
-    --brand-gradient: linear-gradient(135deg, #2ba0d4 0%, #0586bf 48%, #0575a8 100%);
-    --brand-gradient-soft: linear-gradient(135deg, #f2fafd 0%, #dcf0f9 100%);
-    /* Solid, saturated deep-blue rail (references use flat deep violet — brand-translated) */
-    --sidebar-gradient: linear-gradient(180deg, #0d5d8c 0%, #084a70 58%, #06405f 100%);
-    /* Bright solid-feel hero (references use vivid solid colour cards) */
-    --hero-gradient: linear-gradient(115deg, #17a0dd 0%, #0586bf 52%, #0473a9 100%);
+    --brand-gradient: linear-gradient(135deg, #1a9fd1 0%, #0586bf 50%, #046992 100%);
+    --brand-gradient-soft: linear-gradient(160deg, #f0f8fc 0%, #d7eef8 100%);
+    --sidebar-gradient: linear-gradient(165deg, #0a4f78 0%, #073a58 45%, #052a42 100%);
+    --hero-gradient: linear-gradient(125deg, #0e6fa0 0%, #0586bf 42%, #086a96 100%);
+    --canvas-glow:
+      radial-gradient(1200px 600px at 12% -10%, rgb(5 134 191 / 0.14), transparent 55%),
+      radial-gradient(900px 500px at 90% 0%, rgb(8 47 82 / 0.08), transparent 50%),
+      linear-gradient(180deg, #d4e3ef 0%, #c5d6e4 40%, #b8cddc 100%);
 
-    /* Motion */
+    --font-sans: "Sora", ui-sans-serif, system-ui, sans-serif;
+    --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+
     --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-    --dur-fast: 120ms;
-    --dur-med: 200ms;
+    --dur-fast: 140ms;
+    --dur-med: 240ms;
 
-    /* Focus glow */
-    --focus-glow: 0 0 0 4px rgb(43 160 212 / 0.18);
+    --focus-ring: 0 0 0 3px rgb(5 134 191 / 0.22);
 
     /* shadcn token mapping */
     --background: 225 27% 97%;
@@ -105,15 +106,23 @@
     text-rendering: optimizeLegibility;
   }
   body {
-    @apply bg-background text-foreground antialiased;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    @apply text-foreground antialiased;
+    font-family: var(--font-sans);
     font-size: 15px;
-    font-feature-settings: "cv11", "ss01";
+    letter-spacing: -0.011em;
+    background-color: var(--frame-bg);
+    background-image: var(--canvas-glow);
+    background-attachment: fixed;
   }
   h1, h2, h3, h4 {
     color: var(--brand-900);
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.02em;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.03em;
   }
   ::selection {
     background: var(--brand-100);
@@ -144,7 +153,7 @@
   select:focus-visible,
   textarea:focus-visible,
   [role="combobox"]:focus-visible {
-    box-shadow: var(--focus-glow);
+    box-shadow: var(--focus-ring);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -157,108 +166,100 @@
 }
 
 @layer components {
-  /* ── UniqueCare design system primitives ── */
+  /* ── UniqueCare design system ── */
 
-  /* Floating rounded app frame (reference: whole app in one rounded panel) */
   .uc-frame {
-    border-radius: 28px;
+    border-radius: 24px;
     overflow: hidden;
     box-shadow: var(--elev-frame);
-    outline: 1px solid rgb(15 18 35 / 0.05);
+    outline: 1px solid rgb(6 38 63 / 0.08);
+    background: var(--app-bg);
   }
 
-  /* Card: crisp border, layered elevation, hairline top highlight for depth */
+  .uc-canvas {
+    position: relative;
+    background:
+      radial-gradient(800px 320px at 100% 0%, rgb(5 134 191 / 0.06), transparent 55%),
+      linear-gradient(180deg, #f7fafc 0%, var(--app-bg) 40%, #eef3f8 100%);
+  }
+
   .uc-card {
     position: relative;
-    background: var(--white);
+    background: rgb(255 255 255 / 0.92);
     border: 1px solid var(--card-line);
-    border-radius: 22px;
-    box-shadow: var(--inner-hi), var(--elev-1);
+    border-radius: 18px;
+    box-shadow: var(--elev-1);
+    backdrop-filter: blur(8px);
+    transition: box-shadow var(--dur-med) var(--ease-out),
+      border-color var(--dur-med) var(--ease-out),
+      transform var(--dur-med) var(--ease-out);
+  }
+
+  .uc-stat {
+    border-radius: 18px;
+    border: 1px solid transparent;
+    box-shadow: var(--elev-1);
     transition: box-shadow var(--dur-med) var(--ease-out),
       transform var(--dur-med) var(--ease-out),
       border-color var(--dur-med) var(--ease-out);
   }
-
-  /* Pastel metric tile — solid circular icon chip, tinted body */
-  .uc-stat {
-    border-radius: 22px;
-    border: 1px solid transparent;
-    box-shadow: var(--inner-hi), var(--elev-1);
-    transition: box-shadow var(--dur-med) var(--ease-out),
-      transform var(--dur-med) var(--ease-out);
-  }
   .uc-stat:hover {
-    box-shadow: var(--inner-hi), var(--elev-3);
-    transform: translateY(-2px);
+    box-shadow: var(--elev-2);
+    transform: translateY(-1px);
+    border-color: rgb(5 134 191 / 0.18);
   }
   .uc-stat:active {
     transform: translateY(0);
-    box-shadow: var(--inner-hi), var(--elev-1);
+    box-shadow: var(--elev-1);
   }
 
-  /* Solid circular icon chip (white glyph on brand/status colour) */
   .uc-icon-chip {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 999px;
+    border-radius: 14px;
     color: #fff;
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3), 0 4px 10px rgb(15 18 35 / 0.18);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25);
   }
 
-  /* Vivid hero card — welcome / key callouts, with soft decorative circles */
   .uc-hero {
     position: relative;
     overflow: hidden;
     background-image: var(--hero-gradient);
-    border-radius: 24px;
-    box-shadow: var(--elev-3), inset 0 1px 0 rgb(255 255 255 / 0.25);
+    border-radius: 20px;
+    box-shadow: var(--elev-2);
     color: #fff;
   }
   .uc-hero::before {
     content: "";
     position: absolute;
-    right: -70px;
-    top: -90px;
-    width: 260px;
-    height: 260px;
-    border-radius: 999px;
-    background: rgb(255 255 255 / 0.1);
-    pointer-events: none;
-  }
-  .uc-hero::after {
-    content: "";
-    position: absolute;
-    right: 90px;
-    bottom: -120px;
-    width: 220px;
-    height: 220px;
-    border-radius: 999px;
-    background: rgb(255 255 255 / 0.07);
+    inset: 0;
+    background:
+      radial-gradient(420px 220px at 92% 0%, rgb(255 255 255 / 0.18), transparent 60%),
+      radial-gradient(280px 180px at 0% 100%, rgb(6 38 63 / 0.2), transparent 55%);
     pointer-events: none;
   }
   .uc-hero h1, .uc-hero h2, .uc-hero h3, .uc-hero p {
     color: #fff;
   }
 
-  /* Liftable card — used for interactive tiles */
   .uc-card-lift {
-    box-shadow: var(--inner-hi), var(--elev-1);
+    box-shadow: var(--elev-1);
   }
   .uc-card-lift:hover {
-    box-shadow: var(--inner-hi), var(--elev-3);
-    transform: translateY(-2px);
-    border-color: #d8dceb;
+    box-shadow: var(--elev-2);
+    transform: translateY(-1px);
+    border-color: #d0dce8;
   }
   .uc-card-lift:active {
     transform: translateY(0);
-    box-shadow: var(--inner-hi), var(--elev-1);
+    box-shadow: var(--elev-1);
   }
 
   .uc-label {
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--ink-500);
   }
@@ -266,31 +267,26 @@
   .uc-focus:focus-visible {
     outline: 2px solid var(--brand-500);
     outline-offset: 2px;
-    box-shadow: var(--focus-glow);
+    box-shadow: var(--focus-ring);
   }
 
-  /* Primary button: brand gradient with real depth */
   .uc-btn-primary {
     background-image: var(--brand-gradient);
-    box-shadow: var(--elev-brand), inset 0 1px 0 rgb(255 255 255 / 0.22);
-    text-shadow: 0 1px 1px rgb(8 47 82 / 0.25);
+    box-shadow: var(--elev-brand);
     transition: box-shadow var(--dur-fast) var(--ease-out),
       transform var(--dur-fast) var(--ease-out),
       filter var(--dur-fast) var(--ease-out);
   }
   .uc-btn-primary:hover {
-    filter: brightness(1.06);
-    box-shadow: 0 2px 4px rgb(5 134 191 / 0.35), 0 10px 22px rgb(5 134 191 / 0.32),
-      inset 0 1px 0 rgb(255 255 255 / 0.22);
+    filter: brightness(1.05);
+    box-shadow: 0 4px 14px rgb(5 134 191 / 0.32);
     transform: translateY(-1px);
   }
   .uc-btn-primary:active {
-    transform: translateY(0.5px);
-    filter: brightness(0.97);
-    box-shadow: 0 1px 2px rgb(5 134 191 / 0.3), inset 0 1px 2px rgb(8 47 82 / 0.25);
+    transform: translateY(0);
+    filter: brightness(0.98);
   }
 
-  /* Icon tile — soft 3D badge used in stat cards / headers */
   .uc-icon-tile {
     display: inline-flex;
     align-items: center;
@@ -298,77 +294,90 @@
     border-radius: 12px;
     background: var(--brand-gradient-soft);
     border: 1px solid var(--brand-100);
-    box-shadow: var(--inner-hi), 0 1px 2px rgb(5 134 191 / 0.08);
     color: var(--brand-700);
   }
 
-  /* White content header (reference style — light, over content column only) */
   .uc-topbar {
     background: var(--topbar);
-    box-shadow: 0 1px 0 var(--card-line);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    border-bottom: 1px solid rgb(226 234 242 / 0.85);
   }
 
-  /* Grey pill controls inside the white header */
   .uc-topbar-pill {
-    background: #f1f3f9;
-    border: 1px solid transparent;
-    color: #3c4763;
+    background: rgb(244 247 251 / 0.95);
+    border: 1px solid var(--card-line);
+    color: var(--ink-600);
+    border-radius: 12px;
     transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
   }
   .uc-topbar-pill:hover {
-    background: #e8ecf6;
-    border-color: #dfe3f0;
+    background: #fff;
+    border-color: #cfdce8;
   }
   .uc-topbar-circle {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 999px;
-    background: #f1f3f9;
-    border: 1px solid transparent;
-    color: #4a5468;
+    border-radius: 12px;
+    background: rgb(244 247 251 / 0.95);
+    border: 1px solid var(--card-line);
+    color: var(--ink-600);
     transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
   }
   .uc-topbar-circle:hover {
-    background: #e8ecf6;
-    border-color: #dfe3f0;
+    background: #fff;
+    border-color: #cfdce8;
   }
 
-  /* ── Solid deep-blue sidebar (reference: flat coloured rail, pill nav) ── */
+  /* Brand rail — depth + breathable Hostinger-class hierarchy */
   .uc-sidebar {
+    position: relative;
     background-image: var(--sidebar-gradient);
+    border-right: 1px solid rgb(255 255 255 / 0.06);
+  }
+  .uc-sidebar::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(500px 280px at 0% 0%, rgb(255 255 255 / 0.1), transparent 55%),
+      linear-gradient(180deg, transparent 70%, rgb(0 0 0 / 0.12) 100%);
   }
   .uc-side-group {
-    color: rgb(255 255 255 / 0.92);
-    letter-spacing: 0.01em;
+    color: rgb(255 255 255 / 0.55);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
   }
   .uc-side-group:hover {
-    color: #fff;
-    background: rgb(255 255 255 / 0.08);
+    color: rgb(255 255 255 / 0.92);
+    background: rgb(255 255 255 / 0.06);
   }
   .uc-side-link {
-    color: rgb(255 255 255 / 0.78);
-    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
-      transform var(--dur-fast) var(--ease-out);
+    color: rgb(255 255 255 / 0.82);
+    font-weight: 500;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
   }
   .uc-side-link:hover {
     background: rgb(255 255 255 / 0.1);
     color: #fff;
-    transform: translateX(2px);
   }
   .uc-side-link .lucide {
-    color: rgb(255 255 255 / 0.6);
+    color: rgb(255 255 255 / 0.62);
   }
   .uc-side-link:hover .lucide {
     color: #fff;
   }
 
-  /* Active pill — white card on the colour rail, brand edge glow */
   .uc-nav-active {
     position: relative;
     background: #fff;
     color: var(--brand-900);
-    box-shadow: var(--elev-2), 0 0 0 1px rgb(255 255 255 / 0.1);
+    font-weight: 600;
+    box-shadow: var(--elev-2);
   }
   .uc-nav-active .lucide {
     color: var(--brand-600) !important;
@@ -376,36 +385,33 @@
   .uc-nav-active::before {
     content: "";
     position: absolute;
-    left: 6px;
+    left: 8px;
     top: 50%;
     transform: translateY(-50%);
     width: 3px;
-    height: 18px;
-    border-radius: 999px;
-    background: var(--brand-gradient);
-    box-shadow: 0 0 8px rgb(5 134 191 / 0.45);
+    height: 16px;
+    border-radius: 4px;
+    background: var(--brand-600);
   }
 
-  /* Profile card at the foot of the sidebar */
   .uc-side-profile {
-    background: rgb(255 255 255 / 0.08);
-    outline: 1px solid rgb(255 255 255 / 0.1);
-    border-radius: 18px;
+    background: rgb(255 255 255 / 0.1);
+    outline: 1px solid rgb(255 255 255 / 0.14);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
   }
 
-  /* Pastel board column (pipeline / planner) */
   .uc-kanban-col {
-    border-radius: 22px;
+    border-radius: 18px;
     padding: 12px;
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.6);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55);
   }
   .uc-kanban-card {
-    border-radius: 16px;
+    border-radius: 14px;
   }
 
-  /* Page entrance — subtle rise */
   .uc-page-enter {
-    animation: uc-fade-up 0.35s var(--ease-out) both;
+    animation: uc-fade-up 0.4s var(--ease-out) both;
   }
 
   /* Shimmer for loading skeletons */
@@ -450,7 +456,7 @@
   box-shadow: var(--elev-4);
   padding: 4px;
   max-width: 340px;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 .driver-popover.uc-tour .driver-popover-title {
   font-size: 15px;
@@ -544,10 +550,6 @@
     max-height: calc(100dvh - 2rem);
     overflow-y: auto;
     padding: 1.25rem;
-  }
-  /* Page heading scales down slightly on phones */
-  h1 {
-    font-size: 1.125rem;
   }
 }
 

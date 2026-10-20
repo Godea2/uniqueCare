@@ -16,12 +16,22 @@ export function PageHeader({
   title, subtitle, actions,
 }: { title: string; subtitle?: string; actions?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
-      <div data-tour="page-header">
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        {subtitle && <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>}
+    <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+      <div data-tour="page-header" className="min-w-0">
+        <h1 className="font-display text-[1.65rem] font-semibold leading-tight tracking-tight text-[--brand-900] sm:text-[1.85rem]">
+          {title}
+        </h1>
+        {subtitle && (
+          <p className="mt-1.5 max-w-2xl text-[13.5px] leading-relaxed text-[--ink-500]">
+            {subtitle}
+          </p>
+        )}
       </div>
-      {actions && <div className="flex items-center gap-2 flex-wrap" data-tour="page-actions">{actions}</div>}
+      {actions && (
+        <div className="flex flex-wrap items-center gap-2 pb-0.5" data-tour="page-actions">
+          {actions}
+        </div>
+      )}
     </div>
   );
 }
@@ -43,18 +53,20 @@ export function StatCard({
       onClick={onClick}
       data-tour="stat-card"
       className={cn(
-        `uc-stat uc-stat-${tone} p-5 text-left w-full uc-focus`,
+        `uc-stat uc-stat-${tone} w-full p-5 text-left uc-focus`,
         onClick ? "cursor-pointer" : "cursor-default",
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className="uc-label">{label}</span>
-          <div className={cn("text-3xl font-bold mt-2 tracking-tight", tones[tone])}>{value}</div>
-          {hint && <div className="text-xs text-muted-foreground mt-1.5">{hint}</div>}
+          <div className={cn("mt-2 font-display text-[1.85rem] font-semibold tracking-tight tabular-nums", tones[tone])}>
+            {value}
+          </div>
+          {hint && <div className="mt-1.5 text-xs leading-snug text-[--ink-500]">{hint}</div>}
         </div>
-        <span className={`uc-icon-chip uc-icon-chip-${tone} h-12 w-12 shrink-0`} aria-hidden>
-          <Icon className="h-5 w-5" strokeWidth={2} />
+        <span className={`uc-icon-chip uc-icon-chip-${tone} h-11 w-11 shrink-0`} aria-hidden>
+          <Icon className="h-5 w-5" strokeWidth={1.85} />
         </span>
       </div>
     </button>

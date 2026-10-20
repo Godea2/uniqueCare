@@ -208,7 +208,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   // onNavigate is passed by the drawer so tapping a link closes it.
   const sidebarBody = (onNavigate?: () => void) => (
     <>
-      <div className="px-5 pb-3 pt-5 flex items-center justify-between">
+      <div className="relative z-[1] px-5 pb-3 pt-5 flex items-center justify-between">
         <Link to="/" data-tour="shell-home" onClick={onNavigate} className="flex items-center gap-2 uc-focus rounded-md" aria-label="UniqueCare Connect home">
           <img src="/logo-white.png" alt="Unique Care UK" className="h-8 w-auto" />
         </Link>
@@ -222,7 +222,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </button>
         )}
       </div>
-      <div className="px-3 pb-3">
+      <div className="relative z-[1] px-3 pb-4">
         <div className="uc-side-profile flex items-center gap-3 p-3">
           {staff?.id != null ? (
             <Link
@@ -255,7 +255,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
       </div>
-      <nav className="flex-1 px-3 pb-4" aria-label="Main">
+      <nav className="relative z-[1] flex-1 space-y-4 px-3 pb-4" aria-label="Main">
         {groups.map((g) => {
           const singleton = g.group === "Overview";
           const holdsCurrentPage = g.items.some((item) =>
@@ -263,42 +263,46 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           const isCollapsed = !singleton && !(expanded[g.group] ?? holdsCurrentPage);
           const groupKey = g.group.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
           return (
-            <div key={g.group} className="mt-1 first:mt-0" data-tour-group={groupKey}>
+            <div key={g.group} data-tour-group={groupKey}>
               {!singleton && (
                 <button
                   onClick={() => setExpanded((s) => ({ ...s, [g.group]: isCollapsed }))}
-                  className="uc-focus uc-side-group flex w-full items-center justify-between rounded-full px-3 py-2.5 text-[13.5px] font-semibold transition-colors"
+                  className="uc-focus uc-side-group mb-1 flex w-full items-center justify-between rounded-xl px-3 py-2 transition-colors"
                   aria-expanded={!isCollapsed}
                 >
                   {g.group}
-                  <ChevronDown className={cn("h-4 w-4 opacity-80 transition-transform", isCollapsed && "-rotate-90")} strokeWidth={2.25} aria-hidden />
+                  <ChevronDown className={cn("h-3.5 w-3.5 opacity-70 transition-transform", isCollapsed && "-rotate-90")} strokeWidth={2.25} aria-hidden />
                 </button>
               )}
-              {!isCollapsed && g.items.map((item) => {
-                const active = location.pathname === item.path ||
-                  (item.path !== "/" && location.pathname.startsWith(item.path));
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    onClick={onNavigate}
-                    className={cn(
-                      "mb-0.5 flex items-center gap-3 rounded-full px-4 py-2.5 text-[13.5px] uc-focus",
-                      active ? "uc-nav-active font-medium" : "uc-side-link",
-                    )}
-                    aria-current={active ? "page" : undefined}
-                  >
-                    <item.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} aria-hidden />
-                    {item.label}
-                  </Link>
-                );
-              })}
+              {!isCollapsed && (
+                <div className={cn("space-y-0.5", !singleton && "ml-0.5 border-l border-white/10 pl-2")}>
+                  {g.items.map((item) => {
+                    const active = location.pathname === item.path ||
+                      (item.path !== "/" && location.pathname.startsWith(item.path));
+                    return (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        onClick={onNavigate}
+                        className={cn(
+                          "flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] uc-focus",
+                          active ? "uc-nav-active" : "uc-side-link",
+                        )}
+                        aria-current={active ? "page" : undefined}
+                      >
+                        <item.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} aria-hidden />
+                        {item.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
       </nav>
-      <div className="px-3 pb-4">
-        <p className="px-2 pt-3 text-[10px] leading-relaxed text-white/35">
+      <div className="relative z-[1] px-3 pb-4">
+        <p className="px-2 pt-3 text-[10px] leading-relaxed text-white/40">
           UniqueCare Connect · v1.0 · CQC-registered · Data: UK
         </p>
       </div>
@@ -309,7 +313,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen w-full md:p-4" style={{ backgroundColor: "var(--frame-bg)" }}>
       <div className="uc-frame flex min-h-screen md:min-h-0 md:h-[calc(100vh-2rem)] max-md:!rounded-none" style={{ backgroundColor: "var(--app-bg)" }}>
       {/* ── Colour-rail sidebar: logo + profile top, nav below ── */}
-      <aside data-tour="shell-nav" className="no-print uc-sidebar hidden md:flex w-64 shrink-0 flex-col overflow-y-auto">
+      <aside data-tour="shell-nav" className="no-print uc-sidebar hidden md:flex w-[17.5rem] shrink-0 flex-col overflow-y-auto">
         {sidebarBody()}
       </aside>
 
@@ -444,7 +448,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button data-tour="shell-account" className="uc-focus flex items-center gap-2 rounded-full pl-1 pr-2 py-1 hover:bg-[#f1f3f9] transition-colors">
+              <button data-tour="shell-account" className="uc-focus flex items-center gap-2 rounded-xl py-1 pl-1 pr-2 transition-colors hover:bg-white/80">
                 <AvatarDot name={staff?.fullName ?? user.name ?? "?"} color={staff?.avatarColor} />
                 <div className="hidden lg:block text-left">
                   <p className="text-[13px] font-medium leading-tight text-[--ink-900]">{staff?.fullName ?? user.name}</p>
@@ -466,8 +470,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       </header>
 
       {/* ── Main content ── */}
-      <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 md:px-8">
-        <div key={location.pathname} className="uc-page-enter">{children}</div>
+      <main className="uc-canvas min-w-0 flex-1 overflow-y-auto px-4 py-6 md:px-8 lg:px-10">
+        <div key={location.pathname} className="uc-page-enter mx-auto max-w-[1400px]">{children}</div>
       </main>
       </div>
       </div>

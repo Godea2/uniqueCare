@@ -91,24 +91,26 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <PageHeader
         title={`${greeting()}, ${d.name.split(" ")[0]}`}
-        subtitle={ROLE_LABELS[role]}
+        subtitle={`${ROLE_LABELS[role]} · Your service at a glance`}
       />
       <WelcomeCard />
-      <div className="uc-card p-5">
-        <h2 className="uc-label mb-4">At a glance</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      <section>
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <h2 className="uc-label">At a glance</h2>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {tiles.map((t) => (
-            <Link key={t.label} to={t.to} className="uc-focus rounded-[22px]">
+            <Link key={t.label} to={t.to} className="uc-focus rounded-[18px]">
               <StatCard label={t.label} value={t.value} hint={t.hint} icon={t.icon} tone={t.tone} />
             </Link>
           ))}
         </div>
-      </div>
+      </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <QuickActions role={role} />
         <TodayPanel role={role} />
       </div>
@@ -132,20 +134,22 @@ function WelcomeCard() {
   };
   return (
     <div
-      className="uc-hero relative overflow-hidden p-6 flex flex-col items-start gap-4 sm:flex-row sm:items-center"
+      className="uc-hero relative flex flex-col items-start gap-4 overflow-hidden p-6 sm:flex-row sm:items-center sm:p-7"
       data-testid="welcome-card"
     >
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold text-white">Welcome to UniqueCare Connect</p>
-        <p className="text-sm text-white/85 mt-0.5">
+      <div className="relative z-[1] min-w-0 flex-1">
+        <p className="font-display text-lg font-semibold tracking-tight text-white">
+          Welcome to UniqueCare Connect
+        </p>
+        <p className="mt-1 max-w-xl text-sm leading-relaxed text-white/88">
           New here? Take the one-minute tour — it walks you through every menu and feature.
           You can replay it anytime from the Help button in the top bar.
         </p>
       </div>
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="relative z-[1] flex flex-wrap items-center gap-2">
         <Button
           size="sm"
-          className="!bg-white !text-[--brand-700] hover:!bg-white/90 shadow-md"
+          className="!rounded-xl !bg-white !text-[--brand-700] shadow-sm hover:!bg-white/92"
           style={{ backgroundImage: "none" }}
           onClick={() => {
             dismiss();
@@ -157,7 +161,7 @@ function WelcomeCard() {
         <Button
           size="sm"
           variant="outline"
-          className="!bg-transparent !text-white !border-white/40 hover:!bg-white/10 shadow-none"
+          className="!rounded-xl !border-white/35 !bg-transparent !text-white shadow-none hover:!bg-white/10"
           onClick={dismiss}
         >
           Maybe later
@@ -187,14 +191,17 @@ function QuickActions({ role }: { role: StaffRole }) {
   items.push({ label: "View my rota", to: "/me" });
 
   return (
-    <div className="uc-card p-5" data-tour="quick-actions">
-      <h2 className="uc-label mb-3">Quick actions</h2>
-      <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
+    <div className="uc-card p-5 sm:p-6" data-tour="quick-actions">
+      <h2 className="uc-label mb-4">Quick actions</h2>
+      <ul className="divide-y divide-[--line]">
         {items.map((i) => (
           <li key={i.to}>
-            <Link to={i.to} className="uc-focus flex items-center justify-between py-2.5 text-sm font-medium text-[--brand-900] hover:text-[--brand-600]">
+            <Link
+              to={i.to}
+              className="uc-focus group flex items-center justify-between py-3 text-sm font-medium text-[--brand-900] transition-colors hover:text-[--brand-600]"
+            >
               {i.label}
-              <ArrowRight className="h-4 w-4 opacity-50" aria-hidden />
+              <ArrowRight className="h-4 w-4 opacity-40 transition-transform group-hover:translate-x-0.5 group-hover:opacity-70" aria-hidden />
             </Link>
           </li>
         ))}
@@ -210,8 +217,8 @@ function TodayPanel({ role }: { role: StaffRole }) {
   const tasks = trpc.crm.myTasks.useQuery(undefined, { enabled: !isWorker });
 
   return (
-    <div className="uc-card p-5" data-tour="today-panel">
-      <h2 className="uc-label mb-3">
+    <div className="uc-card p-5 sm:p-6" data-tour="today-panel">
+      <h2 className="uc-label mb-4">
         {isWorker ? "Your visits today" : "Tasks due soon"}
       </h2>
       {isWorker ? (
