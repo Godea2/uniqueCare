@@ -2,25 +2,25 @@ import type { ReactNode } from "react";
 
 /**
  * Shared chrome for Login / Signup / Forgot / Set password.
- * Left panel: brand illustration (desktop). Right: form.
+ * Left: full brand illustration (desktop). Right: compact form column.
  */
 export default function AuthShell({ children }: { children: ReactNode }) {
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
+    <div className="flex min-h-screen w-full">
       <aside
-        className="relative hidden overflow-hidden bg-[#d8f0fb] lg:block"
-        aria-hidden={false}
+        className="relative hidden min-h-screen flex-1 bg-[#d8f0fb] lg:block"
         aria-label="Unique Care UK"
       >
         <img
           src="/auth-hero.jpg"
           alt="Unique Care UK — recruitment, rota, CQC care plans and CRM in one secure system"
-          className="absolute inset-0 h-full w-full object-cover object-center"
+          className="absolute inset-0 h-full w-full object-contain object-center"
+          decoding="async"
         />
       </aside>
 
-      <div className="uc-canvas flex items-center justify-center overflow-y-auto p-6 sm:p-10">
-        <div className="w-full max-w-md py-6">
+      <div className="uc-canvas flex w-full min-h-screen flex-col items-center justify-center overflow-y-auto px-6 py-10 sm:px-10 lg:w-[min(100%,28rem)] lg:shrink-0 lg:border-l lg:border-[--card-line]">
+        <div className="w-full max-w-md py-2">
           <img src="/logo.png" alt="Unique Care UK" className="mb-8 h-10 w-auto lg:hidden" />
           {children}
         </div>
