@@ -12,6 +12,7 @@ import type {
   TrainingEnrolments,
 } from "@db/schema";
 import { audit, notify, notifyRoles, ruleEnabled } from "../util";
+import { complianceKeyTracksExpiry } from "./compliance-docs";
 
 export type Rag = "green" | "amber" | "red";
 
@@ -147,8 +148,9 @@ export async function buildExpiryDashboard(filters: {
   const items: ExpiryDashboardItem[] = [];
 
   // One row per staff × requirement (latest non-superseded), when an expiry date exists or missing mandatory.
+  // Bank details, contracts, references, proof of address and health declaration do not expire.
   const trackedKeys = new Set([
-    "dbs_enhanced", "right_to_work", "photo_id", "health_declaration", "driving_docs", "signed_contract",
+    "dbs_enhanced", "right_to_work", "photo_id", "driving_docs",
   ]);
   for (const s of staff) {
     if (filters.staffId && Number(s.id) !== filters.staffId) continue;
@@ -343,6 +345,8 @@ export async function runExpiryReminderJob(): Promise<{
 
       for (const d of docs) {
         if (!d.expiresAt) continue;
+        // Never remind for one-off hire docs (bank, contract, references, PoA, health declaration).
+        if (!complianceKeyTracksExpiry(d.requirementKey)) continue;
         const days = daysUntil(d.expiresAt, today);
         const band = reminderBand(days);
         if (!band) continue;

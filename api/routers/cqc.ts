@@ -25,6 +25,7 @@ import { callAI, modelName } from "../ai/provider";
 import { mergeAiProvenance } from "@contracts/ai-provenance";
 import { ensureCarePlanAssessmentTemplate } from "../lib/ensure-care-plan-template";
 import { ensureSupportPlanTemplate } from "../lib/ensure-support-plan-template";
+import { isNonExpiringComplianceKey } from "../lib/compliance-docs";
 import {
   buildSectionGuide,
   formatClientContextForAi,
@@ -1171,6 +1172,12 @@ export const cqcRouter = createRouter({
       const old = await db.from("complianceDocuments").eq("id", input.documentId).first<ComplianceDocuments>();
       if (!old || old.ownerType !== "staff") {
         throw new TRPCError({ code: "NOT_FOUND", message: "Staff document not found" });
+      }
+      if (isNonExpiringComplianceKey(old.requirementKey)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This document type does not expire and cannot be renewed with an expiry date.",
+        });
       }
       const [row] = await db.from("complianceDocuments").insert<ComplianceDocuments>({
         ownerType: "staff",

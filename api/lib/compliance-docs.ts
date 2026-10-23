@@ -1,5 +1,24 @@
 /** Keys no longer collected on the candidate document form. */
-export const REMOVED_COMPLIANCE_KEYS = ["employment_history", "qualifications"] as const;
+export const REMOVED_COMPLIANCE_KEYS = [
+  "employment_history",
+  "qualifications",
+  "health_declaration",
+] as const;
+
+/**
+ * Documents that are verified once and must never generate expiry reminders.
+ * (Proof of address must be recent at hire, but is not re-tracked after verification.)
+ */
+export const NON_EXPIRING_COMPLIANCE_KEYS = [
+  "bank_details",
+  "signed_contract",
+  "reference_1",
+  "reference_2",
+  "proof_of_address",
+  "health_declaration",
+  "employment_history",
+  "qualifications",
+] as const;
 
 export type ComplianceInputKind = "file" | "text";
 
@@ -48,6 +67,15 @@ export const COMPLIANCE_OVERRIDES: Record<string, Override> = {
 
 export function isRemovedComplianceKey(key: string): boolean {
   return (REMOVED_COMPLIANCE_KEYS as readonly string[]).includes(key);
+}
+
+export function isNonExpiringComplianceKey(key: string): boolean {
+  return (NON_EXPIRING_COMPLIANCE_KEYS as readonly string[]).includes(key);
+}
+
+/** Only DBS, RTW, photo ID, driving docs (etc.) should drive expiry alerts. */
+export function complianceKeyTracksExpiry(key: string): boolean {
+  return !isNonExpiringComplianceKey(key) && !isRemovedComplianceKey(key);
 }
 
 export function resolveComplianceRequirement(req: {

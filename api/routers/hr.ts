@@ -51,7 +51,7 @@ import {
 import {
   MIN_OFFERED_SLOTS, batchOverlaps, panelConflicts, slotCapacity, slotUiState, SLOT_STATE_LABEL,
 } from "../lib/interview-slots";
-import { isRemovedComplianceKey, resolveComplianceRequirement } from "../lib/compliance-docs";
+import { isNonExpiringComplianceKey, isRemovedComplianceKey, resolveComplianceRequirement } from "../lib/compliance-docs";
 import { archiveOfferOnHire, buildOfferLetter, ensureOfferPdfStored, offerPdfDownloadUrl } from "../lib/offer-letter";
 import { recordTrainingOutcome, trainingOutcomeDownloadUrl } from "../lib/training-outcome";
 import {
@@ -1102,7 +1102,10 @@ export const hrRouter2 = createRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only uploaded documents can be verified." });
       }
       let expiresAt = input.expiresAt || null;
-      if (!expiresAt) {
+      // One-off hire docs must never carry an expiry (stops false manager alerts).
+      if (isNonExpiringComplianceKey(pendingDoc.requirementKey)) {
+        expiresAt = null;
+      } else if (!expiresAt) {
         const req = await db.from("complianceRequirements").eq("key", pendingDoc.requirementKey).first<ComplianceRequirements>();
         if (req?.expiresAfterMonths) {
           const d = new Date();
@@ -1234,7 +1237,7 @@ export const hrRouter2 = createRouter({
       return "green";
     };
     const keyReqs = reqs.filter((r) =>
-      ["dbs_enhanced", "right_to_work", "photo_id", "health_declaration", "driving_docs"].includes(r.key));
+      ["dbs_enhanced", "right_to_work", "photo_id", "driving_docs"].includes(r.key));
     const keyCourses = courses.filter((c) => c.mandatory).slice(0, 6);
     return {
       requirements: keyReqs, courses: keyCourses,
@@ -1364,6 +1367,13 @@ export const hrRouter2 = createRouter({
           await db.from("complianceDocuments").eq("id", old.id).update({ status: "superseded" });
           await clearReminderState("compliance", Number(old.id));
         }
+      }
+
+      if (isNonExpiringComplianceKey(input.requirementKey)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This document type does not expire and cannot be renewed with an expiry date.",
+        });
       }
 
       const [row] = await db.from("complianceDocuments").insert<ComplianceDocuments>({
@@ -1730,10 +1740,13 @@ export const hrRouter2 = createRouter({
         .eq("status", "verified")
         .many<ComplianceDocuments>();
       for (const d of docs) {
+        if (isRemovedComplianceKey(d.requirementKey)) continue;
         await db.from("complianceDocuments").insert({
           ownerType: "staff", ownerId: staffId, requirementKey: d.requirementKey,
-          fileName: d.fileName, fileKey: d.fileKey, status: "verified", verifiedBy: d.verifiedBy,
-          verifiedAt: d.verifiedAt, expiresAt: d.expiresAt,
+          fileName: d.fileName, fileKey: d.fileKey, textValue: d.textValue ?? null,
+          status: "verified", verifiedBy: d.verifiedBy,
+          verifiedAt: d.verifiedAt,
+          expiresAt: isNonExpiringComplianceKey(d.requirementKey) ? null : d.expiresAt,
         });
       }
       // classroom sessions already held count as attended and completed

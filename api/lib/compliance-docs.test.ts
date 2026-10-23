@@ -1,11 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { isRemovedComplianceKey, resolveComplianceRequirement } from "./compliance-docs";
+import {
+  complianceKeyTracksExpiry,
+  isNonExpiringComplianceKey,
+  isRemovedComplianceKey,
+  resolveComplianceRequirement,
+} from "./compliance-docs";
 
 describe("compliance document form", () => {
-  it("retires qualifications and employment history", () => {
+  it("retires qualifications, employment history and health declaration", () => {
     expect(isRemovedComplianceKey("qualifications")).toBe(true);
     expect(isRemovedComplianceKey("employment_history")).toBe(true);
+    expect(isRemovedComplianceKey("health_declaration")).toBe(true);
     expect(isRemovedComplianceKey("bank_details")).toBe(false);
+  });
+
+  it("treats bank, contract, references and proof of address as non-expiring", () => {
+    for (const key of ["bank_details", "signed_contract", "reference_1", "reference_2", "proof_of_address"]) {
+      expect(isNonExpiringComplianceKey(key)).toBe(true);
+      expect(complianceKeyTracksExpiry(key)).toBe(false);
+    }
+    expect(complianceKeyTracksExpiry("dbs_enhanced")).toBe(true);
+    expect(complianceKeyTracksExpiry("right_to_work")).toBe(true);
+    expect(complianceKeyTracksExpiry("photo_id")).toBe(true);
   });
 
   it("uses text input for bank, references and right to work", () => {
