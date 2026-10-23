@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  CheckCircle2, Circle, Upload, PenLine, GraduationCap, CalendarDays,
+  CheckCircle2, Circle, Upload, PenLine, GraduationCap, CalendarDays, CalendarClock,
   AlertTriangle, Camera, ChevronDown, Clock, FileText, Lightbulb, Loader2, Lock, MapPin, PartyPopper, RefreshCw, ShieldCheck, UploadCloud, Video,
   type LucideIcon,
 } from "lucide-react";
@@ -95,6 +95,10 @@ export default function Portal() {
       <div className="mt-6 space-y-5">
         {(stage === "pre_interview_forms_sent" || stage === "shortlisted") && (
           <PreInterviewForm token={token!} existing={(d.form?.data as Record<string, unknown>) ?? {}} submitted={!!d.form?.submittedAt} />
+        )}
+
+        {["pre_interview_forms_complete", "interview_booked"].includes(stage) && (d.proposedSlots?.length ?? 0) > 0 && (
+          <ProposedTimesSection token={token!} slots={d.proposedSlots} booking={d.booking} />
         )}
 
         {["pre_interview_forms_complete", "interview_booked"].includes(stage) && (
@@ -243,6 +247,70 @@ function PreInterviewForm({ token, existing, submitted }: {
   );
 }
 
+/* ── Interview times proposed for this candidate ── */
+function ProposedTimesSection({ token, slots, booking }: {
+  token: string;
+  slots: {
+    id: number | bigint; startsAt: string | Date; endsAt: string | Date;
+    locationText: string | null; teamsMeetingUrl: string | null;
+    booking: { slotId: number | bigint; status: string } | null;
+  }[];
+  booking: { slotId: number | bigint } | null;
+}) {
+  const utils = trpc.useUtils();
+  const book = trpc.portal.bookSlot.useMutation({
+    onSuccess: () => { utils.portal.get.invalidate({ token }); toast.success("Interview time confirmed"); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  return (
+    <section className="uc-card border-l-4 border-l-[--brand-600] p-5">
+      <h2 className="flex items-center gap-2 font-semibold text-[--brand-900]">
+        <CalendarClock className="h-4 w-4 text-[--brand-600]" /> Your interview times
+      </h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        We&apos;ve offered you the times below — choose the one that suits you best.
+        {booking && " Need to change? Pick a different time and your current booking is released automatically."}
+      </p>
+      <ul className="mt-3 space-y-2">
+        {slots.map((s) => {
+          const selected = s.booking?.status === "booked";
+          return (
+            <li key={s.id} className={`rounded-lg border p-3 text-sm ${selected ? "border-green-500 bg-green-50" : "bg-white"}`}
+              style={selected ? undefined : { borderColor: "var(--line)" }}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="font-semibold">{fmtDate(s.startsAt)}</p>
+                  <p>{fmtTime(s.startsAt)} – {fmtTime(s.endsAt)}</p>
+                  <p className="text-xs text-muted-foreground">{s.locationText ?? "Video interview"}</p>
+                </div>
+                {selected ? (
+                  <Chip value="interview_booked" label="Selected" />
+                ) : (
+                  <Button size="sm" disabled={book.isPending}
+                    onClick={() => book.mutate({ token, slotId: Number(s.id) })}>
+                    Choose this time
+                  </Button>
+                )}
+              </div>
+              {selected && (
+                <div className="mt-2 text-xs text-green-900">
+                  <p>This is your chosen interview time — you&apos;re all set.</p>
+                  {s.teamsMeetingUrl && (
+                    <p className="mt-1 break-all">
+                      Join link: <a className="text-[--brand-700] underline" href={s.teamsMeetingUrl} target="_blank" rel="noreferrer">{s.teamsMeetingUrl}</a>
+                    </p>
+                  )}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 /* ── Interview booking ── */
 function BookingSection({ token, slots, booking, slot }: {
   token: string;
@@ -270,10 +338,12 @@ function BookingSection({ token, slots, booking, slot }: {
 
   return (
     <section className="uc-card p-5">
-      <h2 className="flex items-center gap-2 font-semibold text-[--brand-900]"><CalendarDays className="h-4 w-4 text-[--brand-600]" /> Interview</h2>
+      <h2 className="flex items-center gap-2 text-base font-semibold text-[--brand-900]">
+        <CalendarDays className="h-4 w-4 text-[--brand-600]" /> Interview
+      </h2>
       {booking && slot ? (
-        <div className="mt-2 rounded-lg border border-[--brand-400] bg-[--brand-50]/px-3 py-2.5">
-          <p className="flex items-start gap-2 text-sm text-[--brand-900]">
+        <div className="mt-3 rounded-xl border border-[--brand-400] bg-[--brand-50] px-3.5 py-3">
+          <p className="flex items-start gap-2 text-sm leading-relaxed text-[--brand-900]">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[--brand-700]" aria-hidden />
             <span>
               You're booked for <strong>{fmtDate(slot.startsAt)} at {fmtTime(slot.startsAt)}</strong>
@@ -281,16 +351,23 @@ function BookingSection({ token, slots, booking, slot }: {
             </span>
           </p>
           {slot.teamsMeetingUrl && (
-            <p className="mt-1 pl-6 text-xs text-muted-foreground break-all">
+            <p className="mt-1.5 pl-6 text-xs text-muted-foreground break-all">
               Join link: <a className="text-[--brand-600] underline" href={slot.teamsMeetingUrl}>{slot.teamsMeetingUrl}</a>
             </p>
           )}
           <p className="mt-1.5 pl-6 text-xs text-muted-foreground">Need to change? Tap a different available slot, then confirm.</p>
         </div>
       ) : slots.length > 0 ? (
-        <p className="mt-1 text-sm text-muted-foreground">Tap a time to choose it, then confirm. Full slots show as booked.</p>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          Tap a time to choose it, then confirm. Full slots show as booked.
+        </p>
       ) : null}
-      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2" role="listbox" aria-label="Interview times">
+
+      <div
+        className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2"
+        role="listbox"
+        aria-label="Interview times"
+      >
         {slots.map((s) => {
           const id = Number(s.id);
           const state = s.state ?? (confirmedId === id
@@ -311,7 +388,7 @@ function BookingSection({ token, slots, booking, slot }: {
                 if (isConfirmed || isBookedOut) return;
                 setPickedId(id === pickedId ? null : id);
               }}
-              className={`uc-focus relative rounded-xl border-2 p-3 text-left text-sm transition-colors ${
+              className={`uc-focus relative rounded-xl border-2 p-3.5 text-left text-sm transition-colors ${
                 isConfirmed
                   ? "border-[--brand-600] bg-[--brand-50] shadow-sm"
                   : isPicked
@@ -327,10 +404,10 @@ function BookingSection({ token, slots, booking, slot }: {
                   aria-hidden
                 />
               )}
-              <span className="block pr-7 font-semibold">{fmtDate(s.startsAt)}</span>
-              <span className="block">{fmtTime(s.startsAt)} – {fmtTime(s.endsAt)}</span>
-              <span className="block text-xs text-muted-foreground">{s.locationText ?? "Video interview"}</span>
-              <span className="mt-1.5 inline-block">
+              <span className="block pr-7 font-semibold text-[--brand-900]">{fmtDate(s.startsAt)}</span>
+              <span className="mt-0.5 block text-[--ink-600]">{fmtTime(s.startsAt)} – {fmtTime(s.endsAt)}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">{s.locationText ?? "Video interview"}</span>
+              <span className="mt-2 inline-block">
                 <Chip
                   value={isConfirmed ? "selected" : isPicked ? "your_pick" : isBookedOut ? "booked" : "available"}
                   label={isConfirmed ? "Your booking" : isPicked ? "Your pick" : isBookedOut ? "Booked" : "Available"}
@@ -339,28 +416,34 @@ function BookingSection({ token, slots, booking, slot }: {
             </button>
           );
         })}
-        {slots.length === 0 && !booking && (
-          <p className="text-sm text-muted-foreground">
-            Interview times aren't open yet. We'll email you as soon as they are, so there's nothing you need to do for now.
-          </p>
-        )}
       </div>
+
+      {slots.length === 0 && !booking && (
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+          Interview times aren't open yet. We'll email you as soon as they are, so there's nothing you need to do for now.
+        </p>
+      )}
+
       {picked && (
-        <div className="mt-3 flex flex-col gap-2 rounded-xl border border-[--brand-400] bg-[--brand-50]/p-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-[--brand-900]">
+        <div className="mt-4 space-y-3 rounded-xl border border-[--brand-400] bg-[--brand-50] p-4">
+          <p className="text-sm leading-relaxed text-[--brand-900]">
             {rescheduling ? "Change to" : "You've chosen"}{" "}
             <strong>{fmtDate(picked.startsAt)} at {fmtTime(picked.startsAt)}</strong>
             {picked.locationText ? ` — ${picked.locationText}` : ""}.
           </p>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button type="button" variant="ghost" size="sm" className="h-9" disabled={book.isPending}
-              onClick={() => setPickedId(null)}>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={book.isPending}
+              onClick={() => setPickedId(null)}
+            >
               Clear
             </Button>
             <Button
               type="button"
               size="sm"
-              className="h-9"
               disabled={book.isPending}
               onClick={() => book.mutate({ token, slotId: Number(picked.id) })}
             >

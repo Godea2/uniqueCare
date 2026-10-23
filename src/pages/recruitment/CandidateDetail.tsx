@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   CheckCircle2, XCircle, FileCheck2, GraduationCap, Copy, Check, ArrowLeft, FileText,
-  BadgeCheck, ThumbsUp, ThumbsDown, Ban, MessageSquarePlus, Download, type LucideIcon,
+  BadgeCheck, ThumbsUp, ThumbsDown, Ban, MessageSquarePlus, Download, CalendarClock, Plus, X,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -73,6 +74,7 @@ export default function CandidateDetail() {
 
   const [rejectOpen, setRejectOpen] = useState(false);
   const [overrideOpen, setOverrideOpen] = useState(false);
+  const [proposeOpen, setProposeOpen] = useState(false);
 
   if (q.isLoading) return <Loading rows={6} />;
   if (q.error) return <ErrorState message={q.error.message} onRetry={() => q.refetch()} />;
@@ -244,7 +246,14 @@ export default function CandidateDetail() {
 
           {/* Interview */}
           <section className="uc-card p-5" aria-label="Interview">
-            <h2 className="uc-label mb-3">Interview</h2>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="uc-label">Interview</h2>
+              {["super_admin", "admin", "team_leader", "interview_panel"].includes(d.myRole) && (
+                <Button size="sm" variant="outline" onClick={() => setProposeOpen(true)}>
+                  <CalendarClock className="h-3.5 w-3.5 mr-1" /> Propose times
+                </Button>
+              )}
+            </div>
             {d.slot && d.booking ? (
               <p className="text-sm mb-3">
                 Confirmed: {fmtDate(d.slot.startsAt)} {fmtTime(d.slot.startsAt)}–{fmtTime(d.slot.endsAt)} · {d.slot.locationText ?? "Interview"}
@@ -253,13 +262,29 @@ export default function CandidateDetail() {
             ) : (
               <p className="text-sm text-muted-foreground mb-3">
                 {stage === "pre_interview_forms_complete"
-                  ? "Forms complete — the candidate can pick an available slot in their portal."
+                  ? "Forms complete — propose private times below, or the candidate can pick from the shared pool in their portal."
                   : "No interview selected yet."}
               </p>
             )}
-            {(d.offeredSlots?.length ?? 0) > 0 && (
+            {(d.proposedSlots?.length ?? 0) > 0 && (
+              <div className="mb-3">
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">Proposed for this candidate</p>
+                <ul className="space-y-1.5">
+                  {d.proposedSlots.map((s) => (
+                    <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[--brand-300] bg-[--brand-50]/50 px-3 py-2 text-sm">
+                      <span>
+                        {fmtDate(s.startsAt)} {fmtTime(s.startsAt)}–{fmtTime(s.endsAt)}
+                        <span className="ml-1.5 text-xs text-muted-foreground">Private · {s.bookedCount}/{s.capacity}</span>
+                      </span>
+                      <Chip value={s.state} label={s.stateLabel} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {(d.offeredSlots?.filter((s) => !s.applicationId).length ?? 0) > 0 && (
               <ul className="mb-3 space-y-1.5">
-                {d.offeredSlots.map((s) => (
+                {d.offeredSlots.filter((s) => !s.applicationId).map((s) => (
                   <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--line)" }}>
                     <span>
                       {fmtDate(s.startsAt)} {fmtTime(s.startsAt)}–{fmtTime(s.endsAt)}
@@ -424,6 +449,7 @@ export default function CandidateDetail() {
         onConfirm={(reason) => move.mutate({ applicationId: app.id, to: stage === "applied" || stage === "review" ? "screened_out" : "rejected", reason })} />
       <OverrideDialog open={overrideOpen} onClose={() => setOverrideOpen(false)} current={stage}
         onConfirm={(to, reason) => move.mutate({ applicationId: app.id, to: to as never, reason, override: true })} />
+      <ProposeSlotsDialog open={proposeOpen} onClose={() => setProposeOpen(false)} applicationId={app.id} onDone={inv} />
     </div>
   );
 }
@@ -861,6 +887,90 @@ function DocChecklist({ docs, onDone }: { docs: NonNullable<Detail>["docs"]; onD
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+type SlotRow = { date: string; start: string; end: string };
+
+/** Offer this candidate specific interview times — each becomes a private capacity-1 slot they can book in their portal. */
+function ProposeSlotsDialog({ open, onClose, applicationId, onDone }: {
+  open: boolean; onClose: () => void; applicationId: number; onDone: () => void;
+}) {
+  const [rows, setRows] = useState<SlotRow[]>([
+    { date: "", start: "10:00", end: "10:45" },
+    { date: "", start: "14:00", end: "14:45" },
+    { date: "", start: "16:00", end: "16:45" },
+  ]);
+  const propose = trpc.hr2.proposeCandidateSlots.useMutation({
+    onSuccess: (r) => {
+      toast.success(`${r.ids.length} time${r.ids.length === 1 ? "" : "s"} proposed — the candidate picks one in their portal`);
+      onDone();
+      onClose();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const setRow = (i: number, patch: Partial<SlotRow>) =>
+    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const validRows = rows.filter((r) => r.date && r.start && r.end && r.start < r.end);
+  const hasBadRow = rows.some((r) => (r.date || r.start || r.end) && !(r.date && r.start && r.end && r.start < r.end));
+  const valid = validRows.length >= 1 && !hasBadRow;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Propose interview times</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Offer specific times to this candidate — they pick one through their portal link. Each time becomes a private slot only they can book. Offering 3 or more gives them a real choice.
+        </p>
+        <div className="mt-3 space-y-2.5">
+          {rows.map((r, i) => (
+            <div key={i} className="flex items-end gap-2">
+              <div className="grid flex-1 grid-cols-3 gap-2">
+                <div>
+                  <Label htmlFor={`pt-date-${i}`}>Date</Label>
+                  <Input id={`pt-date-${i}`} type="date" value={r.date} onChange={(e) => setRow(i, { date: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor={`pt-start-${i}`}>Start</Label>
+                  <Input id={`pt-start-${i}`} type="time" value={r.start} onChange={(e) => setRow(i, { start: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor={`pt-end-${i}`}>End</Label>
+                  <Input id={`pt-end-${i}`} type="time" value={r.end} onChange={(e) => setRow(i, { end: e.target.value })} />
+                </div>
+              </div>
+              <Button size="sm" variant="ghost" className="h-9 px-2" aria-label={`Remove time ${i + 1}`}
+                disabled={rows.length <= 1}
+                onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+        <Button variant="outline" size="sm" className="mt-2"
+          onClick={() => setRows((rs) => [...rs, { date: "", start: "10:00", end: "10:45" }])}>
+          <Plus className="h-4 w-4 mr-1" /> Add another time
+        </Button>
+        {hasBadRow && (
+          <p className="mt-2 text-xs text-red-600">Every row needs a date, and the end time must be after the start time.</p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            disabled={!valid || propose.isPending}
+            onClick={() => propose.mutate({
+              applicationId,
+              slots: validRows.map((r) => ({
+                startsAt: new Date(`${r.date}T${r.start}:00`).toISOString(),
+                endsAt: new Date(`${r.date}T${r.end}:00`).toISOString(),
+              })),
+            })}>
+            Propose {validRows.length} time{validRows.length === 1 ? "" : "s"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

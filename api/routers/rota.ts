@@ -9,6 +9,7 @@ import type {
   ClientRequiredSkills,
   Clients,
   ComplianceDocuments,
+  ComplianceRequirements,
   ReassignmentRequests,
   RotaWeeks,
   StaffAvailability,
@@ -30,8 +31,9 @@ import {
 import { assignRota, REST_BREAK_MIN, STUDENT_MAX_WEEKLY_HOURS, type EngineVisit, type EngineWorker } from "../rota/engine";
 import { geocodePostcode, londonTime } from "../lib/geo";
 import {
-  buildWeekWorkbook, dayNameFromDate, normaliseCallType, normaliseClientKey, normaliseVisitType,
-  parseSheetDate, parseTimeToHm, parseWeekWorkbook, type WeekSheetRow,
+  buildWeekWorkbook, dateFromWeekDay, dayNameFromDate, detectAndParseWorkbook,
+  normaliseCallType, normaliseClientKey, normaliseVisitType,
+  parseSheetDate, parseTimeToHm, type WeekSheetRow,
 } from "../rota/week-sheet";
 
 const DAY = 24 * 60;
@@ -113,22 +115,30 @@ async function loadEngineInput(weekId: number, onlyVisitIds?: number[]) {
   });
 
   const blockExpired = await blockRotaOnExpiredMandatory();
+  const staffReqKeys = new Set(
+    (await db.from("complianceRequirements").many<ComplianceRequirements>())
+      .filter((r) => r.appliesTo === "staff" && r.required)
+      .map((r) => r.key),
+  );
+  // Fall back to known mandatory keys if requirements table has no staff rows yet
+  const mandatoryKeys = staffReqKeys.size
+    ? staffReqKeys
+    : new Set<string>(MANDATORY_ROTA_KEYS);
   const staffDocs = blockExpired
     ? await db.from("complianceDocuments").eq("ownerType", "staff").many<ComplianceDocuments>()
     : [];
   const today = new Date().toISOString().slice(0, 10);
   const workers: EngineWorker[] = staff
     .filter((s2) => ["care_worker", "team_leader", "supervisor"].includes(s2.role))
-    .filter((s2) => {
-      if (!blockExpired) return true;
-      for (const key of MANDATORY_ROTA_KEYS) {
-        const d = latestStaffDoc(staffDocs, Number(s2.id), key);
-        if (!d || d.status !== "verified") return false;
-        if (d.expiresAt && d.expiresAt < today) return false;
-      }
-      return true;
-    })
     .map((w) => {
+      const expiredDocKeys = blockExpired
+        ? [...mandatoryKeys].filter((key) => {
+          const d = latestStaffDoc(staffDocs, Number(w.id), key);
+          if (!d || d.status !== "verified") return true;
+          if (d.expiresAt && d.expiresAt < today) return true;
+          return false;
+        })
+        : [];
       const wAvail: Record<number, { start: number; end: number }[]> = {};
       for (const a of avail.filter((a) => a.staffId === w.id)) {
         (wAvail[a.dayOfWeek] ??= []).push({ start: toMin(a.startTime), end: toMin(a.endTime) });
@@ -165,6 +175,7 @@ async function loadEngineInput(weekId: number, onlyVisitIds?: number[]) {
         wtdOptOut: !!w.wtdOptOut, isStudent: !!w.isStudent, daysOff, prevDutyEndMin,
         availability: wAvail, unavailability: wUn,
         assignedHours: 0,
+        expiredDocKeys,
       };
     });
 
@@ -322,6 +333,37 @@ export const rotaRouter = createRouter({
       if (!tpl) throw new TRPCError({ code: "NOT_FOUND" });
       await db.from("visitTemplates").eq("id", input.id).delete();
       await audit(sc.staff.fullName, "visit_template_removed", "clients", tpl.clientId, { id: input.id });
+      return { ok: true };
+    }),
+
+  /** Edit an existing weekly visit pattern (day, time, duration, type, window). */
+  updateVisitTemplate: authedQuery
+    .input(z.object({
+      id: z.number(),
+      dayOfWeek: z.number().int().min(0).max(6).optional(),
+      startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+      durationMinutes: z.number().int().min(15).max(720).optional(),
+      visitType: z.string().trim().min(2).max(60).optional(),
+      callType: z.enum(["single", "double"]).optional(),
+      flexibilityMinutes: z.number().int().min(0).max(120).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, ...ROTA_WRITE_ROLES);
+      const tpl = await db.from("visitTemplates").eq("id", input.id).first<VisitTemplates>();
+      if (!tpl) throw new TRPCError({ code: "NOT_FOUND" });
+      const patch: Partial<VisitTemplates> = {};
+      if (input.dayOfWeek !== undefined) patch.dayOfWeek = input.dayOfWeek;
+      if (input.startTime !== undefined) patch.startTime = input.startTime;
+      if (input.durationMinutes !== undefined) patch.durationMinutes = input.durationMinutes;
+      if (input.visitType !== undefined) {
+        patch.visitType = input.visitType.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+      }
+      if (input.callType !== undefined) patch.callType = input.callType;
+      if (input.flexibilityMinutes !== undefined) patch.flexibilityMinutes = input.flexibilityMinutes;
+      if (Object.keys(patch).length === 0) return { ok: true };
+      await db.from("visitTemplates").eq("id", input.id).update(patch);
+      await audit(sc.staff.fullName, "visit_template_updated", "clients", tpl.clientId, { id: input.id, ...patch });
       return { ok: true };
     }),
 
@@ -875,8 +917,14 @@ export const rotaRouter = createRouter({
       if (week.status !== "draft") {
         throw new TRPCError({ code: "CONFLICT", message: "Only draft weeks can be imported into. Unlock/regenerate as draft first." });
       }
-      const rows = await parseWeekWorkbook(Buffer.from(input.base64, "base64"));
-      return validateImportRows(week, rows);
+      let parsed;
+      try {
+        parsed = await detectAndParseWorkbook(Buffer.from(input.base64, "base64"));
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Could not read workbook" });
+      }
+      const preview = await validateImportRows(week, parsed.rows);
+      return { ...preview, sheetUsed: parsed.sheetUsed, warnings: parsed.warnings };
     }),
 
   /** Apply a validated rota template to the draft week (replaces visit assignments for matched rows). */
@@ -890,8 +938,13 @@ export const rotaRouter = createRouter({
       if (week.status !== "draft") {
         throw new TRPCError({ code: "CONFLICT", message: "Only draft weeks can be imported into." });
       }
-      const rows = await parseWeekWorkbook(Buffer.from(input.base64, "base64"));
-      const preview = await validateImportRows(week, rows);
+      let parsedWb;
+      try {
+        parsedWb = await detectAndParseWorkbook(Buffer.from(input.base64, "base64"));
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e instanceof Error ? e.message : "Could not read workbook" });
+      }
+      const preview = await validateImportRows(week, parsedWb.rows);
       if (preview.errorCount > 0) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -1006,19 +1059,22 @@ async function validateImportRows(week: RotaWeeks, rows: WeekSheetRow[]) {
 
   for (const row of rows) {
     const errors: string[] = [];
-    const dateIso = parseSheetDate(row.date);
-    if (!dateIso) errors.push("Invalid date (use DD/MM/YYYY)");
+    let dateIso = parseSheetDate(row.date);
+    if (!dateIso && row.day && week.weekStartDate) {
+      dateIso = dateFromWeekDay(week.weekStartDate, row.day);
+    }
+    if (!dateIso) errors.push("Invalid date (use DD/MM/YYYY) or a weekday name for this week");
     const startHm = parseTimeToHm(row.start);
     const endHm = parseTimeToHm(row.end);
     if (!startHm) errors.push("Invalid start time");
     if (!endHm) errors.push("Invalid end time");
     const client = clientByName.get(normaliseClientKey(row.client));
     if (!client) errors.push(`Unknown client "${row.client}"`);
-    const callType = normaliseCallType(row.callType || "single");
+    const callType = normaliseCallType(row.callType || (row.carer.includes("+") ? "double" : "single"));
     if (!callType) errors.push(`Invalid call type "${row.callType}"`);
     const visitType = normaliseVisitType(row.visitType || "visit");
     const carerNames = row.carer
-      ? row.carer.split(/\s*&\s*|\s*,\s*/).map((n) => n.trim()).filter(Boolean)
+      ? row.carer.split(/\s*(?:&|\+|\/|,)\s*/).map((n) => n.trim()).filter(Boolean)
       : [];
     const staffIds: number[] = [];
     for (const name of carerNames) {

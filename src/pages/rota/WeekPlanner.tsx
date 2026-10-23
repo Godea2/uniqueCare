@@ -274,10 +274,16 @@ export default function WeekPlanner() {
             <DialogHeader>
               <DialogTitle>Import rota preview</DialogTitle>
               <DialogDescription>
-                {importPreview.okCount} row(s) ready · {importPreview.errorCount} with errors.
-                Fix errors in Excel and re-upload, or confirm to apply valid rows only when there are zero errors.
+                {importPreview.okCount} row(s) ready · {importPreview.errorCount} with errors
+                {importPreview.sheetUsed ? ` · sheet “${importPreview.sheetUsed}”` : ""}.
+                Fix errors in Excel and re-upload, or confirm when there are zero errors.
               </DialogDescription>
             </DialogHeader>
+            {(importPreview.warnings?.length ?? 0) > 0 && (
+              <ul className="mb-2 space-y-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {importPreview.warnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            )}
             <ul className="max-h-80 space-y-2 overflow-y-auto text-sm">
               {importPreview.rows.map((r) => (
                 <li key={r.rowNum} className={`rounded-lg border px-3 py-2 ${r.ok ? "border-green-200 bg-green-50/50" : "border-red-300 bg-red-50"}`}>

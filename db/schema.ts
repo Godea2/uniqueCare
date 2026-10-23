@@ -439,6 +439,8 @@ export interface InterviewScorecards {
 export interface InterviewSlots {
   id: number;
   jobPostingId: number | null;
+  /** When set, only this application can book the slot (private proposed times). */
+  applicationId?: number | null;
   startsAt: string;
   endsAt: string;
   panelMemberIds: unknown | null;

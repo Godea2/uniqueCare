@@ -42,7 +42,7 @@ function OrgSection({ org }: { org: RouterOutputs["core"]["organisation"] }) {
     name: org?.name ?? "Unique Care UK", address: org?.address ?? "", cqcLocationId: org?.cqcLocationId ?? "",
     screeningThreshold: settings?.screeningThreshold ?? 85,
     signatoryName: settings?.signatoryName ?? "", signatoryTitle: settings?.signatoryTitle ?? "",
-    geofenceRadiusM: settings?.geofenceRadiusM ?? 10,
+    geofenceRadiusM: settings?.geofenceRadiusM ?? 3,
     blockRotaOnExpiredMandatory: settings?.blockRotaOnExpiredMandatory === true,
   });
   const save = trpc.core.updateOrganisation.useMutation({
@@ -76,12 +76,12 @@ function OrgSection({ org }: { org: RouterOutputs["core"]["organisation"] }) {
             onChange={(e) => setF((s) => ({ ...s, signatoryTitle: e.target.value }))} />
         </div>
         <div className="md:col-span-2 rounded-xl border p-3" style={{ borderColor: "var(--line)" }}>
-          <Label htmlFor="o-geo">Visit geofence radius ({f.geofenceRadiusM} metres)</Label>
+          <Label htmlFor="o-geo">Geofence radius (metres) — {f.geofenceRadiusM} m</Label>
           <input
             id="o-geo"
             type="range"
-            min={3}
-            max={50}
+            min={1}
+            max={100}
             step={1}
             value={f.geofenceRadiusM}
             onChange={(e) => setF((s) => ({ ...s, geofenceRadiusM: Number(e.target.value) }))}
@@ -89,10 +89,10 @@ function OrgSection({ org }: { org: RouterOutputs["core"]["organisation"] }) {
           />
           <p className="mt-1 text-[11px] text-muted-foreground">
             Staff must be within this distance of the client’s address to clock in or clock out (plus GPS accuracy).
-            Default 10 m (CQC-style doorstep). Location is probed every 15 minutes while My Rota is open; a server job also auto clock-outs after 15 minutes outside or past the visit end if the app is closed (grace unpaid).
+            Default 3 m (CQC-style doorstep). Location is probed every 15 minutes while My Rota is open; a server job also auto clock-outs after 15 minutes outside or past the visit end if the app is closed (grace unpaid).
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {[3, 5, 10, 15, 25].map((m) => (
+            {[1, 3, 5, 10, 15, 25, 50].map((m) => (
               <Button key={m} type="button" size="sm" variant={f.geofenceRadiusM === m ? "default" : "outline"} className="h-7"
                 onClick={() => setF((s) => ({ ...s, geofenceRadiusM: m }))}>
                 {m} m
@@ -102,9 +102,9 @@ function OrgSection({ org }: { org: RouterOutputs["core"]["organisation"] }) {
         </div>
         <div className="md:col-span-2 rounded-xl border p-3 flex items-start justify-between gap-3" style={{ borderColor: "var(--line)" }}>
           <div>
-            <Label htmlFor="o-block-rota">Block rota assignment when DBS or right-to-work is expired</Label>
+            <Label htmlFor="o-block-rota">Block rota assignment when mandatory documents are expired</Label>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              When on, carers with missing or expired mandatory documents cannot be assigned (manual or auto).
+              When on, carers with missing or expired required staff compliance documents (from the requirements list) cannot be assigned (manual or auto).
             </p>
           </div>
           <Switch

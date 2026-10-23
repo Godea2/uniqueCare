@@ -51,6 +51,8 @@ export interface EngineWorker {
   unavailability: { startMin: number; endMin: number }[];
   /** hours already assigned this week */
   assignedHours: number;
+  /** Keys of mandatory compliance docs that are missing or expired — hard-blocks assignment */
+  expiredDocKeys?: string[];
 }
 
 export interface EngineVisit {
@@ -104,6 +106,8 @@ function eligible(
   v: EngineVisit,
   weeklyHours: Map<number, number>,
 ): { ok: boolean; reason?: string } {
+  if (w.expiredDocKeys?.length)
+    return { ok: false, reason: `expired mandatory document: ${w.expiredDocKeys.join(", ")}` };
   if (v.lockedStaffIds.includes(w.id) === false && v.excludedStaffIds.includes(w.id))
     return { ok: false, reason: "Client has excluded this worker" };
   if (v.preferredGender !== "any" && w.gender && w.gender !== v.preferredGender)

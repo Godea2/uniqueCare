@@ -1,7 +1,6 @@
 /**
  * Weekly rota Excel template — one row per visit.
- * Columns match coordinator download/upload: Day, Date, Client, Visit type,
- * Call type, Start, End, Carer, Notes.
+ * Accepts the app's own template and the Unique Care "Rota Templates Weeks 1–4" workbook.
  */
 import ExcelJS from "exceljs";
 
@@ -22,11 +21,33 @@ export type WeekSheetRow = {
   notes: string;
 };
 
+export type ParsedWorkbook = {
+  rows: WeekSheetRow[];
+  sheetUsed: string;
+  warnings: string[];
+};
+
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export function dayNameFromDate(isoOrDate: string | Date): string {
   const d = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
   return DAY_NAMES[(d.getDay() + 6) % 7] ?? "";
+}
+
+/** Monday-based day index from a day name (0=Mon … 6=Sun), or null. */
+export function dayIndexFromName(day: string): number | null {
+  const t = day.trim().toLowerCase();
+  const i = DAY_NAMES.findIndex((n) => n.toLowerCase() === t || n.toLowerCase().startsWith(t.slice(0, 3)));
+  return i >= 0 ? i : null;
+}
+
+/** Resolve a day name to YYYY-MM-DD within a Monday week start. */
+export function dateFromWeekDay(weekStartIso: string, day: string): string | null {
+  const idx = dayIndexFromName(day);
+  if (idx == null) return null;
+  const d = new Date(`${weekStartIso.slice(0, 10)}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + idx);
+  return d.toISOString().slice(0, 10);
 }
 
 export function parseTimeToHm(value: string): string | null {
@@ -77,8 +98,18 @@ export async function buildWeekWorkbook(rows: Omit<WeekSheetRow, "rowNum">[]): P
 
 function cellStr(v: ExcelJS.CellValue): string {
   if (v == null) return "";
+  if (typeof v === "number" && v >= 0 && v < 1) {
+    // Excel time-of-day fraction
+    const mins = Math.round(v * 24 * 60) % (24 * 60);
+    return `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+  }
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v).trim();
   if (v instanceof Date) {
+    // Time-only cells often come as Date with 1899 epoch — prefer HH:MM when date part is epoch-ish
+    const y = v.getFullYear();
+    if (y < 1902) {
+      return `${String(v.getHours()).padStart(2, "0")}:${String(v.getMinutes()).padStart(2, "0")}`;
+    }
     return `${String(v.getDate()).padStart(2, "0")}/${String(v.getMonth() + 1).padStart(2, "0")}/${v.getFullYear()}`;
   }
   if (typeof v === "object" && "text" in v && typeof (v as { text: unknown }).text === "string") {
@@ -88,30 +119,162 @@ function cellStr(v: ExcelJS.CellValue): string {
   return String(v).trim();
 }
 
-export async function parseWeekWorkbook(data: Buffer | Uint8Array): Promise<WeekSheetRow[]> {
+function sheetToAoa(ws: ExcelJS.Worksheet): unknown[][] {
+  const aoa: unknown[][] = [];
+  ws.eachRow({ includeEmpty: false }, (row, rowNum) => {
+    const vals: string[] = [];
+    row.eachCell({ includeEmpty: true }, (cell, col) => {
+      vals[col - 1] = cellStr(cell.value);
+    });
+    aoa[rowNum - 1] = vals;
+  });
+  // Compact sparse holes
+  return aoa.map((r) => r ?? []);
+}
+
+function isAppTemplateHeader(row: unknown[]): boolean {
+  if (!row || row.length < WEEK_SHEET_HEADERS.length) return false;
+  for (let i = 0; i < WEEK_SHEET_HEADERS.length; i++) {
+    if (String(row[i] ?? "").trim().toLowerCase() !== WEEK_SHEET_HEADERS[i].toLowerCase()) return false;
+  }
+  return true;
+}
+
+/** Parse the app's own fill-in template. */
+function parseAppTemplate(aoa: unknown[][], sheetName: string): ParsedWorkbook {
+  const rows: WeekSheetRow[] = [];
+  for (let i = 1; i < aoa.length; i++) {
+    const r = aoa[i] ?? [];
+    const vals = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((c) => String(r[c] ?? "").trim());
+    if (vals.every((x) => !x)) continue;
+    rows.push({
+      rowNum: i + 1,
+      day: vals[0], date: vals[1], client: vals[2], visitType: vals[3],
+      callType: vals[4], start: vals[5], end: vals[6], carer: vals[7], notes: vals[8],
+    });
+  }
+  return { rows, sheetUsed: sheetName, warnings: [] };
+}
+
+const CLIENT_REQUIRED = ["service user", "team member", "start time", "end time", "day"];
+
+interface ClientColMap {
+  ref: number; day: number; area: number; serviceUser: number;
+  start: number; end: number; teamMember: number; serviceCall: number;
+  medication: number;
+}
+
+function clientColMap(header: unknown[]): ClientColMap | null {
+  const norm = header.map((h) => String(h ?? "").trim().toLowerCase());
+  const find = (name: string) => norm.indexOf(name);
+  const cols: ClientColMap = {
+    ref: find("ref"), day: find("day"), area: find("area"),
+    serviceUser: find("service user"), start: find("start time"), end: find("end time"),
+    teamMember: find("team member"), serviceCall: find("service call"), medication: find("medication"),
+  };
+  if (CLIENT_REQUIRED.some((name) => !norm.includes(name))) return null;
+  return cols;
+}
+
+function parseClientWorkbook(sheetName: string, aoa: unknown[][]): { rows: WeekSheetRow[]; warnings: string[] } | null {
+  const header = aoa[0] ?? [];
+  const cols = clientColMap(header);
+  if (!cols) return null;
+  const warnings: string[] = [];
+
+  interface Group { first: unknown[]; rows: unknown[][] }
+  const groups = new Map<string, Group>();
+  const order: string[] = [];
+  for (let i = 1; i < aoa.length; i++) {
+    const r = aoa[i] ?? [];
+    if (r.every((c) => !String(c ?? "").trim())) continue;
+    const ref = String(r[cols.ref] ?? "").trim();
+    const key = ref || `__row${i}`;
+    let g = groups.get(key);
+    if (!g) { g = { first: r, rows: [] }; groups.set(key, g); order.push(key); }
+    g.rows.push(r);
+  }
+
+  const rows: WeekSheetRow[] = [];
+  let rowNum = 2;
+  for (const key of order) {
+    const g = groups.get(key)!;
+    const first = g.first;
+    const carers: string[] = [];
+    for (const r of g.rows) {
+      const name = String(r[cols.teamMember] ?? "").trim();
+      if (name && !carers.includes(name)) carers.push(name);
+    }
+    const carer = carers.length === 0 ? "" : carers.slice(0, 2).join(" + ");
+    const medication = String(first[cols.medication] ?? "").trim().toLowerCase() === "yes";
+    const notes = [String(first[cols.serviceCall] ?? "").trim(), String(first[cols.area] ?? "").trim()].filter(Boolean).join(" · ");
+    rows.push({
+      rowNum: rowNum++,
+      day: String(first[cols.day] ?? "").trim(),
+      date: "", // filled from week + day during validation
+      client: String(first[cols.serviceUser] ?? "").trim(),
+      visitType: medication ? "medication" : "personal_care",
+      callType: carers.length >= 2 ? "double" : "single",
+      start: String(first[cols.start] ?? "").trim(),
+      end: String(first[cols.end] ?? "").trim(),
+      carer,
+      notes,
+    });
+  }
+
+  const emptyCarerRows = rows.filter((r) => !r.carer).length;
+  if (emptyCarerRows) {
+    warnings.push(`${emptyCarerRows} row${emptyCarerRows === 1 ? " has" : "s have"} no Team Member — they will need a carer assigned after import`);
+  }
+  return { rows, warnings };
+}
+
+/**
+ * Detect workbook format and parse the right sheet.
+ * 1. App template header → parseAppTemplate
+ * 2. Client Weeks 1–4 header → first matching sheet
+ * 3. Else throw a friendly error
+ */
+export async function detectAndParseWorkbook(data: Buffer | Uint8Array): Promise<ParsedWorkbook> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(data as never);
-  const ws = wb.worksheets[0];
-  if (!ws) return [];
-  const out: WeekSheetRow[] = [];
-  ws.eachRow((row, rowNum) => {
-    if (rowNum === 1) return;
-    const vals = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((c) => cellStr(row.getCell(c).value));
-    if (vals.every((x) => !x)) return;
-    out.push({
-      rowNum,
-      day: vals[0],
-      date: vals[1],
-      client: vals[2],
-      visitType: vals[3],
-      callType: vals[4],
-      start: vals[5],
-      end: vals[6],
-      carer: vals[7],
-      notes: vals[8],
-    });
-  });
-  return out;
+
+  for (const ws of wb.worksheets) {
+    const aoa = sheetToAoa(ws);
+    if (isAppTemplateHeader(aoa[0] ?? [])) {
+      return parseAppTemplate(aoa, ws.name);
+    }
+  }
+
+  const matching: { name: string; aoa: unknown[][] }[] = [];
+  for (const ws of wb.worksheets) {
+    const aoa = sheetToAoa(ws);
+    if (clientColMap(aoa[0] ?? [])) matching.push({ name: ws.name, aoa });
+  }
+  if (matching.length) {
+    const first = matching[0]!;
+    const parsed = parseClientWorkbook(first.name, first.aoa)!;
+    if (matching.length > 1) {
+      const listed = matching.slice(0, 3).map((n) => `'${n.name}'`).join(", ")
+        + (matching.length > 3 ? ", …" : "");
+      parsed.warnings.unshift(
+        `Multiple weekly sheets found (${listed}) — imported '${first.name}' only; import each week separately.`,
+      );
+    }
+    return { rows: parsed.rows, sheetUsed: first.name, warnings: parsed.warnings };
+  }
+
+  throw new Error(
+    "Unrecognised workbook — upload either the app's fill-in template "
+    + "(header: Day, Date, Client, Visit type, Call type, Start, End, Carer, Notes) or a weekly sheet from the Unique Care rota "
+    + "(header must include: Day, Service User, Team Member, Start Time, End Time).",
+  );
+}
+
+/** @deprecated prefer detectAndParseWorkbook — kept for callers that only need the app template. */
+export async function parseWeekWorkbook(data: Buffer | Uint8Array): Promise<WeekSheetRow[]> {
+  const parsed = await detectAndParseWorkbook(data);
+  return parsed.rows;
 }
 
 export function normaliseClientKey(name: string) {

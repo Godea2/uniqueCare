@@ -439,6 +439,7 @@ export const COLUMN_MAP: Record<TableKey, Record<string, string>> = {
   interviewSlots: {
     id: "id",
     jobPostingId: "job_posting_id",
+    applicationId: "application_id",
     startsAt: "starts_at",
     endsAt: "ends_at",
     panelMemberIds: "panel_member_ids",
@@ -919,7 +920,7 @@ export const INT_COLUMNS: Record<TableKey, readonly string[]> = {
   interactions: ["id","contactId","clientId","ticketId","durationSeconds"],
   interviewBookings: ["id","slotId","applicationId"],
   interviewScorecards: ["id","applicationId","panelMemberId"],
-  interviewSlots: ["id","jobPostingId","capacity"],
+  interviewSlots: ["id","jobPostingId","applicationId","capacity"],
   jobLinkSources: ["id","jobPostingId"],
   jobPostings: ["id","screeningThreshold","applicationFormId"],
   mentions: ["id","mentionedStaffId","sourceId"],

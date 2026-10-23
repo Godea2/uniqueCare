@@ -10,8 +10,8 @@
 import { db } from "../db";
 import type { Organisations } from "@db/schema";
 
-/** Default fence when the organisation has not configured one */
-export const DEFAULT_GEOFENCE_RADIUS_M = 10;
+/** Default fence when the organisation has not configured one (doorstep / CQC-style) */
+export const DEFAULT_GEOFENCE_RADIUS_M = 3;
 /** @deprecated use DEFAULT_GEOFENCE_RADIUS_M or org setting */
 export const GEOFENCE_RADIUS_M = DEFAULT_GEOFENCE_RADIUS_M;
 
@@ -20,8 +20,8 @@ export const LEFT_GEOFENCE_GRACE_MS = 15 * 60 * 1000;
 /** Client should probe about every 15 minutes while on a visit */
 export const PROBE_INTERVAL_MS = 15 * 60 * 1000;
 
-const RADIUS_MIN = 3;
-const RADIUS_MAX = 50;
+const RADIUS_MIN = 1;
+const RADIUS_MAX = 100;
 
 export function clampGeofenceRadiusM(raw: unknown): number {
   const n = typeof raw === "number" ? raw : Number(raw);

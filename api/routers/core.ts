@@ -142,9 +142,17 @@ export const coreRouter = createRouter({
   staffList: authedQuery.query(async ({ ctx }) => {
     const sc = await getStaff(ctx);
     const all = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+    // Limited directory projection for non-privileged roles: no contact, pay or hours fields
     const privileged = ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor"].includes(sc.staff.role);
     if (privileged) return all;
-    return all.filter((s) => Number(s.id) === Number(sc.staff.id));
+    return all.map((s) => ({
+      id: s.id,
+      fullName: s.fullName,
+      jobTitle: s.jobTitle,
+      role: s.role,
+      avatarColor: s.avatarColor,
+      status: s.status,
+    }));
   }),
 
   /** Full staff 360° profile: HR, compliance, training, availability, clients, recent visits */
@@ -319,8 +327,8 @@ export const coreRouter = createRouter({
       screeningThreshold: z.number().min(50).max(100).optional(),
       signatoryName: z.string().trim().max(120).optional(),
       signatoryTitle: z.string().trim().max(120).optional(),
-      /** Visit clock-in/out geofence radius in metres (3–50). Default 10. */
-      geofenceRadiusM: z.number().min(3).max(50).optional(),
+      /** Visit clock-in/out geofence radius in metres (1–100). Default 3. */
+      geofenceRadiusM: z.number().min(1).max(100).optional(),
       /** When true, carers with expired/missing DBS or right-to-work cannot be assigned. */
       blockRotaOnExpiredMandatory: z.boolean().optional(),
     }))
@@ -331,7 +339,7 @@ export const coreRouter = createRouter({
       if (!org) {
         await db.from("organisations").insert({
           name: input.name ?? "Unique Care UK",
-          settings: { timezone: "Europe/London", screeningThreshold: 85, geofenceRadiusM: 10 },
+          settings: { timezone: "Europe/London", screeningThreshold: 85, geofenceRadiusM: 3 },
         });
         org = (await db.from("organisations").first<Organisations>())!;
       }

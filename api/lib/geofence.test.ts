@@ -50,10 +50,13 @@ describe("geofence", () => {
     expect(allowedDistanceM(null)).toBe(DEFAULT_GEOFENCE_RADIUS_M + 10);
   });
 
-  it("clamps office radius between 3 and 50 metres", () => {
-    expect(clampGeofenceRadiusM(1)).toBe(3);
+  it("clamps office radius between 1 and 100 metres", () => {
+    expect(clampGeofenceRadiusM(0)).toBe(1);
+    expect(clampGeofenceRadiusM(1)).toBe(1);
+    expect(clampGeofenceRadiusM(3)).toBe(3);
     expect(clampGeofenceRadiusM(10)).toBe(10);
-    expect(clampGeofenceRadiusM(99)).toBe(50);
+    expect(clampGeofenceRadiusM(99)).toBe(99);
+    expect(clampGeofenceRadiusM(150)).toBe(100);
   });
 
   it("stops paid time when the carer left the geofence", () => {

@@ -120,10 +120,15 @@ export const portalRouter = createRouter({
       const formsComplete = ["pre_interview_forms_complete", "interview_booked", "interviewed", "approved", "compliance_docs_requested", "compliance_docs_complete", "offer_sent", "offer_accepted", "training_booked", "online_training_in_progress", "dbs_verified", "training_complete", "hired"].includes(app.stage);
       const slotBookings = await db.from("interviewBookings").eq("status", "booked").many<InterviewBookings>();
       const myBookedSlotId = booking ? Number(booking.slotId) : null;
-      const openSlots = formsComplete
-        ? (await db.from("interviewSlots").order("startsAt", "asc").many<InterviewSlots>())
-          .filter((s) => slotOpen(s, Number(job.id)))
+      const allSlots = formsComplete
+        ? await db.from("interviewSlots").order("startsAt", "asc").many<InterviewSlots>()
         : [];
+      // Shared job pool only — private proposed times are returned separately
+      const openSlots = allSlots.filter((s) =>
+        slotOpen(s, Number(job.id)) && (s.applicationId == null || s.applicationId === undefined));
+      const proposedRaw = allSlots.filter((s) =>
+        Number(s.applicationId) === Number(app.id) && new Date(s.startsAt).getTime() > Date.now());
+      const appBookings = await db.from("interviewBookings").eq("applicationId", app.id).many<InterviewBookings>();
       const docs = await db.from("complianceDocuments")
         .eq("ownerType", "candidate").eq("ownerId", candidate.id).many<ComplianceDocuments>();
       const reqs = await db.from("complianceRequirements").many<ComplianceRequirements>();
@@ -150,6 +155,10 @@ export const portalRouter = createRouter({
             stateLabel: SLOT_STATE_LABEL[state],
           };
         }),
+        proposedSlots: proposedRaw.map((s) => ({
+          ...s,
+          booking: appBookings.find((b) => Number(b.slotId) === Number(s.id) && b.status === "booked") ?? null,
+        })),
         docs: activeDocs(docs)
           .map((d) => {
             const raw = reqs.find((r) => r.key === d.requirementKey);
@@ -210,7 +219,17 @@ export const portalRouter = createRouter({
       if (!["pre_interview_forms_complete", "interview_booked"].includes(app.stage))
         throw new TRPCError({ code: "BAD_REQUEST", message: "Interview booking unlocks once your pre-interview form is complete." });
       const slot = await db.from("interviewSlots").eq("id", input.slotId).first<InterviewSlots>();
-      if (!slot || !slotOpen(slot, Number(job.id))) throw new TRPCError({ code: "NOT_FOUND", message: "This slot is no longer available." });
+      if (!slot) throw new TRPCError({ code: "NOT_FOUND", message: "This slot is no longer available." });
+      if (slot.applicationId != null && Number(slot.applicationId) !== Number(app.id)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "This interview time was offered to a different candidate." });
+      }
+      // Private proposed slots skip the shared job-pool open check
+      if (slot.applicationId == null && !slotOpen(slot, Number(job.id))) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "This slot is no longer available." });
+      }
+      if (slot.applicationId != null && new Date(slot.startsAt).getTime() <= Date.now()) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "This slot is no longer available." });
+      }
       const capacity = slotCapacity(slot);
       const current = await db.from("interviewBookings").eq("applicationId", app.id).eq("status", "booked").first<InterviewBookings>();
       if (current && Number(current.slotId) === Number(slot.id)) {

@@ -593,8 +593,11 @@ export const hrRouter = createRouter({
       const booking = await db.from("interviewBookings").eq("applicationId", app.id).eq("status", "booked").first<InterviewBookings>() ?? null;
       const slot = booking ? (await db.from("interviewSlots").eq("id", booking.slotId).first<InterviewSlots>())! : null;
       const allBookings = await db.from("interviewBookings").eq("status", "booked").many<InterviewBookings>();
-      const jobSlots = (await db.from("interviewSlots").order("startsAt", "asc").many<InterviewSlots>())
+      const allSlots = await db.from("interviewSlots").order("startsAt", "asc").many<InterviewSlots>();
+      const jobSlots = allSlots
         .filter((s) => s.jobPostingId == null || Number(s.jobPostingId) === Number(app.jobPostingId))
+        // Shared pool OR this candidate's private proposed times (never another candidate's)
+        .filter((s) => s.applicationId == null || Number(s.applicationId) === Number(app.id))
         .filter((s) => ALLOW_PAST_INTERVIEW_SLOTS || new Date(s.startsAt).getTime() > Date.now() || Number(s.id) === Number(slot?.id));
       const offeredSlots = jobSlots.map((s) => {
         const bookedCount = allBookings.filter((b) => Number(b.slotId) === Number(s.id)).length;
@@ -607,8 +610,10 @@ export const hrRouter = createRouter({
           id: Number(s.id), startsAt: s.startsAt, endsAt: s.endsAt,
           locationText: s.locationText, capacity, bookedCount, state,
           stateLabel: SLOT_STATE_LABEL[state],
+          applicationId: s.applicationId != null ? Number(s.applicationId) : null,
         };
       });
+      const proposedSlots = offeredSlots.filter((s) => s.applicationId === Number(app.id));
       const myScorecard = await db.from("interviewScorecards").eq("applicationId", app.id).eq("panelMemberId", sc.staff.id).first<InterviewScorecards>() ?? null;
       // hide other panel members' scores until I've submitted mine (interview_panel role)
       let scorecards = await db.from("interviewScorecards").eq("applicationId", app.id).many<InterviewScorecards>();
@@ -640,7 +645,8 @@ export const hrRouter = createRouter({
         if (parsed?.success) formSchema = parsed.data;
       }
       return {
-        application: app, candidate, job, form, booking, slot, offeredSlots, scorecards, allScorecardsCount: allScorecards.length,
+        application: app, candidate, job, form, booking, slot, offeredSlots, proposedSlots,
+        scorecards, allScorecardsCount: allScorecards.length,
         myScorecard, docs, references: refs, offer, panel, cvVersions: cvs, formSchema,
         enrolments: enrolments.map((e) => {
           const course = courses.find((c) => Number(c.id) === Number(e.courseId)) ?? null;
@@ -923,6 +929,43 @@ export const hrRouter2 = createRouter({
         readyNow: input.notifyNow ? audience.readyNow : 0,
         laterSaved: input.notifyLater,
       };
+    }),
+
+  /** Offer a candidate 1+ private interview times; each becomes a capacity-1 slot only they can book. */
+  proposeCandidateSlots: authedQuery
+    .input(z.object({
+      applicationId: z.number(),
+      slots: z.array(z.object({ startsAt: z.string(), endsAt: z.string() })).min(1).max(20),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin", "team_leader", "interview_panel");
+      const app = await db.from("applications").eq("id", input.applicationId).first<Applications>();
+      if (!app) throw new TRPCError({ code: "NOT_FOUND", message: "Application not found" });
+      const parsed = input.slots.map((s, i) => {
+        const startsAt = new Date(s.startsAt);
+        const endsAt = new Date(s.endsAt);
+        if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Slot ${i + 1}: the interview must end after it starts.` });
+        }
+        return { startsAt, endsAt };
+      });
+      const ids: number[] = [];
+      for (const s of parsed) {
+        const [row] = await db.from("interviewSlots").insert<InterviewSlots>({
+          applicationId: app.id,
+          jobPostingId: app.jobPostingId,
+          startsAt: s.startsAt,
+          endsAt: s.endsAt,
+          panelMemberIds: [] as never,
+          capacity: 1,
+          locationText: "Microsoft Teams (video interview)",
+          teamsMeetingUrl: `https://teams.microsoft.com/l/meetup-join/${token().slice(0, 12)}`,
+        });
+        ids.push(Number(row.id));
+      }
+      await audit(sc.staff.fullName, "interview_slots_proposed", "applications", app.id, { count: ids.length });
+      return { ids };
     }),
 
   /** Who a new slot would reach: candidates ready to book now, and those still on their pre-interview form. */

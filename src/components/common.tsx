@@ -14,7 +14,7 @@ export const fmtDateTime = (d?: string | Date | null) =>
 
 export function PageHeader({
   title, subtitle, actions,
-}: { title: string; subtitle?: string; actions?: ReactNode }) {
+}: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-[--card-line] pb-6">
       <div data-tour="page-header" className="min-w-0">

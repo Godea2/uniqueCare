@@ -25,7 +25,7 @@ export default function MyRota() {
   const probing = useRef(false);
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
   const geoCfg = trpc.attendance.geofenceConfig.useQuery();
-  const fenceM = geoCfg.data?.radiusM ?? 10;
+  const fenceM = geoCfg.data?.radiusM ?? 3;
 
   const clockIn = trpc.attendance.clockIn.useMutation({
     onSuccess: (r) => {
@@ -165,7 +165,14 @@ export default function MyRota() {
     <div className="max-w-2xl mx-auto space-y-5">
       <PageHeader
         title="My rota"
-        subtitle={meQ.data ? `${meQ.data.fullName} — upcoming visits` : "Upcoming visits"}
+        subtitle={meQ.data ? (
+          <span>
+            <Link to={`/staff/${meQ.data.id}`} className="font-medium text-[--brand-700] hover:underline">
+              {meQ.data.fullName}
+            </Link>
+            {" — upcoming visits"}
+          </span>
+        ) : "Upcoming visits"}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>

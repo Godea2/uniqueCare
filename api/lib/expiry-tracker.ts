@@ -90,8 +90,12 @@ export function latestStaffDoc(
 
 export async function staffMandatoryDocsOk(staffId: number): Promise<{ ok: boolean; reason?: string }> {
   const today = new Date().toISOString().slice(0, 10);
+  const reqKeys = (await db.from("complianceRequirements").many<ComplianceRequirements>())
+    .filter((r) => r.appliesTo === "staff" && r.required)
+    .map((r) => r.key);
+  const keys = reqKeys.length ? reqKeys : [...MANDATORY_ROTA_KEYS];
   const docs = await db.from("complianceDocuments").eq("ownerType", "staff").eq("ownerId", staffId).many<ComplianceDocuments>();
-  for (const key of MANDATORY_ROTA_KEYS) {
+  for (const key of keys) {
     const d = latestStaffDoc(docs, staffId, key);
     if (!d || d.status !== "verified") {
       return { ok: false, reason: `Mandatory document missing: ${key.replaceAll("_", " ")}` };

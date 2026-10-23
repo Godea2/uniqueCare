@@ -458,7 +458,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <DropdownMenuContent align="end" className="w-52 rounded-xl">
               <DropdownMenuLabel>{user.email}</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate("/me")} className="cursor-pointer rounded-lg">My rota & profile</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate("/me")} className="cursor-pointer rounded-lg">My rota</DropdownMenuItem>
+              {staff?.id != null && (
+                <DropdownMenuItem onClick={() => navigate(`/staff/${staff.id}`)} className="cursor-pointer rounded-lg">
+                  My HR profile
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={logout} className="cursor-pointer rounded-lg text-red-700 focus:text-red-700">
                 <LogOut className="mr-2 h-4 w-4" /> Sign out
               </DropdownMenuItem>

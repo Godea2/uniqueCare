@@ -2,7 +2,7 @@ import { useParams, Link, useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, Chip, Loading, ErrorState, fmtDate, fmtTime, AvatarDot } from "@/components/common";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Trash2, Plus, FileText } from "lucide-react";
+import { ArrowLeft, Trash2, Plus, FileText, Pencil, Check, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,144 @@ import { toast } from "sonner";
 import { roleAllowed, CQC_PLAN_WRITE_ROLES } from "@/lib/roles";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+type TemplateRow = {
+  id: number | bigint;
+  dayOfWeek: number;
+  startTime: string;
+  durationMinutes: number;
+  visitType: string;
+  callType: string;
+  flexibilityMinutes: number | null;
+};
+
+function TemplateEditRow({
+  t, timeCritical, onSaved, onRemove, removing,
+}: {
+  t: TemplateRow;
+  timeCritical: boolean;
+  onSaved: () => void;
+  onRemove: () => void;
+  removing: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [day, setDay] = useState(t.dayOfWeek);
+  const [startTime, setStartTime] = useState(t.startTime.slice(0, 5));
+  const [duration, setDuration] = useState(t.durationMinutes);
+  const [visitType, setVisitType] = useState(t.visitType.replace(/_/g, " "));
+  const [callType, setCallType] = useState<"single" | "double">(t.callType === "double" ? "double" : "single");
+  const [windowMin, setWindowMin] = useState(t.flexibilityMinutes ?? 60);
+  const update = trpc.rota.updateVisitTemplate.useMutation({
+    onSuccess: () => { setEditing(false); onSaved(); toast.success("Visit pattern updated"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const setWindow = trpc.rota.setTemplateWindow.useMutation({
+    onSuccess: () => { onSaved(); toast.success("Window updated"); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (!editing) {
+    return (
+      <tr className="border-b last:border-0" style={{ borderColor: "var(--line)" }}>
+        <td className="px-4 py-2.5 text-xs">{DAYS[t.dayOfWeek] ?? t.dayOfWeek}</td>
+        <td className="px-4 py-2.5 text-xs">{t.startTime.slice(0, 5)}</td>
+        <td className="px-4 py-2.5 text-xs">{t.durationMinutes} min</td>
+        <td className={`px-4 py-2.5 text-xs ${timeCritical ? "text-red-700 font-medium" : ""}`}>
+          {timeCritical ? (
+            <span>±30 min (time-critical)</span>
+          ) : (
+            <Select
+              value={String(t.flexibilityMinutes ?? 60)}
+              onValueChange={(v) => setWindow.mutate({ templateId: Number(t.id), flexibilityMinutes: Number(v) })}
+            >
+              <SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="60">±60 min</SelectItem>
+                <SelectItem value="30">±30 min</SelectItem>
+                <SelectItem value="15">±15 min</SelectItem>
+                <SelectItem value="0">Exact</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </td>
+        <td className="px-4 py-2.5 text-xs">{t.visitType.replace(/_/g, " ")}</td>
+        <td className="px-4 py-2.5 text-xs">{t.callType === "double" ? "Yes" : "No"}</td>
+        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="Edit visit"
+            onClick={() => setEditing(true)}>
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="Remove visit"
+            disabled={removing} onClick={onRemove}>
+            <Trash2 className="h-3.5 w-3.5 text-red-500" />
+          </Button>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr className="border-b last:border-0 bg-[--brand-50]/40" style={{ borderColor: "var(--line)" }}>
+      <td className="px-2 py-2">
+        <Select value={String(day)} onValueChange={(v) => setDay(Number(v))}>
+          <SelectTrigger className="h-8 w-20"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {DAYS.map((label, i) => <SelectItem key={label} value={String(i)}>{label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </td>
+      <td className="px-2 py-2">
+        <Input type="time" className="h-8 w-28" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+      </td>
+      <td className="px-2 py-2">
+        <Input type="number" className="h-8 w-20" min={15} max={720} step={5} value={duration}
+          onChange={(e) => setDuration(Number(e.target.value))} />
+      </td>
+      <td className="px-2 py-2">
+        {timeCritical ? (
+          <span className="text-xs text-red-700">±30 min</span>
+        ) : (
+          <Select value={String(windowMin)} onValueChange={(v) => setWindowMin(Number(v))}>
+            <SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="60">±60 min</SelectItem>
+              <SelectItem value="30">±30 min</SelectItem>
+              <SelectItem value="15">±15 min</SelectItem>
+              <SelectItem value="0">Exact</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+      </td>
+      <td className="px-2 py-2">
+        <Input className="h-8 w-32" value={visitType} onChange={(e) => setVisitType(e.target.value)} />
+      </td>
+      <td className="px-2 py-2">
+        <Select value={callType} onValueChange={(v) => setCallType(v as "single" | "double")}>
+          <SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="single">One</SelectItem>
+            <SelectItem value="double">Two</SelectItem>
+          </SelectContent>
+        </Select>
+      </td>
+      <td className="px-2 py-2 text-right whitespace-nowrap">
+        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="Save"
+          disabled={update.isPending || visitType.trim().length < 2 || duration < 15}
+          onClick={() => update.mutate({
+            id: Number(t.id), dayOfWeek: day, startTime, durationMinutes: duration,
+            visitType: visitType.trim(), callType,
+            flexibilityMinutes: timeCritical ? undefined : windowMin,
+          })}>
+          <Check className="h-3.5 w-3.5 text-green-700" />
+        </Button>
+        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="Cancel"
+          onClick={() => setEditing(false)}>
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </td>
+    </tr>
+  );
+}
 
 function VisitPatternForm({ clientId, onSaved }: { clientId: number; onSaved: () => void }) {
   const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4]);
@@ -101,13 +239,6 @@ export default function ClientDetail() {
     onSuccess: () => {
       utils.rota.clientDetail.invalidate({ id: clientId });
       toast.success("Primary carer updated");
-    },
-    onError: (e) => toast.error(e.message),
-  });
-  const setWindow = trpc.rota.setTemplateWindow.useMutation({
-    onSuccess: () => {
-      utils.rota.clientDetail.invalidate({ id: clientId });
-      toast.success("Template window updated");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -308,37 +439,14 @@ export default function ClientDetail() {
               </thead>
               <tbody>
                 {d.templates.map((t) => (
-                  <tr key={t.id} className="border-b last:border-0" style={{ borderColor: "var(--line)" }}>
-                    <td className="px-4 py-2.5 text-xs">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][t.dayOfWeek] ?? t.dayOfWeek}</td>
-                    <td className="px-4 py-2.5 text-xs">{t.startTime}</td>
-                    <td className="px-4 py-2.5 text-xs">{t.durationMinutes} min</td>
-                    <td className={`px-4 py-2.5 text-xs ${c.timeCritical ? "text-red-700 font-medium" : ""}`}>
-                      {c.timeCritical ? (
-                        <span>±30 min (time-critical)</span>
-                      ) : (
-                        <Select
-                          value={String(t.flexibilityMinutes ?? 60)}
-                          onValueChange={(v) => setWindow.mutate({ templateId: Number(t.id), flexibilityMinutes: Number(v) })}
-                        >
-                          <SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="60">±60 min</SelectItem>
-                            <SelectItem value="30">±30 min</SelectItem>
-                            <SelectItem value="15">±15 min</SelectItem>
-                            <SelectItem value="0">Exact</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs">{t.visitType.replace(/_/g, " ")}</td>
-                    <td className="px-4 py-2.5 text-xs">{t.callType === "double" ? "Yes" : "No"}</td>
-                    <td className="px-4 py-2.5 text-right">
-                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="Remove visit"
-                        disabled={remove.isPending} onClick={() => remove.mutate({ id: Number(t.id) })}>
-                        <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                      </Button>
-                    </td>
-                  </tr>
+                  <TemplateEditRow
+                    key={t.id}
+                    t={t}
+                    timeCritical={!!c.timeCritical}
+                    onSaved={() => q.refetch()}
+                    removing={remove.isPending}
+                    onRemove={() => remove.mutate({ id: Number(t.id) })}
+                  />
                 ))}
                 {d.templates.length === 0 && (
                   <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">No regular visits yet. Add them above — the weekly rota is built from them.</td></tr>

@@ -881,6 +881,12 @@ export const cqcRouter = createRouter({
     .input(z.object({ staffId: z.number().optional() }))
     .query(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
+      // Self or privileged roles may view notes for a given staff member
+      const isSelf = input.staffId == null || Number(sc.staff.id) === Number(input.staffId);
+      const privileged = ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor"].includes(sc.staff.role);
+      if (!isSelf && !privileged) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only view your own supervision notes" });
+      }
       const target = input.staffId ?? (sc.staff.role === "care_worker" ? Number(sc.staff.id) : undefined);
       let query = db.from("supervisorNotes").order("createdAt", "desc").limit(100);
       if (target) query = query.eq("staffId", target);
@@ -1125,4 +1131,66 @@ export const cqcRouter = createRouter({
       assignments,
     };
   }),
+
+  /** Latest staff compliance doc per requirement — used by the matrix Renew action. */
+  renewableStaffDocuments: authedQuery.query(async ({ ctx }) => {
+    const sc = await getStaff(ctx);
+    requireRole(sc, "super_admin", "admin", "care_coordinator");
+    const rows = await db.from("complianceDocuments").eq("ownerType", "staff").many<ComplianceDocuments>();
+    const latest = new Map<string, ComplianceDocuments>();
+    for (const d of [...rows].sort((a, b) => Number(a.id) - Number(b.id))) {
+      if (d.status === "cancelled" || d.status === "superseded") continue;
+      latest.set(`${d.ownerId}:${d.requirementKey}`, d);
+    }
+    return [...latest.values()].map((d) => ({
+      id: Number(d.id),
+      ownerId: Number(d.ownerId),
+      requirementKey: d.requirementKey,
+      status: d.status,
+      expiresAt: d.expiresAt,
+      fileName: d.fileName,
+      textValue: d.textValue,
+    }));
+  }),
+
+  /**
+   * Record a renewal: inserts a fresh verified document for the same staff member and
+   * requirement with the new expiry date (and optional replacement file/text).
+   * The old row is marked expired so it stops generating reminders.
+   */
+  renewStaffDocument: authedQuery
+    .input(z.object({
+      documentId: z.number().int().positive(),
+      newExpiresAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
+      fileName: z.string().trim().min(1).max(255).optional(),
+      textValue: z.string().trim().min(1).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin", "care_coordinator");
+      const old = await db.from("complianceDocuments").eq("id", input.documentId).first<ComplianceDocuments>();
+      if (!old || old.ownerType !== "staff") {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Staff document not found" });
+      }
+      const [row] = await db.from("complianceDocuments").insert<ComplianceDocuments>({
+        ownerType: "staff",
+        ownerId: old.ownerId,
+        requirementKey: old.requirementKey,
+        fileName: input.fileName ?? old.fileName ?? null,
+        fileKey: old.fileKey ?? null,
+        textValue: input.textValue ?? old.textValue ?? null,
+        status: "verified",
+        verifiedBy: sc.staff.fullName,
+        verifiedAt: new Date(),
+        expiresAt: input.newExpiresAt,
+      });
+      await db.from("complianceDocuments").eq("id", old.id).update({ status: "expired" });
+      await audit(sc.staff.fullName, "document_renewed", "compliance_documents", row.id, {
+        staffId: Number(old.ownerId),
+        requirementKey: old.requirementKey,
+        oldDocumentId: Number(old.id),
+        newExpiresAt: input.newExpiresAt,
+      });
+      return { id: Number(row.id) };
+    }),
 });

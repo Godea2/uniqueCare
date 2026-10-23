@@ -221,6 +221,28 @@ describe("assignRota", () => {
     expect(r.assignments[0].staffId).toBe(2);
   });
 
+  it("blocks a worker with an expired mandatory compliance document", () => {
+    const r = assignRota({
+      visits: [mkVisit(1, { primaryStaffId: 1 })],
+      workers: [mkWorker(1, { expiredDocKeys: ["right_to_work"] }), mkWorker(2)],
+      travel: new Map(),
+    });
+    expect(r.assignments).toHaveLength(1);
+    expect(r.assignments[0]!.staffId).toBe(2);
+  });
+
+  it("reports the expired document key in the near-miss reasons", () => {
+    const r = assignRota({
+      visits: [mkVisit(1)],
+      workers: [mkWorker(1, { expiredDocKeys: ["right_to_work", "dbs_enhanced"] })],
+      travel: new Map(),
+    });
+    expect(r.assignments).toHaveLength(0);
+    expect(r.unassigned).toHaveLength(1);
+    const reasons = r.unassigned[0]!.reasons.map((x) => x.reason).join(" | ");
+    expect(reasons).toContain("expired mandatory document: right_to_work, dbs_enhanced");
+  });
+
   it("handles 1,500 visits within the performance budget", () => {
     const workers = Array.from({ length: 60 }, (_, i) =>
       mkWorker(i + 1, { skills: i % 3 === 0 ? ["hoist", "dementia"] : ["dementia"] }),
