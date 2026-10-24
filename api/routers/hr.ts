@@ -66,6 +66,7 @@ import {
   emailInductionOpen, emailTrainer, inductionAudience, markAttendance, newRegisterToken, registerUrl, sessionAttendees,
 } from "../lib/training";
 import { waitUntil } from "@vercel/functions";
+import { bumpWebsiteJobsCache } from "../lib/website-revalidate";
 import crypto from "crypto";
 
 const RECRUITMENT_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader", "interview_panel"];
@@ -168,6 +169,7 @@ export const hrRouter = createRouter({
       const job = (await db.from("jobPostings").eq("id", jobRow.id).first<JobPostings>())!;
       await syncJobForm(job, { by: sc.staff.fullName, publish: true, templateId: formTemplateId ?? null });
       await audit(sc.staff.fullName, "job_created", "job_postings", job.id, { title: input.title });
+      bumpWebsiteJobsCache();
       return { id: job.id, slug };
     }),
 
@@ -196,6 +198,7 @@ export const hrRouter = createRouter({
         templateId: switchTemplate ? formTemplateId : null,
       });
       await audit(sc.staff.fullName, "job_updated", "job_postings", id, { title: input.title });
+      bumpWebsiteJobsCache();
       return { ok: true };
     }),
 
@@ -217,6 +220,7 @@ export const hrRouter = createRouter({
       }
       await db.from("jobPostings").eq("id", input.id).update({ status: input.status });
       await audit(sc.staff.fullName, `job_${input.status}`, "job_postings", input.id);
+      bumpWebsiteJobsCache();
       return { ok: true };
     }),
 
@@ -228,6 +232,7 @@ export const hrRouter = createRouter({
       requireRole(sc, "super_admin", "admin");
       await db.from("jobPostings").eq("id", input.jobId).update({ applyLinkEnabled: input.enabled });
       await audit(sc.staff.fullName, input.enabled ? "apply_link_enabled" : "apply_link_disabled", "job_postings", input.jobId);
+      bumpWebsiteJobsCache();
       return { ok: true };
     }),
 
