@@ -67,6 +67,8 @@ import {
 } from "../lib/training";
 import { waitUntil } from "@vercel/functions";
 import { bumpWebsiteJobsCache } from "../lib/website-revalidate";
+import { requestComplianceForApplication } from "../lib/compliance-request";
+import { issueOfferLetterIfReady, maybeIssueOfferAfterDocVerify } from "../lib/offer-automation";
 import crypto from "crypto";
 
 const RECRUITMENT_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader", "interview_panel"];
@@ -276,14 +278,18 @@ export const hrRouter = createRouter({
 
   // ── Public careers ──
   publicJobs: publicQuery.query(async () => {
+    const today = new Date().toISOString().slice(0, 10);
     const rows = await db.from("jobPostings").eq("status", "live").many<JobPostings>();
-    return rows.map((j) => ({
-      id: j.id, title: j.title, location: j.location,
-      salaryText: j.salaryText, employmentType: j.employmentType,
-      descriptionMd: j.descriptionMd, publicSlug: j.publicSlug,
-      applySlug: j.applySlug, applyLinkEnabled: j.applyLinkEnabled,
-      closesAt: j.closesAt,
-    }));
+    return rows
+      .filter((j) => !j.closesAt || String(j.closesAt) >= today)
+      .map((j) => ({
+        id: j.id, title: j.title, location: j.location,
+        salaryText: j.salaryText, employmentType: j.employmentType,
+        descriptionMd: j.descriptionMd, publicSlug: j.publicSlug,
+        applySlug: j.applySlug, applyLinkEnabled: j.applyLinkEnabled,
+        closesAt: j.closesAt,
+        requirements: jobRequirements(j).map((r) => r.label).filter(Boolean),
+      }));
   }),
 
   /** Public application page data: job header + published form schema. Never 404s a closed link. */
@@ -725,6 +731,17 @@ export const hrRouter = createRouter({
       if (input.to === "shortlisted" || input.to === "pre_interview_forms_sent") {
         await inviteToInterviewStage(input.applicationId, "System (automation)", base);
       }
+      // Approve after interview → automatically request compliance docs + email candidate.
+      // Offer letter is NOT sent here — it fires when every required doc is verified.
+      if (input.to === "approved") {
+        waitUntil(
+          requestComplianceForApplication({
+            applicationId: input.applicationId,
+            actorName: sc.staff.fullName,
+            baseUrl: base,
+          }).catch(() => {}),
+        );
+      }
       if (input.to === "rejected" || input.to === "screened_out" || input.to === "withdrawn") {
         await db.from("interviewBookings").eq("applicationId", input.applicationId).eq("status", "booked").update({ status: "cancelled" });
       }
@@ -1049,50 +1066,29 @@ export const hrRouter2 = createRouter({
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, "super_admin", "admin");
-      const app = await db.from("applications").eq("id", input.applicationId).first<Applications>();
-      if (!app) throw new TRPCError({ code: "NOT_FOUND" });
-      const reqs = (await db.from("complianceRequirements").eq("required", true).many<ComplianceRequirements>())
-        .filter((r) => !isRemovedComplianceKey(r.key));
-      if (reqs.length === 0) {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No compliance documents are set up yet. Load the compliance requirements in Supabase first." });
+      await requestComplianceForApplication({
+        applicationId: input.applicationId,
+        actorName: sc.staff.fullName,
+        baseUrl: appUrl(ctx.req),
+      });
+      return { ok: true };
+    }),
+
+  /** Manual send / resend offer letter (after all required docs are verified). */
+  sendOfferLetter: authedQuery
+    .input(z.object({ applicationId: z.number(), forceResend: z.boolean().default(false) }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      const result = await issueOfferLetterIfReady({
+        applicationId: input.applicationId,
+        baseUrl: appUrl(ctx.req),
+        forceResend: input.forceResend,
+      });
+      if (!result.sent) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: result.reason ?? "Could not send offer letter" });
       }
-      if (!canTransition(app.stage as ApplicationStage, "compliance_docs_requested")) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Approve the candidate after interview before requesting documents." });
-      }
-      for (const req of reqs) {
-        const has = await db.from("complianceDocuments")
-          .eq("ownerType", "candidate")
-          .eq("ownerId", app.candidateId)
-          .eq("requirementKey", req.key)
-          .first<ComplianceDocuments>();
-        if (!has) {
-          await db.from("complianceDocuments").insert({
-            ownerType: "candidate", ownerId: app.candidateId, requirementKey: req.key, status: "requested",
-          });
-        }
-      }
-      // Retire any leftover requests for removed document types
-      for (const key of ["employment_history", "qualifications"]) {
-        await db.from("complianceDocuments")
-          .eq("ownerType", "candidate").eq("ownerId", app.candidateId).eq("requirementKey", key)
-          .in("status", ["requested", "rejected", "uploaded"])
-          .update({ status: "cancelled" });
-      }
-      // references
-      const form = await db.from("preInterviewForms").eq("applicationId", app.id).first<PreInterviewForms>();
-      const formRefs = ((form?.data as { referees?: { name: string; email: string; relationship: string; mostRecent: boolean }[] })?.referees) ?? [];
-      for (const ref of formRefs) {
-        const has = await db.from("references").eq("applicationId", app.id).eq("refereeEmail", ref.email).first<References>();
-        if (!has) {
-          await db.from("references").insert({
-            applicationId: app.id, refereeName: ref.name, refereeEmail: ref.email,
-            relationship: ref.relationship, isMostRecentEmployer: ref.mostRecent, token: token(),
-          });
-        }
-      }
-      await pushStage(app.id, "compliance_docs_requested", sc.staff.fullName);
-      await audit(sc.staff.fullName, "compliance_requested", "applications", app.id);
-      await emailCandidate(app.id, "compliance_requested", appUrl(ctx.req));
+      await audit(sc.staff.fullName, input.forceResend ? "offer_resent" : "offer_sent_manual", "applications", input.applicationId);
       return { ok: true };
     }),
 
@@ -1122,48 +1118,8 @@ export const hrRouter2 = createRouter({
         status: "verified", verifiedBy: sc.staff.fullName, verifiedAt: new Date(), expiresAt,
       });
       await audit(sc.staff.fullName, "document_verified", "compliance_documents", input.id);
-      // automation: all required verified → compliance_docs_complete + offer letter
-      const doc = (await db.from("complianceDocuments").eq("id", input.id).first<ComplianceDocuments>())!;
-      if (doc.ownerType === "candidate") {
-        const app = await complianceApplication(Number(doc.ownerId));
-        if (app && ["compliance_docs_requested", "approved"].includes(app.stage)) {
-          const reqs = (await db.from("complianceRequirements").eq("required", true).many<ComplianceRequirements>())
-            .filter((r) => !isRemovedComplianceKey(r.key));
-          const docs = await db.from("complianceDocuments").eq("ownerType", "candidate").eq("ownerId", doc.ownerId).many<ComplianceDocuments>();
-          const allVerified = reqs.length > 0 && reqs.every((r) => docs.some((d) => d.requirementKey === r.key && d.status === "verified"));
-          if (allVerified) {
-            if (app.stage === "compliance_docs_requested") await pushStage(app.id, "compliance_docs_complete", "System (automation)");
-            const hasOffer = await db.from("offerLetters").eq("applicationId", app.id).first<OfferLetters>();
-            if (!hasOffer) {
-              const job = (await db.from("jobPostings").eq("id", app.jobPostingId).first<JobPostings>())!;
-              const cand = (await db.from("candidates").eq("id", app.candidateId).first<Candidates>())!;
-              const org = await orgProfile();
-              const content = buildOfferLetter({
-                name: `${cand.firstName} ${cand.lastName}`, role: job.title, salary: job.salaryText ?? "",
-                orgName: org.name, signatory: org.signatory, signatoryTitle: org.signatoryTitle,
-              });
-              const [offer] = await db.from("offerLetters").insert<OfferLetters>({
-                applicationId: app.id, templateVersion: "v2", content, sentAt: new Date(),
-              });
-              try {
-                await ensureOfferPdfStored({
-                  offer,
-                  candidateId: Number(cand.id),
-                  candidateName: `${cand.firstName} ${cand.lastName}`,
-                  orgName: org.name,
-                });
-              } catch { /* email still attaches via emailCandidate regenerate */ }
-              await pushStage(app.id, "offer_sent", "System (automation)");
-              await emailCandidate(app.id, "offer_sent", appUrl(ctx.req));
-              await notifyRoles(["admin", "super_admin"], {
-                type: "hr", title: "Offer letter sent automatically",
-                body: `All compliance verified for application #${app.id}; offer letter PDF generated and emailed.`,
-                link: `/recruitment/pipeline/${app.id}`,
-              });
-            }
-          }
-        }
-      }
+      // When the last required doc is verified → compliance complete + offer PDF emailed.
+      await maybeIssueOfferAfterDocVerify({ documentId: input.id, baseUrl: appUrl(ctx.req) });
       return { ok: true };
     }),
 

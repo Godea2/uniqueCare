@@ -60,11 +60,23 @@ export default function CandidateDetail() {
     },
   });
   const move = trpc.hr.moveStage.useMutation({
-    onSuccess: () => { inv(); utils.hr.pipeline.invalidate(); toast.success("Stage updated"); },
+    onSuccess: (_d, vars) => {
+      inv();
+      utils.hr.pipeline.invalidate();
+      toast.success(
+        vars.to === "approved"
+          ? "Approved — compliance documents requested and emailed to the candidate"
+          : "Stage updated",
+      );
+    },
     onError: (e) => toast.error(e.message),
   });
   const requestDocs = trpc.hr2.requestComplianceDocs.useMutation({
     onSuccess: () => { inv(); toast.success("Compliance documents requested"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const sendOffer = trpc.hr2.sendOfferLetter.useMutation({
+    onSuccess: () => { inv(); toast.success("Offer letter emailed to the candidate"); },
     onError: (e) => toast.error(e.message),
   });
   const completeTraining = trpc.hr2.completeTraining.useMutation({
@@ -122,12 +134,23 @@ export default function CandidateDetail() {
             )}
             {stage === "interviewed" && (
               <Button size="sm" onClick={() => move.mutate({ applicationId: app.id, to: "approved" })}>
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve & request docs
               </Button>
             )}
             {stage === "approved" && (
               <Button size="sm" disabled={requestDocs.isPending} onClick={() => requestDocs.mutate({ applicationId: app.id })}>
                 <FileCheck2 className="h-3.5 w-3.5 mr-1" /> Request compliance docs
+              </Button>
+            )}
+            {(stage === "compliance_docs_complete" || (stage === "offer_sent" && d.offer && !d.offer.acceptedAt)) && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={sendOffer.isPending}
+                onClick={() => sendOffer.mutate({ applicationId: app.id, forceResend: stage === "offer_sent" })}
+              >
+                <FileCheck2 className="h-3.5 w-3.5 mr-1" />
+                {stage === "offer_sent" ? "Resend offer letter" : "Send offer letter"}
               </Button>
             )}
             {(stage === "dbs_verified" || stage === "training_complete") && (
@@ -305,7 +328,10 @@ export default function CandidateDetail() {
           <section className="uc-card p-5" aria-label="Compliance documents">
             <h2 className="uc-label mb-3">Compliance documents</h2>
             {d.docs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Not requested yet — approve the candidate first.</p>
+              <p className="text-sm text-muted-foreground">
+                Not requested yet — use Approve & request docs after interview. The offer letter email is sent
+                automatically once every required document here is verified.
+              </p>
             ) : (
               <DocChecklist docs={d.docs} onDone={inv} />
             )}

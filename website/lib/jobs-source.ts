@@ -37,6 +37,7 @@ type PortalPublicJob = {
   applySlug: string | null;
   applyLinkEnabled: boolean | null;
   closesAt: string | null;
+  requirements?: string[];
 };
 
 type JobPostingRow = {
@@ -130,7 +131,7 @@ function mapPortalJob(j: PortalPublicJob): WebsiteJob {
     statusLabel: statusLabel(j.closesAt),
     summary: summaryFromMarkdown(j.descriptionMd),
     descriptionMd: j.descriptionMd,
-    requirements: [],
+    requirements: Array.isArray(j.requirements) ? j.requirements.filter((x): x is string => typeof x === "string") : [],
     salary: formatSalary(j.salaryText),
     closesAt: j.closesAt,
     postedAt: null,
