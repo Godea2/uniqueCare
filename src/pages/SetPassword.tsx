@@ -96,43 +96,47 @@ export default function SetPassword() {
 
   return (
     <AuthShell>
-      <div className="uc-card p-8">
+      <div className="rounded-2xl border border-[--line] bg-white p-8 sm:p-9">
         {phase === "checking" && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <p className="flex items-center gap-2 text-sm text-[--ink-500]">
             <Loader2 className="h-4 w-4 animate-spin" /> Checking your confirmation link…
           </p>
         )}
         {phase === "invalid" && (
           <>
-            <h2 className="text-xl font-semibold">Link not valid</h2>
-            <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[--brand-600]">Link issue</p>
+            <h2 className="mt-2 font-display text-[1.85rem] font-semibold tracking-tight text-[--brand-900]">Link not valid</h2>
+            <p className="mt-2 text-[15px] leading-relaxed text-[--ink-500]">
               {error || "This confirmation link is missing, expired, or has already been used."}
             </p>
             <p className="mt-4 text-sm">
-              <Link to="/forgot-password" className="font-medium text-[--brand-700] hover:underline">Request a new link</Link>
+              <Link to="/forgot-password" className="font-semibold text-[--brand-700] hover:underline">Request a new link</Link>
             </p>
           </>
         )}
         {phase === "ready" && (
           <>
-            <h2 className="text-xl font-semibold">{recovery ? "Choose a new password" : "Create your password"}</h2>
-            <p className="mt-1.5 text-sm text-muted-foreground">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[--brand-600]">Secure access</p>
+            <h2 className="mt-2 font-display text-[1.85rem] font-semibold tracking-tight text-[--brand-900]">
+              {recovery ? "Choose a new password" : "Create your password"}
+            </h2>
+            <p className="mt-2 text-[15px] leading-relaxed text-[--ink-500]">
               {recovery
                 ? "This replaces the password on your account. You will use it the next time you sign in."
                 : "Your email is confirmed. Set the password you will use to sign in."}
             </p>
-            <form className="mt-6 space-y-4" onSubmit={submit}>
-              <div>
+            <form className="mt-7 space-y-4" onSubmit={submit}>
+              <div className="space-y-1.5">
                 <Label htmlFor="password">Password</Label>
-                <Input id="password" type="password" required autoComplete="new-password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+                <Input id="password" type="password" required autoComplete="new-password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} className="h-11" />
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <Label htmlFor="confirm">Confirm password</Label>
-                <Input id="confirm" type="password" required autoComplete="new-password" minLength={8} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+                <Input id="confirm" type="password" required autoComplete="new-password" minLength={8} value={confirm} onChange={(e) => setConfirm(e.target.value)} className="h-11" />
               </div>
-              {error && <p className="rounded-xl border border-red-300 bg-red-50 p-2.5 text-xs text-red-800" role="alert">{error}</p>}
-              <Button type="submit" className="w-full" size="lg" disabled={busy}>
-                {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+              {error && <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-relaxed text-red-800" role="alert">{error}</p>}
+              <Button type="submit" className="mt-1 h-11 w-full text-[15px] font-semibold" size="lg" disabled={busy}>
+                {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
                 Save password
               </Button>
             </form>

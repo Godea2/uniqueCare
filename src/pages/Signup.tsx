@@ -36,42 +36,73 @@ export default function Signup() {
 
   return (
     <AuthShell>
-      <div className="uc-card p-8">
+      <div className="rounded-2xl border border-[--line] bg-white p-8 sm:p-9">
         {sent ? (
           <>
-            <h2 className="text-xl font-semibold">Check your email</h2>
-            <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-              We sent a confirmation link to <span className="font-medium text-foreground">{email}</span>.
-              Open it to create your password. The link expires after a short time.
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[--brand-600]">
+              Almost there
+            </p>
+            <h2 className="mt-2 font-display text-[1.85rem] font-semibold tracking-tight text-[--brand-900]">
+              Check your email
+            </h2>
+            <p className="mt-2 text-[15px] leading-relaxed text-[--ink-500]">
+              We sent a confirmation link to <span className="font-semibold text-[--ink-900]">{email}</span>.
+              Open it to create your password.
             </p>
           </>
         ) : (
           <>
-            <h2 className="text-xl font-semibold">Create your account</h2>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              Use your work email. You will set a password after you confirm the address.
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[--brand-600]">
+              UniqueCare Connect
             </p>
-            <form className="mt-6 space-y-4" onSubmit={submit}>
-              <div>
+            <h2 className="mt-2 font-display text-[1.85rem] font-semibold tracking-tight text-[--brand-900]">
+              Create your account
+            </h2>
+            <p className="mt-2 text-[15px] leading-relaxed text-[--ink-500]">
+              Use your work email. You&apos;ll set a password after confirming the address.
+            </p>
+            <form className="mt-7 space-y-4" onSubmit={submit}>
+              <div className="space-y-1.5">
                 <Label htmlFor="full-name">Full name</Label>
-                <Input id="full-name" required autoComplete="name" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+                <Input
+                  id="full-name"
+                  required
+                  autoComplete="name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="h-11"
+                />
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-11"
+                />
               </div>
-              {error && <p className="rounded-xl border border-red-300 bg-red-50 p-2.5 text-xs text-red-800" role="alert">{error}</p>}
-              <Button type="submit" className="w-full" size="lg" disabled={busy}>
-                {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+              {error && (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-relaxed text-red-800" role="alert">
+                  {error}
+                </p>
+              )}
+              <Button type="submit" className="mt-1 h-11 w-full text-[15px] font-semibold" size="lg" disabled={busy}>
+                {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
                 Create account
               </Button>
             </form>
           </>
         )}
       </div>
-      <p className="mt-6 text-center text-sm text-muted-foreground">
+      <p className="mt-7 text-center text-sm text-[--ink-500]">
         Already have an account?{" "}
-        <Link to="/login" className="font-medium text-[--brand-700] hover:underline">Sign in</Link>
+        <Link to="/login" className="font-semibold text-[--brand-700] hover:text-[--brand-900] hover:underline">
+          Sign in
+        </Link>
       </p>
     </AuthShell>
   );

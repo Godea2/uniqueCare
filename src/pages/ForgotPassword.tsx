@@ -29,37 +29,61 @@ export default function ForgotPassword() {
 
   return (
     <AuthShell>
-      <div className="uc-card p-8">
+      <div className="rounded-2xl border border-[--line] bg-white p-8 sm:p-9">
         {sent ? (
           <>
-            <h2 className="text-xl font-semibold">Check your email</h2>
-            <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-              If an account exists for <span className="font-medium text-foreground">{email}</span>,
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[--brand-600]">
+              Email sent
+            </p>
+            <h2 className="mt-2 font-display text-[1.85rem] font-semibold tracking-tight text-[--brand-900]">
+              Check your inbox
+            </h2>
+            <p className="mt-2 text-[15px] leading-relaxed text-[--ink-500]">
+              If an account exists for <span className="font-semibold text-[--ink-900]">{email}</span>,
               we sent a link to choose a new password.
             </p>
           </>
         ) : (
           <>
-            <h2 className="text-xl font-semibold">Reset your password</h2>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              Enter your account email and we will send a link to set a new password.
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[--brand-600]">
+              Account recovery
             </p>
-            <form className="mt-6 space-y-4" onSubmit={submit}>
-              <div>
+            <h2 className="mt-2 font-display text-[1.85rem] font-semibold tracking-tight text-[--brand-900]">
+              Reset password
+            </h2>
+            <p className="mt-2 text-[15px] leading-relaxed text-[--ink-500]">
+              Enter your work email and we&apos;ll send a secure reset link.
+            </p>
+            <form className="mt-7 space-y-4" onSubmit={submit}>
+              <div className="space-y-1.5">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-11"
+                />
               </div>
-              {error && <p className="rounded-xl border border-red-300 bg-red-50 p-2.5 text-xs text-red-800" role="alert">{error}</p>}
-              <Button type="submit" className="w-full" size="lg" disabled={busy}>
-                {busy && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+              {error && (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-relaxed text-red-800" role="alert">
+                  {error}
+                </p>
+              )}
+              <Button type="submit" className="mt-1 h-11 w-full text-[15px] font-semibold" size="lg" disabled={busy}>
+                {busy && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
                 Send reset link
               </Button>
             </form>
           </>
         )}
       </div>
-      <p className="mt-6 text-center text-sm text-muted-foreground">
-        <Link to="/login" className="font-medium text-[--brand-700] hover:underline">Back to sign in</Link>
+      <p className="mt-7 text-center text-sm text-[--ink-500]">
+        <Link to="/login" className="font-semibold text-[--brand-700] hover:text-[--brand-900] hover:underline">
+          Back to sign in
+        </Link>
       </p>
     </AuthShell>
   );
