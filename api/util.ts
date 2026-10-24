@@ -27,8 +27,9 @@ const staffCache = new WeakMap<object, Promise<StaffCtx>>();
 
 /**
  * Resolve the signed-in user's staff profile.
- * - Already linked: return it.
- * - Invite / hire profile with matching email (no userId yet): link + activate if invited.
+ * - Already linked: return it (status unchanged — invited stays invited until password is set).
+ * - Invite profile with matching email (no userId yet): link the auth user; stay invited until
+ *   they finish /auth/set-password.
  * - Bootstrap only: named super admins or the very first user become Registered Manager.
  * Public self-signup is disabled — everyone else must be invited.
  */
@@ -50,13 +51,32 @@ export function canManageUsers(staff: StaffProfile): boolean {
   return real === "super_admin" || !!staff.canInviteUsers;
 }
 
+/** After the invitee chooses a password — grant app access. */
+export async function activateInvitedStaff(opts: {
+  localUserId?: number;
+  email?: string | null;
+}): Promise<void> {
+  const email = opts.email?.trim().toLowerCase();
+  const all = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfile>();
+  const match = all.find((s) =>
+    (opts.localUserId != null && s.userId === opts.localUserId)
+    || (!!email && s.email?.trim().toLowerCase() === email));
+  if (!match) return;
+  if (match.status !== "invited" && match.status !== "pending") {
+    if (opts.localUserId != null && match.userId !== opts.localUserId) {
+      await db.from("staffProfiles").eq("id", match.id).update({ userId: opts.localUserId });
+    }
+    return;
+  }
+  await db.from("staffProfiles").eq("id", match.id).update({
+    userId: opts.localUserId ?? match.userId,
+    status: "active",
+  });
+}
+
 async function resolveStaff(user: User): Promise<StaffCtx> {
   const existing = await db.from("staffProfiles").eq("userId", user.id).first<StaffProfile>();
   if (existing) {
-    if (existing.status === "invited") {
-      await db.from("staffProfiles").eq("id", existing.id).update({ status: "active" });
-      return { staff: { ...existing, status: "active" }, user };
-    }
     return { staff: existing, user };
   }
 
@@ -65,9 +85,9 @@ async function resolveStaff(user: User): Promise<StaffCtx> {
     const unlinked = await db.from("staffProfiles").isNull("userId").isNull("deletedAt").many<StaffProfile>();
     const match = unlinked.find((s) => s.email?.trim().toLowerCase() === email);
     if (match) {
-      const nextStatus = match.status === "invited" || match.status === "pending" ? "active" : match.status;
-      await db.from("staffProfiles").eq("id", match.id).update({ userId: user.id, status: nextStatus });
-      return { staff: { ...match, userId: user.id, status: nextStatus }, user };
+      // Link login identity now; access waits until they set a password (status stays invited).
+      await db.from("staffProfiles").eq("id", match.id).update({ userId: user.id });
+      return { staff: { ...match, userId: user.id }, user };
     }
   }
 

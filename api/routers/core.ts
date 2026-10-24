@@ -137,8 +137,8 @@ export const coreRouter = createRouter({
         subject: `You're invited to ${org.name} — UniqueCare Connect`,
         body: [
           `Hello ${first},`,
-          `${sc.staff.fullName} has invited you to UniqueCare Connect for ${org.name}.`,
-          "Open the link below to confirm your email and choose your password. After that you can sign in anytime with this email and password.",
+          `${sc.staff.fullName} has created your UniqueCare Connect account for ${org.name}.`,
+          "Click the link below to create your password. Once that is done you can sign in anytime with this email and password.",
           linkResult.link,
           "The link expires in about 1 hour and can only be used once. If you were not expecting this, you can ignore the email.",
           org.signOff,

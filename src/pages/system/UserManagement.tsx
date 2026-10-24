@@ -72,10 +72,10 @@ export default function UserManagement() {
     <div className="space-y-5">
       <PageHeader
         title="User management"
-        subtitle="Invite people to UniqueCare Connect. They set their own password from the email link."
+        subtitle="Create an account with their work email. They get an invite link, choose a password, then can sign in."
         actions={
           <Button onClick={() => setCreateOpen(true)}>
-            <UserPlus className="mr-1.5 h-4 w-4" /> Invite user
+            <UserPlus className="mr-1.5 h-4 w-4" /> Create account
           </Button>
         }
       />
@@ -125,9 +125,9 @@ export default function UserManagement() {
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
                   <p className="font-medium text-[--brand-900]">No accounts yet</p>
-                  <p className="mt-1 text-sm">Invite your first team member — they will get an email to set a password.</p>
+                  <p className="mt-1 text-sm">Create an account with their work email — they get a link to set a password.</p>
                   <Button className="mt-4" onClick={() => setCreateOpen(true)}>
-                    <Plus className="mr-1.5 h-4 w-4" /> Invite user
+                    <Plus className="mr-1.5 h-4 w-4" /> Create account
                   </Button>
                 </td>
               </tr>
@@ -170,7 +170,7 @@ function InviteDialog({
 
   const invite = trpc.core.inviteStaff.useMutation({
     onSuccess: () => {
-      toast.success("Invite sent — they will set their password from the email");
+      toast.success("Account created — invite email sent so they can set a password");
       setFullName(""); setEmail(""); setRole("care_worker"); setCanInvite(false);
       onDone();
     },
@@ -183,10 +183,10 @@ function InviteDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Invite user</DialogTitle>
+          <DialogTitle>Create account</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          We email them a secure link to choose a password. Role and invite rights are set here — you can change them later.
+          Enter their work email. They receive an invite link, create a password, then can sign in. You can change role or invite rights later.
         </p>
         <div className="space-y-4 pt-1">
           <div className="space-y-1.5">
@@ -234,7 +234,7 @@ function InviteDialog({
             })}
           >
             {invite.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-            Send invite
+            Create and send invite
           </Button>
         </DialogFooter>
       </DialogContent>

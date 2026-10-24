@@ -194,22 +194,24 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const canSwitchRole = realRole === "super_admin" || realRole === "admin";
 
   if (staff && (staff.status === "pending" || staff.status === "invited" || staff.status === "left" || staff.deletedAt)) {
-    const awaitingInvite = staff.status === "invited" || staff.status === "pending";
+    const needsPassword = staff.status === "invited" || staff.status === "pending";
     return (
       <div className="flex min-h-screen items-center justify-center p-6" style={{ backgroundColor: "var(--frame-bg)" }}>
         <div className="uc-card max-w-md p-8 text-center">
           <img src="/logo.png" alt="Unique Care UK" className="mx-auto mb-6 h-10 w-auto" />
           <h1 className="text-lg font-semibold text-[--brand-900]">
-            {awaitingInvite ? "Finish setting up your account" : "Your account is no longer active"}
+            {needsPassword ? "Create your password to continue" : "Your account is no longer active"}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {awaitingInvite
-              ? `Open the invite link from your email (${user.email}) to choose a password, then sign in again.`
+            {needsPassword
+              ? `Your account (${user.email}) is ready. Choose a password to open UniqueCare Connect.`
               : "Please contact the office if you think this is a mistake."}
           </p>
           <div className="mt-6 flex justify-center gap-2">
-            {awaitingInvite && <Button variant="outline" onClick={() => meQ.refetch()}>Check again</Button>}
-            <Button onClick={logout}>Sign out</Button>
+            {needsPassword && (
+              <Button onClick={() => navigate("/auth/set-password")}>Create password</Button>
+            )}
+            <Button variant="outline" onClick={logout}>Sign out</Button>
           </div>
         </div>
       </div>

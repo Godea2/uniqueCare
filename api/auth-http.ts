@@ -10,6 +10,8 @@ import {
   verifyEmailToken,
 } from "./lib/gotrue";
 import { db } from "./db";
+import { activateInvitedStaff } from "./util";
+import { ensureLocalUser } from "./identity";
 import { appUrl, orgProfile } from "./lib/app-url";
 import { sendEmail } from "./lib/mailer";
 
@@ -129,5 +131,8 @@ export async function setPasswordHandler(c: Context) {
   if (!user) return c.json({ error: "This link is invalid or has expired. Request a new one." }, 401);
   const updated = await setUserPassword(user.id, password);
   if (updated.error) return c.json({ error: updated.error }, 400);
+  // Invite flow: account exists but access starts only after they choose a password.
+  const local = await ensureLocalUser(user);
+  await activateInvitedStaff({ localUserId: local?.id, email: user.email });
   return c.json({ ok: true });
 }
