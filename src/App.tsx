@@ -2,7 +2,6 @@ import { Routes, Route, Navigate, useParams } from "react-router";
 import AppLayout from "./components/AppLayout";
 import RequireRoles from "./components/RequireRoles";
 import Login from "./pages/Login";
-import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/ForgotPassword";
 import SetPassword from "./pages/SetPassword";
 import NotFound from "./pages/NotFound";
@@ -50,6 +49,8 @@ import InspectionPack from "./pages/cqc/InspectionPack";
 
 import Settings from "./pages/system/Settings";
 import AuditLog from "./pages/system/AuditLog";
+import UserManagement from "./pages/system/UserManagement";
+import RequireCanInvite from "./components/RequireCanInvite";
 
 import Careers from "./pages/public/Careers";
 import Apply from "./pages/public/Apply";
@@ -103,7 +104,7 @@ export default function App() {
     <Routes>
       {/* Public */}
       <Route path="/login" element={<Login />} />
-      <Route path="/signup" element={<Signup />} />
+      <Route path="/signup" element={<Navigate to="/login" replace />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/auth/set-password" element={<SetPassword />} />
       <Route path="/careers" element={<Careers />} />
@@ -160,6 +161,9 @@ export default function App() {
       <Route path="/cqc/incidents" element={<Guard roles={CQC_INCIDENT_ROLES}><Incidents /></Guard>} />
       <Route path="/cqc/inspection-pack" element={<Guard roles={OFFICE_ROLES}><InspectionPack /></Guard>} />
 
+      <Route path="/users" element={
+        <P><RequireCanInvite><UserManagement /></RequireCanInvite></P>
+      } />
       <Route path="/settings" element={<Guard roles={["super_admin"]}><Settings /></Guard>} />
       <Route path="/audit" element={<Guard roles={OFFICE_ROLES}><AuditLog /></Guard>} />
 

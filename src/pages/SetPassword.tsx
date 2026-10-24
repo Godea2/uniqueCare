@@ -123,7 +123,7 @@ export default function SetPassword() {
             <p className="mt-2 text-[15px] leading-relaxed text-[--ink-500]">
               {recovery
                 ? "This replaces the password on your account. You will use it the next time you sign in."
-                : "Your email is confirmed. Set the password you will use to sign in."}
+                : "Choose a password for UniqueCare Connect. After this you can sign in with your work email anytime."}
             </p>
             <form className="mt-7 space-y-4" onSubmit={submit}>
               <div className="space-y-1.5">

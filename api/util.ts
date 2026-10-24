@@ -28,10 +28,9 @@ const staffCache = new WeakMap<object, Promise<StaffCtx>>();
 /**
  * Resolve the signed-in user's staff profile.
  * - Already linked: return it.
- * - A profile created by HR (e.g. on hire) with the same email: link it.
- * - Otherwise create one. Named super admins (and the very first user) become
- *   the Registered Manager; everyone else waits as "pending" until an admin
- *   approves them in the staff directory.
+ * - Invite / hire profile with matching email (no userId yet): link + activate if invited.
+ * - Bootstrap only: named super admins or the very first user become Registered Manager.
+ * Public self-signup is disabled — everyone else must be invited.
  */
 export function getStaff(ctx: TrpcContext): Promise<StaffCtx> {
   const user = ctx.user;
@@ -45,41 +44,53 @@ export function getStaff(ctx: TrpcContext): Promise<StaffCtx> {
   return pending;
 }
 
+/** True if this staff member may open User management and invite others. */
+export function canManageUsers(staff: StaffProfile): boolean {
+  const real = (staff.homeRole ?? staff.role) as StaffRole;
+  return real === "super_admin" || !!staff.canInviteUsers;
+}
+
 async function resolveStaff(user: User): Promise<StaffCtx> {
   const existing = await db.from("staffProfiles").eq("userId", user.id).first<StaffProfile>();
-  if (existing) return { staff: existing, user };
+  if (existing) {
+    if (existing.status === "invited") {
+      await db.from("staffProfiles").eq("id", existing.id).update({ status: "active" });
+      return { staff: { ...existing, status: "active" }, user };
+    }
+    return { staff: existing, user };
+  }
 
   const email = user.email?.trim().toLowerCase();
   if (email) {
     const unlinked = await db.from("staffProfiles").isNull("userId").isNull("deletedAt").many<StaffProfile>();
     const match = unlinked.find((s) => s.email?.trim().toLowerCase() === email);
     if (match) {
-      await db.from("staffProfiles").eq("id", match.id).update({ userId: user.id });
-      return { staff: { ...match, userId: user.id }, user };
+      const nextStatus = match.status === "invited" || match.status === "pending" ? "active" : match.status;
+      await db.from("staffProfiles").eq("id", match.id).update({ userId: user.id, status: nextStatus });
+      return { staff: { ...match, userId: user.id, status: nextStatus }, user };
     }
   }
 
   const name = user.name ?? user.email ?? "Staff";
   const managers = await db.from("staffProfiles").eq("role", "super_admin").isNull("deletedAt").count();
   const isManager = isNamedSuperAdmin(user.email) || managers === 0;
+  if (!isManager) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "This email is not on the staff list. Ask your manager to send you an invite.",
+    });
+  }
   const [created] = await db.from("staffProfiles").insert<StaffProfile>({
     userId: user.id,
     fullName: name,
     email: user.email,
-    role: isManager ? "super_admin" : "care_worker",
-    jobTitle: isManager ? "Registered Manager" : null,
-    status: isManager ? "active" : "pending",
+    role: "super_admin",
+    jobTitle: "Registered Manager",
+    status: "active",
+    canInviteUsers: true,
     contractedHours: "37.5",
     avatarColor: "#0A2E5C",
   });
-  if (!isManager) {
-    await notifyRoles(["super_admin", "admin"], {
-      type: "staff_pending",
-      title: "New account awaiting approval",
-      body: `${name} (${user.email ?? "no email"}) signed up and needs a role before they can use the app.`,
-      link: "/staff",
-    });
-  }
   return { staff: created, user };
 }
 

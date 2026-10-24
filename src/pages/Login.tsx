@@ -90,11 +90,8 @@ export default function Login() {
       </div>
 
       <div className="mt-7 space-y-3 text-center text-sm text-[--ink-500]">
-        <p>
-          New here?{" "}
-          <Link to="/signup" className="font-semibold text-[--brand-700] hover:text-[--brand-900] hover:underline">
-            Create an account
-          </Link>
+        <p className="text-xs leading-relaxed">
+          New staff are invited by a manager — check your email for a link to set your password.
         </p>
         <p className="text-xs">
           Looking for work?{" "}

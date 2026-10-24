@@ -47,42 +47,11 @@ async function withinLimit(bucket: string, keys: string[], limit: number): Promi
 const TOO_MANY = "Too many requests. Please wait a while and try again.";
 const SEND_FAILED = "We could not send the email just now. Please try again in a few minutes.";
 
+/** Public self-signup is closed — staff must be invited from User management. */
 export async function signupHandler(c: Context) {
-  const body = await readJson(c);
-  const email = text(body.email).toLowerCase();
-  const fullName = text(body.fullName);
-  if (!email || !email.includes("@")) return c.json({ error: "Enter a valid email address" }, 400);
-  if (fullName.length < 2) return c.json({ error: "Enter your full name" }, 400);
-  if (!(await withinLimit("signup", [clientIp(c), email], 5))) return c.json({ error: TOO_MANY }, 429);
-
-  const redirectTo = `${appUrl(c.req.raw)}/auth/set-password`;
-  let result = await authEmailLink("signup", email, redirectTo, { password: temporaryPassword(), fullName });
-  if (result.error && /already registered|already been registered|already exists/i.test(result.error)) {
-    // Signed up before but never confirmed: send a fresh confirmation instead of refusing.
-    const existing = await findAuthUserByEmail(email);
-    if (existing?.email_confirmed_at) {
-      return c.json({ error: "An account with this email already exists. Sign in, or reset your password." }, 409);
-    }
-    result = await authEmailLink("magiclink", email, redirectTo);
-  }
-  if (result.error || !result.link) return c.json({ error: result.error ?? "Could not create the account" }, 400);
-
-  const org = await orgProfile();
-  const sent = await sendEmail({
-    to: email,
-    subject: `Confirm your email for ${org.name}`,
-    body: [
-      `Hello ${fullName.split(" ")[0]},`,
-      `Thank you for creating a UniqueCare Connect account with ${org.name}. Confirm your email address and choose your password:`,
-      result.link,
-      "The link expires in 1 hour and can only be used once. If you did not ask for this, you can ignore this email.",
-      org.signOff,
-    ].join("\n\n"),
-    kind: "confirm_signup",
-    privateLink: true,
-  });
-  if (!sent.delivered) return c.json({ error: SEND_FAILED }, 502);
-  return c.json({ status: "confirm_email" });
+  return c.json({
+    error: "Accounts are created by your manager. Ask them to send you an invite, then sign in here.",
+  }, 403);
 }
 
 export async function signinHandler(c: Context) {

@@ -3,9 +3,10 @@ import { TRPCError } from "@trpc/server";
 import { createRouter, authedQuery, signedInQuery } from "../middleware";
 import { db } from "../db";
 import { geocodePostcode } from "../lib/geo";
-import { mailProvider, resendQueued, sendTestEmail } from "../lib/mailer";
+import { mailProvider, resendQueued, sendEmail, sendTestEmail } from "../lib/mailer";
 import {
   STAFF_ROLES,
+  type StaffRole,
   type Applications,
   type Appraisals,
   type AuditLog,
@@ -32,9 +33,22 @@ import {
   type Visits,
 } from "@db/schema";
 import {
-  getStaff, requireRole, audit, notify,
+  getStaff, requireRole, audit, notify, canManageUsers,
   OFFICE_ROLES, CLIENT_DIRECTORY_ROLES, STAFF_DIRECTORY_ROLES,
 } from "../util";
+import { authEmailLink, findAuthUserByEmail } from "../lib/gotrue";
+import { appUrl, orgProfile } from "../lib/app-url";
+import { randomBytes } from "node:crypto";
+
+function tempInvitePassword(): string {
+  return `Aa1!${randomBytes(24).toString("base64url")}`;
+}
+
+function actorMayInvite(staff: StaffProfiles): void {
+  if (!canManageUsers(staff)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "You do not have permission to manage user accounts." });
+  }
+}
 
 export const coreRouter = createRouter({
   /** Current signed-in user's staff profile */
@@ -42,6 +56,199 @@ export const coreRouter = createRouter({
     const { staff } = await getStaff(ctx);
     return staff;
   }),
+
+  /** Staff accounts for User management (inviters only). */
+  userAccounts: authedQuery.query(async ({ ctx }) => {
+    const sc = await getStaff(ctx);
+    actorMayInvite(sc.staff);
+    const all = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+    return all
+      .map((s) => ({
+        id: s.id,
+        fullName: s.fullName,
+        email: s.email,
+        role: (s.homeRole ?? s.role) as StaffRole,
+        status: s.status,
+        canInviteUsers: !!s.canInviteUsers || (s.homeRole ?? s.role) === "super_admin",
+        createdAt: s.createdAt,
+      }))
+      .sort((a, b) => a.fullName.localeCompare(b.fullName));
+  }),
+
+  /**
+   * Invite a staff member: create profile with role + optional invite permission,
+   * email a one-time link to set their password.
+   */
+  inviteStaff: authedQuery
+    .input(z.object({
+      fullName: z.string().trim().min(2).max(120),
+      email: z.string().trim().email().max(200),
+      role: z.enum(STAFF_ROLES),
+      canInviteUsers: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      actorMayInvite(sc.staff);
+      const actorRole = (sc.staff.homeRole ?? sc.staff.role) as StaffRole;
+      if (actorRole !== "super_admin" && input.role === "super_admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only a Registered Manager can invite another Registered Manager." });
+      }
+
+      const email = input.email.toLowerCase();
+      const existing = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+      if (existing.some((s) => s.email?.trim().toLowerCase() === email)) {
+        throw new TRPCError({ code: "CONFLICT", message: "A staff account with this email already exists." });
+      }
+      const authUser = await findAuthUserByEmail(email);
+      if (authUser?.email_confirmed_at) {
+        throw new TRPCError({ code: "CONFLICT", message: "This email already has a login. Ask them to sign in, or reset their password." });
+      }
+
+      const grantInvite = input.role === "super_admin" ? true : input.canInviteUsers;
+      const [created] = await db.from("staffProfiles").insert<StaffProfiles>({
+        userId: null,
+        fullName: input.fullName,
+        email,
+        role: input.role,
+        jobTitle: input.role === "super_admin" ? "Registered Manager" : null,
+        status: "invited",
+        canInviteUsers: grantInvite,
+        contractedHours: "37.5",
+        avatarColor: "#0A2E5C",
+      });
+
+      const redirectTo = `${appUrl(ctx.req)}/auth/set-password`;
+      let linkResult = await authEmailLink("signup", email, redirectTo, {
+        password: tempInvitePassword(),
+        fullName: input.fullName,
+      });
+      if (linkResult.error && /already registered|already been registered|already exists/i.test(linkResult.error)) {
+        linkResult = await authEmailLink("magiclink", email, redirectTo);
+      }
+      if (linkResult.error || !linkResult.link) {
+        await db.from("staffProfiles").eq("id", created.id).update({ deletedAt: new Date().toISOString() });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: linkResult.error ?? "Could not create the invite link." });
+      }
+
+      const org = await orgProfile();
+      const first = input.fullName.split(/\s+/)[0] ?? input.fullName;
+      const sent = await sendEmail({
+        to: email,
+        subject: `You're invited to ${org.name} — UniqueCare Connect`,
+        body: [
+          `Hello ${first},`,
+          `${sc.staff.fullName} has invited you to UniqueCare Connect for ${org.name}.`,
+          "Open the link below to confirm your email and choose your password. After that you can sign in anytime with this email and password.",
+          linkResult.link,
+          "The link expires in about 1 hour and can only be used once. If you were not expecting this, you can ignore the email.",
+          org.signOff,
+        ].join("\n\n"),
+        kind: "staff_invite",
+        privateLink: true,
+        relatedType: "staff_profile",
+        relatedId: created.id,
+      });
+      if (!sent.delivered) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Account was created but the invite email could not be sent. Use Resend invite.",
+        });
+      }
+
+      await audit(sc.staff.fullName, "staff_invited", "staff_profile", created.id, {
+        email, role: input.role, canInviteUsers: grantInvite,
+      });
+      return { id: created.id, ok: true };
+    }),
+
+  resendStaffInvite: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      actorMayInvite(sc.staff);
+      const target = await db.from("staffProfiles").eq("id", input.id).isNull("deletedAt").first<StaffProfiles>();
+      if (!target?.email) throw new TRPCError({ code: "NOT_FOUND" });
+      if (target.status !== "invited" && target.status !== "pending") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This person already has access. They can use Forgot password if needed." });
+      }
+      const email = target.email.trim().toLowerCase();
+      const redirectTo = `${appUrl(ctx.req)}/auth/set-password`;
+      let linkResult = await authEmailLink("magiclink", email, redirectTo);
+      if (linkResult.error) {
+        linkResult = await authEmailLink("signup", email, redirectTo, {
+          password: tempInvitePassword(),
+          fullName: target.fullName,
+        });
+      }
+      if (linkResult.error || !linkResult.link) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: linkResult.error ?? "Could not create the invite link." });
+      }
+      const org = await orgProfile();
+      const sent = await sendEmail({
+        to: email,
+        subject: `Your invite to ${org.name} — UniqueCare Connect`,
+        body: [
+          `Hello ${target.fullName.split(/\s+/)[0] ?? target.fullName},`,
+          "Here is a fresh link to set your UniqueCare Connect password:",
+          linkResult.link,
+          "The link expires in about 1 hour and can only be used once.",
+          org.signOff,
+        ].join("\n\n"),
+        kind: "staff_invite",
+        privateLink: true,
+        relatedType: "staff_profile",
+        relatedId: target.id,
+      });
+      if (!sent.delivered) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Could not send the invite email." });
+      }
+      await audit(sc.staff.fullName, "staff_invite_resent", "staff_profile", target.id);
+      return { ok: true };
+    }),
+
+  /** Grant or revoke invite rights; deactivate (left) accounts. */
+  updateUserAccess: authedQuery
+    .input(z.object({
+      id: z.number(),
+      role: z.enum(STAFF_ROLES).optional(),
+      canInviteUsers: z.boolean().optional(),
+      status: z.enum(["active", "onboarding", "invited", "pending", "left"]).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      actorMayInvite(sc.staff);
+      const actorRole = (sc.staff.homeRole ?? sc.staff.role) as StaffRole;
+      const target = await db.from("staffProfiles").eq("id", input.id).isNull("deletedAt").first<StaffProfiles>();
+      if (!target) throw new TRPCError({ code: "NOT_FOUND" });
+      const targetRole = (target.homeRole ?? target.role) as StaffRole;
+      if (actorRole !== "super_admin" && (targetRole === "super_admin" || input.role === "super_admin")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only a Registered Manager can change Registered Manager accounts." });
+      }
+      if (target.id === sc.staff.id && (input.status === "left" || (input.role && input.role !== actorRole))) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "You cannot lock yourself out or demote your own account here." });
+      }
+      if (targetRole === "super_admin" && (input.status === "left" || (input.role && input.role !== "super_admin"))) {
+        const managers = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+        const remaining = managers.filter((m) => m.id !== target.id && (m.homeRole ?? m.role) === "super_admin" && m.status !== "left");
+        if (remaining.length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "At least one Registered Manager must remain." });
+        }
+      }
+      const patch: Partial<StaffProfiles> = {};
+      if (input.role) { patch.role = input.role; patch.homeRole = null; }
+      if (input.status) patch.status = input.status;
+      if (input.canInviteUsers !== undefined) {
+        patch.canInviteUsers = input.role === "super_admin" || (patch.role ?? targetRole) === "super_admin"
+          ? true
+          : input.canInviteUsers;
+      }
+      await db.from("staffProfiles").eq("id", input.id).update(patch);
+      await audit(sc.staff.fullName, "user_access_updated", "staff_profile", input.id, {
+        before: { role: target.role, status: target.status, canInviteUsers: target.canInviteUsers },
+        after: patch,
+      });
+      return { ok: true };
+    }),
 
   /**
    * "View as" role switching for managers. The real role is kept in homeRole

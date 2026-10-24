@@ -25,7 +25,14 @@ import { AuthLayoutSkeleton } from "./AuthLayoutSkeleton";
 import { LOGIN_PATH } from "@/const";
 import type { StaffRole } from "@db/schema";
 
-type NavItem = { label: string; path: string; icon: React.ElementType; roles?: StaffRole[] };
+type NavItem = {
+  label: string;
+  path: string;
+  icon: React.ElementType;
+  roles?: StaffRole[];
+  /** Show when the signed-in user may invite staff (RM or canInviteUsers). */
+  requiresUserMgmt?: boolean;
+};
 type NavGroup = { group: string; items: NavItem[] };
 
 const ALL: StaffRole[] = ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor", "interview_panel", "care_worker", "crm_agent"];
@@ -98,6 +105,7 @@ const NAV: NavGroup[] = [
   {
     group: "System",
     items: [
+      { label: "User management", path: "/users", icon: UserCog, requiresUserMgmt: true },
       { label: "Settings", path: "/settings", icon: Settings, roles: ["super_admin"] },
       { label: "Audit log", path: "/audit", icon: ScrollText, roles: ["super_admin", "admin"] },
     ],
@@ -165,38 +173,42 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }, [mobileNav]);
 
   const role = meQ.data?.role as StaffRole | undefined;
+  const realRole = (meQ.data?.homeRole ?? meQ.data?.role) as StaffRole | undefined;
+  const mayManageUsers = realRole === "super_admin" || !!meQ.data?.canInviteUsers;
   const groups = useMemo(
     () =>
       NAV.map((g) => ({
         ...g,
-        items: g.items.filter((i) => !i.roles || (role && i.roles.includes(role))),
+        items: g.items.filter((i) => {
+          if (i.requiresUserMgmt) return mayManageUsers;
+          return !i.roles || (role && i.roles.includes(role));
+        }),
       })).filter((g) => g.items.length > 0),
-    [role],
+    [role, mayManageUsers],
   );
   const unread = (notifQ.data ?? []).filter((n) => !n.readAt).length;
 
   if (isLoading || (user && meQ.isLoading)) return <AuthLayoutSkeleton />;
   if (!user) return null;
   const staff = meQ.data;
-  const realRole = staff?.homeRole ?? staff?.role;
   const canSwitchRole = realRole === "super_admin" || realRole === "admin";
 
-  if (staff && (staff.status === "pending" || staff.status === "left" || staff.deletedAt)) {
-    const pendingApproval = staff.status === "pending";
+  if (staff && (staff.status === "pending" || staff.status === "invited" || staff.status === "left" || staff.deletedAt)) {
+    const awaitingInvite = staff.status === "invited" || staff.status === "pending";
     return (
       <div className="flex min-h-screen items-center justify-center p-6" style={{ backgroundColor: "var(--frame-bg)" }}>
         <div className="uc-card max-w-md p-8 text-center">
           <img src="/logo.png" alt="Unique Care UK" className="mx-auto mb-6 h-10 w-auto" />
           <h1 className="text-lg font-semibold text-[--brand-900]">
-            {pendingApproval ? "Your account is awaiting approval" : "Your account is no longer active"}
+            {awaitingInvite ? "Finish setting up your account" : "Your account is no longer active"}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {pendingApproval
-              ? `You're signed in as ${user.email}. A manager has been notified and will give you access shortly.`
+            {awaitingInvite
+              ? `Open the invite link from your email (${user.email}) to choose a password, then sign in again.`
               : "Please contact the office if you think this is a mistake."}
           </p>
           <div className="mt-6 flex justify-center gap-2">
-            {pendingApproval && <Button variant="outline" onClick={() => meQ.refetch()}>Check again</Button>}
+            {awaitingInvite && <Button variant="outline" onClick={() => meQ.refetch()}>Check again</Button>}
             <Button onClick={logout}>Sign out</Button>
           </div>
         </div>

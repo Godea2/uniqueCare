@@ -644,6 +644,7 @@ export const COLUMN_MAP: Record<TableKey, Record<string, string>> = {
     flexibleDayOff: "flexible_day_off",
     hourlyRate: "hourly_rate",
     status: "status",
+    canInviteUsers: "can_invite_users",
     avatarColor: "avatar_color",
     homeRole: "home_role",
     deletedAt: "deleted_at",

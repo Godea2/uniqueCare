@@ -23,6 +23,7 @@ const ACTION_LABELS: Record<string, string> = {
   staff_notification: "Open UniqueCare Connect",
   confirm_signup: "Confirm email and set password",
   password_reset: "Choose a new password",
+  staff_invite: "Set your password",
 };
 
 export function actionLabelFor(kind: string): string {

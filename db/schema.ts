@@ -672,6 +672,8 @@ export interface StaffProfiles {
   /** GBP per hour for timesheets / payroll */
   hourlyRate: string | null;
   status: string;
+  /** May invite / manage staff accounts (RM always can regardless of this flag). */
+  canInviteUsers: boolean | null;
   avatarColor: string | null;
   homeRole: string | null;
   deletedAt: string | null;
