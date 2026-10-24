@@ -33,11 +33,14 @@ export default function AuthShell({ children }: { children: ReactNode }) {
         />
 
         <div className="relative z-10 flex h-full flex-col justify-between p-10 xl:p-14">
-          <img
-            src="/logo-white.png"
-            alt="Unique Care UK"
-            className="h-11 w-auto drop-shadow-sm"
-          />
+          {/* Colour mark on a solid chip — white PNG washed out over the photo */}
+          <div className="inline-flex w-fit items-center rounded-xl bg-white/95 px-3.5 py-2.5 shadow-[0_8px_30px_rgb(4_30_51_/_0.25)] backdrop-blur-sm">
+            <img
+              src="/logo.png"
+              alt="Unique Care UK"
+              className="h-8 w-auto max-w-[200px] object-contain object-left"
+            />
+          </div>
 
           <div className="max-w-lg pb-2">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70">
