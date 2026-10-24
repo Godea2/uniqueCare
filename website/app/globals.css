@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Brand tokens — sampled from the official logo (blue palette).
+   Primary #124B99 passes WCAG AA (8.4:1 on white) for text/buttons. */
+:root {
+  --brand-primary: #124b99;
+  --brand-primary-dark: #0c3875;
+  --brand-secondary: #0089ca;
+  --brand-soft: #eaf5fb;
+  --ink: #1a1f24;
+  --ink-muted: #5b6670;
+  --surface: #ffffff;
+  --surface-alt: #f7f8f7;
+  --border: #e3e7e6;
+  --success: #2e7d32;
+  --error: #c62828;
+  --cqc-good: #2e7d32;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  @apply bg-surface font-body text-ink antialiased;
+}
+
+/* Visible focus rings (WCAG 2.2 AA) */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--brand-primary-dark);
+  color: #fff;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0 0 0.5rem 0;
+  font-weight: 600;
+}
+.skip-link:focus {
+  left: 0;
+}
+
+/* Subtle fade-up on scroll (JS adds .in-view); respects reduced motion */
+.fade-up {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.fade-up.in-view {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade-up {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+.eyebrow {
+  @apply text-[13px] font-semibold uppercase tracking-[0.08em];
+  color: var(--brand-secondary);
+}
+
+.prose-legal {
+  max-width: 45rem;
+}
+.prose-legal h2 {
+  @apply mt-10 mb-3 font-heading text-2xl font-semibold text-ink;
+}
+.prose-legal h3 {
+  @apply mt-6 mb-2 font-heading text-lg font-semibold text-ink;
+}
+.prose-legal p {
+  @apply mb-4 leading-[1.7] text-ink-muted;
+}
+.prose-legal ul {
+  @apply mb-4 list-disc space-y-2 pl-6 leading-[1.7] text-ink-muted;
+}
