@@ -259,11 +259,8 @@ export const coreRouter = createRouter({
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       const realRole = sc.staff.homeRole ?? sc.staff.role;
-      if (realRole !== "super_admin" && realRole !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only managers can preview other roles." });
-      }
-      if (realRole === "admin" && input.role === "super_admin") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Admins cannot preview as Registered Manager." });
+      if (realRole !== "super_admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the Registered Manager can preview the app as another role." });
       }
       await db.from("staffProfiles").eq("id", sc.staff.id).update({
         role: input.role,

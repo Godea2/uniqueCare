@@ -50,7 +50,6 @@ import InspectionPack from "./pages/cqc/InspectionPack";
 import Settings from "./pages/system/Settings";
 import AuditLog from "./pages/system/AuditLog";
 import UserManagement from "./pages/system/UserManagement";
-import RequireCanInvite from "./components/RequireCanInvite";
 
 import Careers from "./pages/public/Careers";
 import Apply from "./pages/public/Apply";
@@ -161,9 +160,7 @@ export default function App() {
       <Route path="/cqc/incidents" element={<Guard roles={CQC_INCIDENT_ROLES}><Incidents /></Guard>} />
       <Route path="/cqc/inspection-pack" element={<Guard roles={OFFICE_ROLES}><InspectionPack /></Guard>} />
 
-      <Route path="/users" element={
-        <P><RequireCanInvite><UserManagement /></RequireCanInvite></P>
-      } />
+      <Route path="/users" element={<Guard roles={["super_admin"]}><UserManagement /></Guard>} />
       <Route path="/settings" element={<Guard roles={["super_admin"]}><Settings /></Guard>} />
       <Route path="/audit" element={<Guard roles={OFFICE_ROLES}><AuditLog /></Guard>} />
 

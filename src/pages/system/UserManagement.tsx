@@ -4,7 +4,6 @@ import { PageHeader, Loading, ErrorState, Chip } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -40,7 +39,6 @@ type AccountRow = {
   email: string | null;
   role: StaffRole;
   status: string;
-  canInviteUsers: boolean;
   createdAt: string;
 };
 
@@ -100,7 +98,6 @@ export default function UserManagement() {
               <th className="px-4 py-2.5 font-medium">Email</th>
               <th className="px-4 py-2.5 font-medium">Role</th>
               <th className="px-4 py-2.5 font-medium">Status</th>
-              <th className="px-4 py-2.5 font-medium">Can invite</th>
               <th className="px-4 py-2.5 font-medium text-right">Actions</th>
             </tr>
           </thead>
@@ -115,7 +112,6 @@ export default function UserManagement() {
                 <td className="px-4 py-3">
                   <Chip value={r.status} label={STATUS_LABELS[r.status] ?? r.status} />
                 </td>
-                <td className="px-4 py-3 text-muted-foreground">{r.canInviteUsers ? "Yes" : "No"}</td>
                 <td className="px-4 py-3 text-right">
                   <Button size="sm" variant="outline" onClick={() => setEditing(r)}>Manage</Button>
                 </td>
@@ -123,7 +119,7 @@ export default function UserManagement() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                <td colSpan={5} className="px-4 py-12 text-center text-muted-foreground">
                   <p className="font-medium text-[--brand-900]">No accounts yet</p>
                   <p className="mt-1 text-sm">Create an account with their work email — they get a link to set a password.</p>
                   <Button className="mt-4" onClick={() => setCreateOpen(true)}>
@@ -166,12 +162,11 @@ function InviteDialog({
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<StaffRole>("care_worker");
-  const [canInvite, setCanInvite] = useState(false);
 
   const invite = trpc.core.inviteStaff.useMutation({
     onSuccess: () => {
       toast.success("Account created — invite email sent so they can set a password");
-      setFullName(""); setEmail(""); setRole("care_worker"); setCanInvite(false);
+      setFullName(""); setEmail(""); setRole("care_worker");
       onDone();
     },
     onError: (e) => toast.error(e.message),
@@ -186,7 +181,7 @@ function InviteDialog({
           <DialogTitle>Create account</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Enter their work email. They receive an invite link, create a password, then can sign in. You can change role or invite rights later.
+          Enter their work email. They receive an invite link, create a password, then can sign in. You can change their role later.
         </p>
         <div className="space-y-4 pt-1">
           <div className="space-y-1.5">
@@ -208,19 +203,6 @@ function InviteDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-start justify-between gap-4 rounded-xl border px-3 py-3" style={{ borderColor: "var(--line)" }}>
-            <div>
-              <p className="text-sm font-medium text-[--brand-900]">Can invite other users</p>
-              <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
-                Lets them open User management and send invites. You can revoke this anytime.
-              </p>
-            </div>
-            <Switch
-              checked={role === "super_admin" ? true : canInvite}
-              disabled={role === "super_admin"}
-              onCheckedChange={setCanInvite}
-            />
-          </div>
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -230,7 +212,7 @@ function InviteDialog({
               fullName: fullName.trim(),
               email: email.trim(),
               role,
-              canInviteUsers: role === "super_admin" ? true : canInvite,
+              canInviteUsers: role === "super_admin",
             })}
           >
             {invite.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
@@ -252,7 +234,6 @@ function ManageDialog({
   onDone: () => void;
 }) {
   const [role, setRole] = useState<StaffRole>(account.role);
-  const [canInvite, setCanInvite] = useState(account.canInviteUsers);
   const isSelf = selfId === account.id;
 
   const update = trpc.core.updateUserAccess.useMutation({
@@ -285,17 +266,6 @@ function ManageDialog({
                 ))}
               </SelectContent>
             </Select>
-          </div>
-          <div className="flex items-start justify-between gap-4 rounded-xl border px-3 py-3" style={{ borderColor: "var(--line)" }}>
-            <div>
-              <p className="text-sm font-medium text-[--brand-900]">Can invite other users</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Turn off to revoke User management access.</p>
-            </div>
-            <Switch
-              checked={role === "super_admin" ? true : canInvite}
-              disabled={role === "super_admin" || isSelf}
-              onCheckedChange={setCanInvite}
-            />
           </div>
           {awaiting && (
             <Button
@@ -335,7 +305,7 @@ function ManageDialog({
               onClick={() => update.mutate({
                 id: account.id,
                 role: role !== account.role ? role : undefined,
-                canInviteUsers: canInvite,
+                canInviteUsers: role === "super_admin",
               })}
             >
               {update.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}

@@ -25,14 +25,7 @@ import { AuthLayoutSkeleton } from "./AuthLayoutSkeleton";
 import { LOGIN_PATH } from "@/const";
 import type { StaffRole } from "@db/schema";
 
-type NavItem = {
-  label: string;
-  path: string;
-  icon: React.ElementType;
-  roles?: StaffRole[];
-  /** Show when the signed-in user may invite staff (RM or canInviteUsers). */
-  requiresUserMgmt?: boolean;
-};
+type NavItem = { label: string; path: string; icon: React.ElementType; roles?: StaffRole[] };
 type NavGroup = { group: string; items: NavItem[] };
 
 const ALL: StaffRole[] = ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor", "interview_panel", "care_worker", "crm_agent"];
@@ -105,7 +98,7 @@ const NAV: NavGroup[] = [
   {
     group: "System",
     items: [
-      { label: "User management", path: "/users", icon: UserCog, requiresUserMgmt: true },
+      { label: "User management", path: "/users", icon: UserCog, roles: ["super_admin"] },
       { label: "Settings", path: "/settings", icon: Settings, roles: ["super_admin"] },
       { label: "Audit log", path: "/audit", icon: ScrollText, roles: ["super_admin", "admin"] },
     ],
@@ -174,24 +167,20 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   const role = meQ.data?.role as StaffRole | undefined;
   const realRole = (meQ.data?.homeRole ?? meQ.data?.role) as StaffRole | undefined;
-  const mayManageUsers = realRole === "super_admin" || !!meQ.data?.canInviteUsers;
   const groups = useMemo(
     () =>
       NAV.map((g) => ({
         ...g,
-        items: g.items.filter((i) => {
-          if (i.requiresUserMgmt) return mayManageUsers;
-          return !i.roles || (role && i.roles.includes(role));
-        }),
+        items: g.items.filter((i) => !i.roles || (role && i.roles.includes(role))),
       })).filter((g) => g.items.length > 0),
-    [role, mayManageUsers],
+    [role],
   );
   const unread = (notifQ.data ?? []).filter((n) => !n.readAt).length;
 
   if (isLoading || (user && meQ.isLoading)) return <AuthLayoutSkeleton />;
   if (!user) return null;
   const staff = meQ.data;
-  const canSwitchRole = realRole === "super_admin" || realRole === "admin";
+  const canSwitchRole = realRole === "super_admin";
 
   if (staff && (staff.status === "pending" || staff.status === "invited" || staff.status === "left" || staff.deletedAt)) {
     const needsPassword = staff.status === "invited" || staff.status === "pending";
@@ -376,7 +365,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               <DropdownMenuContent align="end" className="w-56 rounded-xl">
                 <DropdownMenuLabel>View app as role</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {(Object.keys(ROLE_LABELS) as StaffRole[]).filter((r) => realRole === "super_admin" || r !== "super_admin").map((r) => (
+                {(Object.keys(ROLE_LABELS) as StaffRole[]).map((r) => (
                   <DropdownMenuItem key={r} onClick={() => setRole.mutate({ role: r })} className="cursor-pointer rounded-lg">
                     <span className={cn("flex-1", r === role && "font-semibold text-[--brand-700]")}>{ROLE_LABELS[r]}</span>
                     {r === role && <span className="text-[--brand-600]">●</span>}

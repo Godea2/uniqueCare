@@ -45,10 +45,10 @@ export function getStaff(ctx: TrpcContext): Promise<StaffCtx> {
   return pending;
 }
 
-/** True if this staff member may open User management and invite others. */
+/** True if this staff member may open User management — Registered Manager only. */
 export function canManageUsers(staff: StaffProfile): boolean {
   const real = (staff.homeRole ?? staff.role) as StaffRole;
-  return real === "super_admin" || !!staff.canInviteUsers;
+  return real === "super_admin";
 }
 
 /** After the invitee chooses a password — grant app access. */
