@@ -23,7 +23,9 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
-  output: "standalone",
+  // Standalone is for Docker (see Dockerfile). On Vercel, leave unset so the
+  // Next.js builder emits the platform routing manifest (avoids NOT_FOUND).
+  ...(process.env.DOCKER_BUILD === "1" ? { output: "standalone" } : {}),
   poweredByHeader: false,
   reactStrictMode: true,
   async headers() {
