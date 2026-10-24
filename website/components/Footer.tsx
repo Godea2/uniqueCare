@@ -3,7 +3,7 @@ import Image from "next/image";
 import { Facebook, Instagram, Linkedin, Mail, MapPin, Phone } from "lucide-react";
 import { services } from "@/content/services";
 import { areas } from "@/content/areas";
-import { adminPortalUrl, site } from "@/content/site";
+import { site } from "@/content/site";
 
 export default function Footer() {
   const year = new Date().getFullYear();
@@ -94,9 +94,6 @@ export default function Footer() {
           <Link href="/terms" className="hover:text-white hover:underline">Terms of Service</Link>
           <Link href="/modern-slavery" className="hover:text-white hover:underline">Modern Slavery Statement</Link>
           <Link href="/carbon-reduction-plan" className="hover:text-white hover:underline">Carbon Reduction Plan</Link>
-          <a href={adminPortalUrl || "#"} rel="nofollow" className="hover:text-white hover:underline">
-            Admin portal
-          </a>
           <span className="ml-auto">VAT: {site.vat}</span>
         </div>
       </div>
