@@ -78,9 +78,12 @@ export default function ComplianceQueue() {
                   <td className="px-4 py-2.5">
                     {d.status === "uploaded" && (
                       <div className="flex items-center justify-end gap-1.5">
-                        <Input type="date" className="h-7 w-32 text-xs" aria-label="Expiry date"
-                          value={expiry[Number(d.id)] ?? ""}
-                          onChange={(e) => setExpiry((s) => ({ ...s, [Number(d.id)]: e.target.value }))} />
+                        {d.requirement?.tracksExpiry && (
+                          <Input type="date" className="h-7 w-32 text-xs" aria-label="Expiry date from the document"
+                            title="Enter the expiry shown on the document (leave blank if none)"
+                            value={expiry[Number(d.id)] ?? ""}
+                            onChange={(e) => setExpiry((s) => ({ ...s, [Number(d.id)]: e.target.value }))} />
+                        )}
                         <Button size="sm" className="h-7" disabled={verify.isPending}
                           onClick={() => verify.mutate({ id: Number(d.id), expiresAt: expiry[Number(d.id)] || undefined })}>
                           Verify

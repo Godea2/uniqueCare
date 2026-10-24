@@ -3,22 +3,42 @@ import { db } from "../db";
 import type {
   ApplicationStage,
   Applications,
+  Candidates,
   ComplianceDocuments,
   ComplianceRequirements,
   PreInterviewForms,
   References,
 } from "@db/schema";
 import { canTransition, emailCandidate, pushStage } from "./recruitment";
-import { isRemovedComplianceKey } from "./compliance-docs";
+import {
+  isHrOnlyComplianceKey,
+  isRemovedComplianceKey,
+  shouldRequestComplianceFromCandidate,
+} from "./compliance-docs";
 import { audit } from "../util";
 import crypto from "crypto";
 
 const token = () => crypto.randomBytes(16).toString("hex");
 
+const CANCEL_STATUSES = ["requested", "rejected"] as const;
+
+async function cancelOpenDocs(candidateId: number, keys: string[]) {
+  for (const key of keys) {
+    await db.from("complianceDocuments")
+      .eq("ownerType", "candidate").eq("ownerId", candidateId).eq("requirementKey", key)
+      .in("status", [...CANCEL_STATUSES])
+      .update({ status: "cancelled" });
+  }
+}
+
 /**
  * Create requested compliance docs + referee rows, move to
  * compliance_docs_requested, and email the candidate.
  * Idempotent for existing document rows.
+ *
+ * Only asks the candidate for documents they can actually provide:
+ * - skips retired keys and HR-only items (contract, DBS)
+ * - asks for driving licence only when they said they hold one
  */
 export async function requestComplianceForApplication(opts: {
   applicationId: number;
@@ -28,8 +48,19 @@ export async function requestComplianceForApplication(opts: {
   const app = await db.from("applications").eq("id", opts.applicationId).first<Applications>();
   if (!app) throw new TRPCError({ code: "NOT_FOUND" });
 
+  const candidate = await db.from("candidates").eq("id", app.candidateId).first<Candidates>();
+  const hasDrivingLicence = !!candidate?.hasDrivingLicence;
+
   const reqs = (await db.from("complianceRequirements").eq("required", true).many<ComplianceRequirements>())
-    .filter((r) => !isRemovedComplianceKey(r.key));
+    .filter((r) => shouldRequestComplianceFromCandidate(r.key, { hasDrivingLicence }));
+  // Driving is optional in the catalog but still requested when they drive.
+  if (hasDrivingLicence) {
+    const driving = await db.from("complianceRequirements").eq("key", "driving_docs").first<ComplianceRequirements>();
+    if (driving && !reqs.some((r) => r.key === "driving_docs")) {
+      reqs.push(driving);
+    }
+  }
+
   if (reqs.length === 0) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
@@ -61,15 +92,18 @@ export async function requestComplianceForApplication(opts: {
       await db.from("complianceDocuments").insert({
         ownerType: "candidate", ownerId: app.candidateId, requirementKey: req.key, status: "requested",
       });
+    } else if (has.status === "cancelled") {
+      await db.from("complianceDocuments").eq("id", has.id).update({ status: "requested" });
     }
   }
 
-  for (const key of ["employment_history", "qualifications"]) {
-    await db.from("complianceDocuments")
-      .eq("ownerType", "candidate").eq("ownerId", app.candidateId).eq("requirementKey", key)
-      .in("status", ["requested", "rejected", "uploaded"])
-      .update({ status: "cancelled" });
-  }
+  // Drop mistaken open requests: retired, HR-only, or driving when they don't drive.
+  const allKeys = (await db.from("complianceRequirements").many<ComplianceRequirements>()).map((r) => r.key);
+  const cancelKeys = allKeys.filter((key) =>
+    isRemovedComplianceKey(key)
+    || isHrOnlyComplianceKey(key)
+    || (key === "driving_docs" && !hasDrivingLicence));
+  await cancelOpenDocs(app.candidateId, cancelKeys);
 
   const form = await db.from("preInterviewForms").eq("applicationId", app.id).first<PreInterviewForms>();
   const formRefs = ((form?.data as { referees?: { name: string; email: string; relationship: string; mostRecent: boolean }[] })?.referees) ?? [];

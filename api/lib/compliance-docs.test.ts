@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   complianceKeyTracksExpiry,
+  isHrOnlyComplianceKey,
   isNonExpiringComplianceKey,
   isRemovedComplianceKey,
   resolveComplianceRequirement,
+  shouldRequestComplianceFromCandidate,
 } from "./compliance-docs";
 
 describe("compliance document form", () => {
@@ -24,6 +26,20 @@ describe("compliance document form", () => {
     expect(complianceKeyTracksExpiry("photo_id")).toBe(true);
   });
 
+  it("keeps signed contract and DBS as office-led, not candidate uploads", () => {
+    expect(isHrOnlyComplianceKey("signed_contract")).toBe(true);
+    expect(isHrOnlyComplianceKey("dbs_enhanced")).toBe(true);
+    expect(shouldRequestComplianceFromCandidate("signed_contract")).toBe(false);
+    expect(shouldRequestComplianceFromCandidate("dbs_enhanced")).toBe(false);
+  });
+
+  it("only asks for driving docs when the candidate holds a licence", () => {
+    expect(shouldRequestComplianceFromCandidate("driving_docs", { hasDrivingLicence: false })).toBe(false);
+    expect(shouldRequestComplianceFromCandidate("driving_docs", { hasDrivingLicence: true })).toBe(true);
+    expect(shouldRequestComplianceFromCandidate("photo_id")).toBe(true);
+    expect(shouldRequestComplianceFromCandidate("bank_details")).toBe(true);
+  });
+
   it("uses text input for bank, references and right to work", () => {
     expect(resolveComplianceRequirement({ key: "bank_details", label: "Bank" }).inputKind).toBe("text");
     expect(resolveComplianceRequirement({ key: "reference_1", label: "Ref" }).inputKind).toBe("text");
@@ -32,7 +48,7 @@ describe("compliance document form", () => {
   });
 
   it("labels driving docs and proof of address guidance", () => {
-    expect(resolveComplianceRequirement({ key: "driving_docs", label: "old" }).label).toBe("Driver's License Document");
+    expect(resolveComplianceRequirement({ key: "driving_docs", label: "old" }).label).toBe("Driver's Licence");
     expect(resolveComplianceRequirement({ key: "proof_of_address", label: "PoA" }).guidance).toBe("Utility Bill");
   });
 });

@@ -20,6 +20,31 @@ export const NON_EXPIRING_COMPLIANCE_KEYS = [
   "qualifications",
 ] as const;
 
+/**
+ * Handled by the office / later pipeline stages — not something the candidate
+ * uploads on the pre-offer compliance checklist.
+ * - signed_contract: issued with the offer; signed copy comes after
+ * - dbs_enhanced: employer-led check; tracked at the DBS stage after training
+ */
+export const HR_ONLY_COMPLIANCE_KEYS = [
+  "signed_contract",
+  "dbs_enhanced",
+] as const;
+
+/** Only request a driving licence upload when the candidate said they drive. */
+export const CONDITIONAL_DRIVING_KEY = "driving_docs";
+
+/**
+ * Keys that should drive expiry alerts when they have an expires_at date.
+ * Photo ID / licence expiry is optional (from the document itself), never auto-invented.
+ */
+export const EXPIRY_TRACKED_COMPLIANCE_KEYS = [
+  "dbs_enhanced",
+  "right_to_work",
+  "photo_id",
+  "driving_docs",
+] as const;
+
 export type ComplianceInputKind = "file" | "text";
 
 type Override = {
@@ -59,9 +84,17 @@ export const COMPLIANCE_OVERRIDES: Record<string, Override> = {
     inputKind: "file",
   },
   driving_docs: {
-    label: "Driver's License Document",
-    guidance: "Upload a clear photo or scan of your driver's licence.",
+    label: "Driver's Licence",
+    guidance: "Upload a clear photo or scan of your driver's licence (both sides if needed).",
     inputKind: "file",
+  },
+  signed_contract: {
+    label: "Signed contract",
+    guidance: "Recorded by the office after the offer is accepted — not requested from the candidate here.",
+  },
+  dbs_enhanced: {
+    label: "Enhanced DBS with adult barred list",
+    guidance: "Arranged by the office after training — not a candidate upload on this checklist.",
   },
 };
 
@@ -73,9 +106,28 @@ export function isNonExpiringComplianceKey(key: string): boolean {
   return (NON_EXPIRING_COMPLIANCE_KEYS as readonly string[]).includes(key);
 }
 
-/** Only DBS, RTW, photo ID, driving docs (etc.) should drive expiry alerts. */
+export function isHrOnlyComplianceKey(key: string): boolean {
+  return (HR_ONLY_COMPLIANCE_KEYS as readonly string[]).includes(key);
+}
+
+/** Only DBS, RTW, photo ID, driving docs should appear on expiry boards when dated. */
 export function complianceKeyTracksExpiry(key: string): boolean {
-  return !isNonExpiringComplianceKey(key) && !isRemovedComplianceKey(key);
+  if (isNonExpiringComplianceKey(key) || isRemovedComplianceKey(key)) return false;
+  return (EXPIRY_TRACKED_COMPLIANCE_KEYS as readonly string[]).includes(key);
+}
+
+/**
+ * Should this key appear on the candidate portal checklist / block the offer?
+ * HR-only and retired keys never do. Driving licence only when they said they drive.
+ */
+export function shouldRequestComplianceFromCandidate(
+  key: string,
+  opts?: { hasDrivingLicence?: boolean | null },
+): boolean {
+  if (isRemovedComplianceKey(key)) return false;
+  if (isHrOnlyComplianceKey(key)) return false;
+  if (key === CONDITIONAL_DRIVING_KEY) return !!opts?.hasDrivingLicence;
+  return true;
 }
 
 export function resolveComplianceRequirement(req: {

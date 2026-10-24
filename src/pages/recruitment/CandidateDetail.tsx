@@ -882,8 +882,11 @@ function DocChecklist({ docs, onDone }: { docs: NonNullable<Detail>["docs"]; onD
             <Chip value={doc.status} />
             {doc.status === "uploaded" && (
               <span className="flex items-center gap-1.5">
-                <Input type="date" className="h-7 w-36 text-xs" value={expiry[Number(doc.id)] ?? ""}
-                  onChange={(e) => setExpiry((s) => ({ ...s, [Number(doc.id)]: e.target.value }))} aria-label="Expiry date (if applicable)" />
+                {doc.requirement?.tracksExpiry && (
+                  <Input type="date" className="h-7 w-36 text-xs" value={expiry[Number(doc.id)] ?? ""}
+                    onChange={(e) => setExpiry((s) => ({ ...s, [Number(doc.id)]: e.target.value }))}
+                    aria-label="Expiry date from the document" title="Enter the expiry shown on the document (leave blank if none)" />
+                )}
                 <Button size="sm" className="h-7" disabled={verify.isPending}
                   onClick={() => verify.mutate({ id: Number(doc.id), expiresAt: expiry[Number(doc.id)] || undefined })}>
                   Verify

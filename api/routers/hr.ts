@@ -51,7 +51,12 @@ import {
 import {
   MIN_OFFERED_SLOTS, batchOverlaps, panelConflicts, slotCapacity, slotUiState, SLOT_STATE_LABEL,
 } from "../lib/interview-slots";
-import { isNonExpiringComplianceKey, isRemovedComplianceKey, resolveComplianceRequirement } from "../lib/compliance-docs";
+import {
+  complianceKeyTracksExpiry,
+  isNonExpiringComplianceKey,
+  isRemovedComplianceKey,
+  resolveComplianceRequirement,
+} from "../lib/compliance-docs";
 import { archiveOfferOnHire, buildOfferLetter, ensureOfferPdfStored, offerPdfDownloadUrl } from "../lib/offer-letter";
 import { recordTrainingOutcome, trainingOutcomeDownloadUrl } from "../lib/training-outcome";
 import {
@@ -639,7 +644,13 @@ export const hrRouter = createRouter({
           const requirement = raw
             ? resolveComplianceRequirement(raw)
             : resolveComplianceRequirement({ key: d.requirementKey, label: d.requirementKey.replace(/_/g, " ") });
-          return { ...d, requirement };
+          return {
+            ...d,
+            requirement: {
+              ...requirement,
+              tracksExpiry: complianceKeyTracksExpiry(d.requirementKey),
+            },
+          };
         });
       const refs = await db.from("references").eq("applicationId", app.id).many<References>();
       const offer = await db.from("offerLetters").eq("applicationId", app.id).order("id", "desc").first<OfferLetters>() ?? null;
@@ -1103,12 +1114,14 @@ export const hrRouter2 = createRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only uploaded documents can be verified." });
       }
       let expiresAt = input.expiresAt || null;
-      // One-off hire docs must never carry an expiry (stops false manager alerts).
-      if (isNonExpiringComplianceKey(pendingDoc.requirementKey)) {
+      // One-off hire docs / non-tracked keys must never carry an expiry.
+      if (!complianceKeyTracksExpiry(pendingDoc.requirementKey) || isNonExpiringComplianceKey(pendingDoc.requirementKey)) {
         expiresAt = null;
       } else if (!expiresAt) {
+        // Only auto-fill when the catalog says this key renews on a schedule (e.g. DBS).
+        // Photo ID / licence: HR enters the date from the document — never invent one.
         const req = await db.from("complianceRequirements").eq("key", pendingDoc.requirementKey).first<ComplianceRequirements>();
-        if (req?.expiresAfterMonths) {
+        if (req?.expiresAfterMonths && pendingDoc.requirementKey === "dbs_enhanced") {
           const d = new Date();
           d.setMonth(d.getMonth() + req.expiresAfterMonths);
           expiresAt = d.toISOString().slice(0, 10);
@@ -1174,7 +1187,9 @@ export const hrRouter2 = createRouter({
           : resolveComplianceRequirement({ key: d.requirementKey, label: d.requirementKey.replace(/_/g, " ") });
         return {
           ...d,
-          requirement: raw ? { ...raw, ...resolved, required: raw.required } : { ...resolved, required: true },
+          requirement: raw
+            ? { ...raw, ...resolved, required: raw.required, tracksExpiry: complianceKeyTracksExpiry(d.requirementKey) }
+            : { ...resolved, required: true, tracksExpiry: complianceKeyTracksExpiry(d.requirementKey) },
           ownerName: d.ownerType === "candidate"
             ? (() => { const c = cands.find((x) => x.id === d.ownerId); return c ? `${c.firstName} ${c.lastName}` : `#${d.ownerId}`; })()
             : staff.find((x) => x.id === d.ownerId)?.fullName ?? `#${d.ownerId}`,

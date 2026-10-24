@@ -92,7 +92,7 @@ async function seed() {
 
   // ── Compliance requirements ──
   const complianceReqs: {
-    key: string; label: string; months: number | null; guidance?: string; inputKind?: "file" | "text";
+    key: string; label: string; months: number | null; guidance?: string; inputKind?: "file" | "text"; required?: boolean;
   }[] = [
     { key: "dbs_enhanced", label: "Enhanced DBS with adult barred list", months: 36 },
     { key: "right_to_work", label: "Right to work", months: null, guidance: "Enter Share Code", inputKind: "text" },
@@ -100,14 +100,15 @@ async function seed() {
     { key: "proof_of_address", label: "Proof of address (under 3 months old)", months: null, guidance: "Utility Bill" },
     { key: "reference_1", label: "Reference 1", months: null, guidance: "Enter the name, organisation, email and phone number for your most recent care employer.", inputKind: "text" },
     { key: "reference_2", label: "Reference 2", months: null, guidance: "Enter the name, organisation, email and phone number for your second referee.", inputKind: "text" },
-    { key: "health_declaration", label: "Health declaration", months: 12 },
+    { key: "health_declaration", label: "Health declaration", months: null, required: false },
     { key: "signed_contract", label: "Signed contract", months: null },
     { key: "bank_details", label: "Bank details for payroll", months: null, guidance: "Enter your bank account details for payroll (account name, sort code, and account number).", inputKind: "text" },
-    { key: "driving_docs", label: "Driver's License Document", months: 12, guidance: "Upload a clear photo or scan of your driver's licence." },
+    { key: "driving_docs", label: "Driver's Licence", months: null, guidance: "Upload a clear photo or scan of your driver's licence (both sides if needed).", required: false },
   ];
   for (const req of complianceReqs) {
     const [row] = await db.from("complianceRequirements").insert<{ id: number }>({
-      key: req.key, label: req.label, appliesTo: "candidate", required: true, expiresAfterMonths: req.months ?? null,
+      key: req.key, label: req.label, appliesTo: "candidate",
+      required: req.required !== false, expiresAfterMonths: req.months ?? null,
     });
     try {
       await db.from("complianceRequirements").eq("id", row.id).update({

@@ -10,7 +10,7 @@ import type {
 import { buildOfferLetter, ensureOfferPdfStored } from "./offer-letter";
 import { orgProfile } from "./app-url";
 import { complianceApplication, emailCandidate, pushStage } from "./recruitment";
-import { isRemovedComplianceKey } from "./compliance-docs";
+import { shouldRequestComplianceFromCandidate } from "./compliance-docs";
 import { notifyRoles } from "../util";
 
 /**
@@ -31,8 +31,14 @@ export async function issueOfferLetterIfReady(opts: {
     return { sent: false, reason: `Offer cannot be sent from stage ${app.stage}` };
   }
 
+  const cand = await db.from("candidates").eq("id", app.candidateId).first<Candidates>();
+  const hasDrivingLicence = !!cand?.hasDrivingLicence;
   const reqs = (await db.from("complianceRequirements").eq("required", true).many<ComplianceRequirements>())
-    .filter((r) => !isRemovedComplianceKey(r.key));
+    .filter((r) => shouldRequestComplianceFromCandidate(r.key, { hasDrivingLicence }));
+  if (hasDrivingLicence) {
+    const driving = await db.from("complianceRequirements").eq("key", "driving_docs").first<ComplianceRequirements>();
+    if (driving && !reqs.some((r) => r.key === "driving_docs")) reqs.push(driving);
+  }
   const docs = await db.from("complianceDocuments")
     .eq("ownerType", "candidate").eq("ownerId", app.candidateId).many<ComplianceDocuments>();
   const allVerified = reqs.length > 0 && reqs.every((r) =>
@@ -55,7 +61,7 @@ export async function issueOfferLetterIfReady(opts: {
   }
 
   const job = (await db.from("jobPostings").eq("id", app.jobPostingId).first<JobPostings>())!;
-  const cand = (await db.from("candidates").eq("id", app.candidateId).first<Candidates>())!;
+  if (!cand) return { sent: false, reason: "Candidate not found" };
   const org = await orgProfile();
   const content = buildOfferLetter({
     name: `${cand.firstName} ${cand.lastName}`,

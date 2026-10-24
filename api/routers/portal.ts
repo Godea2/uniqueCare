@@ -14,7 +14,11 @@ import { appUrl } from "../lib/app-url";
 import { complianceApplication, emailCandidate, emailSlotsOpenIfAny, slotOpenForJob as slotOpen } from "../lib/recruitment";
 import { sessionWhen, sessionWhere } from "../lib/training";
 import { slotCapacity, slotUiState, SLOT_STATE_LABEL } from "../lib/interview-slots";
-import { isRemovedComplianceKey, resolveComplianceRequirement } from "../lib/compliance-docs";
+import {
+  isHrOnlyComplianceKey,
+  isRemovedComplianceKey,
+  resolveComplianceRequirement,
+} from "../lib/compliance-docs";
 import { recordTrainingOutcome } from "../lib/training-outcome";
 import { DbError } from "../db";
 
@@ -65,7 +69,10 @@ async function docForUpload(token: string, requirementKey: string) {
 }
 
 function activeDocs(docs: ComplianceDocuments[]) {
-  return docs.filter((d) => d.status !== "cancelled" && !isRemovedComplianceKey(d.requirementKey));
+  return docs.filter((d) =>
+    d.status !== "cancelled"
+    && !isRemovedComplianceKey(d.requirementKey)
+    && !isHrOnlyComplianceKey(d.requirementKey));
 }
 
 async function afterDocSubmitted({ app, candidate, doc, baseUrl }: {
@@ -289,7 +296,17 @@ export const portalRouter = createRouter({
       fileName: z.string().min(1).max(255), size: z.number().int().positive(),
     }))
     .mutation(async ({ input }) => {
+      if (isRemovedComplianceKey(input.requirementKey) || isHrOnlyComplianceKey(input.requirementKey)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This document is not collected from candidates." });
+      }
       const { candidate } = await docForUpload(input.token, input.requirementKey);
+      const req = await db.from("complianceRequirements").eq("key", input.requirementKey).first<ComplianceRequirements>();
+      const resolved = req
+        ? resolveComplianceRequirement(req)
+        : resolveComplianceRequirement({ key: input.requirementKey, label: input.requirementKey });
+      if (resolved.inputKind === "text") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This item needs text details, not a file upload." });
+      }
       if (input.size > MAX_DOC_BYTES) throw new TRPCError({ code: "BAD_REQUEST", message: TOO_LARGE });
       try {
         return await documentUploadTarget(`candidate-${candidate.id}`, input.fileName);
@@ -331,8 +348,8 @@ export const portalRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const { app, candidate, doc } = await docForUpload(input.token, input.requirementKey);
-      if (isRemovedComplianceKey(input.requirementKey)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "This document is no longer required." });
+      if (isRemovedComplianceKey(input.requirementKey) || isHrOnlyComplianceKey(input.requirementKey)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This document is not collected from candidates." });
       }
       const req = await db.from("complianceRequirements").eq("key", input.requirementKey).first<ComplianceRequirements>();
       const resolved = req
