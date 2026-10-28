@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ArrowRight, Award, Clock3, Heart, MapPin, Phone, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { services } from "@/content/services";
 import { areas } from "@/content/areas";
-import { posts } from "@/content/posts";
+import { getAllPosts, isRemoteImage } from "@/lib/posts-source";
 import { site, yearsOfCare } from "@/content/site";
 import { getApprovedReviews } from "@/lib/supabase";
 import { organizationJsonLd, JsonLd } from "@/lib/jsonld";
@@ -54,7 +54,7 @@ const WHY_US = [
 ];
 
 export default async function HomePage() {
-  const dbReviews = await getApprovedReviews();
+  const [dbReviews, posts] = await Promise.all([getApprovedReviews(), getAllPosts()]);
   const reviews: CarouselReview[] =
     dbReviews.length > 0
       ? dbReviews.map((r) => ({ id: r.id, name: r.name, relationship: r.relationship, rating: r.rating, title: r.title, body: r.body }))
@@ -263,7 +263,7 @@ export default async function HomePage() {
               <article key={p.slug} className="fade-up group overflow-hidden rounded-card border border-line bg-white shadow-card transition hover:-translate-y-1 hover:shadow-card-hover">
                 <Link href={`/blog/${p.slug}`} className="block">
                   <span className="relative block aspect-[16/10] overflow-hidden">
-                    <Image src={p.image} alt={p.imageAlt} fill sizes="(min-width:768px) 33vw, 100vw" className="object-cover transition-transform group-hover:scale-105" />
+                    <Image src={p.image} alt={p.imageAlt} fill unoptimized={isRemoteImage(p.image)} sizes="(min-width:768px) 33vw, 100vw" className="object-cover transition-transform group-hover:scale-105" />
                   </span>
                   <span className="block p-5">
                     <span className="inline-block rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand-primary">

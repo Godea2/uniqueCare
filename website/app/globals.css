@@ -19,6 +19,32 @@
   --cqc-good: #2e7d32;
 }
 
+/* Admin dark mode — only applied while the `dark` class is on <html>
+   (toggled inside /admin and removed when leaving it). */
+.dark {
+  --brand-primary: #5aa2f0;
+  --brand-primary-dark: #8ec1ff;
+  --brand-secondary: #38b6f0;
+  --brand-soft: #14304d;
+  --ink: #e6ebf0;
+  --ink-muted: #9aa7b4;
+  --surface: #0b1220;
+  --surface-alt: #111a2b;
+  --border: #243247;
+  color-scheme: dark;
+}
+.dark body {
+  background-color: #020617;
+}
+
+/* Admin form controls (shared by every admin page) */
+.admin-input {
+  @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-primary dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500;
+}
+.admin-label {
+  @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400;
+}
+
 html {
   scroll-behavior: smooth;
 }

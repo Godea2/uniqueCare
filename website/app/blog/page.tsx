@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Phone } from "lucide-react";
-import { posts } from "@/content/posts";
+import { getAllPosts } from "@/lib/posts-source";
 import { site } from "@/content/site";
 import BlogFilter from "@/components/BlogFilter";
+
+export const revalidate = 300;
 
 export const metadata: Metadata = {
   title: "Home Care Blog | Advice, Guides & Company News | Unique Care UK",
@@ -13,7 +15,8 @@ export const metadata: Metadata = {
   alternates: { canonical: "/blog" },
 };
 
-export default function BlogPage() {
+export default async function BlogPage() {
+  const posts = await getAllPosts();
   return (
     <div className="mx-auto max-w-content px-4 pb-16 pt-12 md:pb-20">
       <p className="eyebrow">Blog</p>

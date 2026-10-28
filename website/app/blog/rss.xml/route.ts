@@ -1,4 +1,4 @@
-import { posts } from "@/content/posts";
+import { getAllPosts } from "@/lib/posts-source";
 import { site } from "@/content/site";
 
 export const revalidate = 3600;
@@ -7,7 +7,8 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-export function GET() {
+export async function GET() {
+  const posts = await getAllPosts();
   const items = posts
     .map(
       (p) => `

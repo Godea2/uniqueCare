@@ -27,6 +27,7 @@ import Footer from "@/components/Footer";
 import CtaBand from "@/components/CtaBand";
 import WhatsAppButton from "@/components/WhatsAppButton";
 import FadeUpObserver from "@/components/FadeUpObserver";
+import PublicChrome from "@/components/PublicChrome";
 
 export const metadata: Metadata = {
   metadataBase: new URL(site.url),
@@ -61,14 +62,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en-GB" className={`${heading.variable} ${body.variable}`}>
       <body>
-        <a href="#main-content" className="skip-link">
-          Skip to main content
-        </a>
-        <Header />
-        <main id="main-content">{children}</main>
-        <CtaBand />
-        <Footer />
-        <WhatsAppButton />
+        <PublicChrome
+          header={<Header />}
+          footer={<Footer />}
+          cta={<CtaBand />}
+          floating={<WhatsAppButton />}
+        >
+          {children}
+        </PublicChrome>
         <FadeUpObserver />
       </body>
     </html>

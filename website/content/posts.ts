@@ -1,6 +1,8 @@
+export type PostCategory = "Care Advice" | "Company News" | "Health Tips" | "Industry Updates";
+
 export type Post = {
   slug: string;
-  category: "Care Advice" | "Company News";
+  category: PostCategory;
   date: string; // ISO
   dateShort: string; // "10 Mar 2026"
   dateLong: string; // "10 March 2026"

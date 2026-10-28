@@ -5,10 +5,9 @@ import Link from "next/link";
 import { useState } from "react";
 import type { Post } from "@/content/posts";
 
-const CATEGORIES = ["All", "Care Advice", "Company News"];
-
 export default function BlogFilter({ posts }: { posts: Post[] }) {
   const [cat, setCat] = useState("All");
+  const CATEGORIES = ["All", ...Array.from(new Set(posts.map((p) => p.category)))];
   const shown = cat === "All" ? posts : posts.filter((p) => p.category === cat);
 
   return (
@@ -41,6 +40,7 @@ export default function BlogFilter({ posts }: { posts: Post[] }) {
                   src={p.image}
                   alt={p.imageAlt}
                   fill
+                  unoptimized={/^https?:\/\//i.test(p.image)}
                   sizes="(min-width:768px) 33vw, 100vw"
                   className="object-cover transition-transform group-hover:scale-105"
                 />

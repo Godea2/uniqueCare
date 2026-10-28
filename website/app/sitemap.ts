@@ -1,12 +1,12 @@
 import type { MetadataRoute } from "next";
 import { services } from "@/content/services";
 import { areas } from "@/content/areas";
-import { posts } from "@/content/posts";
+import { getAllPosts } from "@/lib/posts-source";
 import { site } from "@/content/site";
 import { getLiveJobsOnly } from "@/lib/jobs-source";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const jobs = await getLiveJobsOnly();
+  const [jobs, posts] = await Promise.all([getLiveJobsOnly(), getAllPosts()]);
 
   const staticRoutes = [
     "",

@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "/careers" },
 };
 
-export const revalidate = 60;
+export const revalidate = 300;
 
 const BENEFITS = [
   {

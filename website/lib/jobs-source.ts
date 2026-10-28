@@ -2,10 +2,10 @@ import { fallbackJobs, type FallbackJob } from "@/content/jobs-fallback";
 import { adminPortalUrl } from "@/content/site";
 
 /**
- * Live jobs for the marketing site come from the UniqueCare Connect portal
- * public API (`hr.publicJobs`) — the same list as /careers on the portal.
- * That avoids needing an anon SELECT policy on `job_postings` (RLS denies
- * direct Supabase reads). Optional Supabase REST remains as a secondary path.
+ * Read-only adapter to the existing application's jobs.
+ * The application stores jobs in `job_postings`; a job is published when
+ * status = 'live' (the same filter its own public careers endpoint uses).
+ * Anonymous (public) key only — read-only, server-side, cached via ISR.
  */
 
 export type WebsiteJob = {
@@ -20,24 +20,10 @@ export type WebsiteJob = {
   salary: string | null;
   closesAt: string | null;
   postedAt: string | null;
-  /** External apply URL on the portal application form. */
+  /** External apply URL on the existing application, when available. */
   applyUrl: string | null;
   isFallback: boolean;
   listedInGrid: boolean;
-};
-
-type PortalPublicJob = {
-  id: number;
-  title: string;
-  location: string | null;
-  salaryText: string | null;
-  employmentType: string | null;
-  descriptionMd: string | null;
-  publicSlug: string | null;
-  applySlug: string | null;
-  applyLinkEnabled: boolean | null;
-  closesAt: string | null;
-  requirements?: string[];
 };
 
 type JobPostingRow = {
@@ -90,124 +76,50 @@ function summaryFromMarkdown(md: string | null): string | null {
   return para.replace(/\*\*/g, "").slice(0, 220);
 }
 
-function slugFrom(opts: { publicSlug: string | null; title: string; id: number }): string {
-  if (opts.publicSlug) return opts.publicSlug;
-  const base = opts.title
+function slugFrom(row: JobPostingRow): string {
+  if (row.public_slug) return row.public_slug;
+  const base = row.title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
-  return `${base}-${opts.id}`;
-}
-
-function statusLabel(closesAt: string | null): string {
-  if (!closesAt) return "Open";
-  const today = new Date().toISOString().slice(0, 10);
-  if (closesAt < today) return "Closed";
-  return `Closes ${closesAt}`;
-}
-
-function formatSalary(raw: string | null): string | null {
-  if (!raw) return null;
-  const t = raw.trim();
-  if (!t) return null;
-  if (/^£|\/\s*h|per\s*hour|annum|k\b/i.test(t)) return t;
-  if (/^\d+(\.\d+)?$/.test(t)) return `£${t} per hour`;
-  return t;
-}
-
-function portalBase(): string {
-  return (adminPortalUrl || process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL || "").replace(/\/$/, "");
-}
-
-function mapPortalJob(j: PortalPublicJob): WebsiteJob {
-  const slug = slugFrom({ publicSlug: j.publicSlug, title: j.title, id: j.id });
-  const applySlug = j.applyLinkEnabled ? j.applySlug ?? j.publicSlug : null;
-  const base = portalBase();
-  return {
-    slug,
-    title: j.title.trim(),
-    location: j.location,
-    type: j.employmentType,
-    statusLabel: statusLabel(j.closesAt),
-    summary: summaryFromMarkdown(j.descriptionMd),
-    descriptionMd: j.descriptionMd,
-    requirements: Array.isArray(j.requirements) ? j.requirements.filter((x): x is string => typeof x === "string") : [],
-    salary: formatSalary(j.salaryText),
-    closesAt: j.closesAt,
-    postedAt: null,
-    applyUrl: applySlug && base ? `${base}/apply/${applySlug}` : null,
-    isFallback: false,
-    listedInGrid: statusLabel(j.closesAt) !== "Closed",
-  };
+  return `${base}-${row.id}`;
 }
 
 function mapRow(row: JobPostingRow): WebsiteJob {
   const applySlug = row.apply_link_enabled ? row.apply_slug ?? row.public_slug : null;
-  const base = portalBase();
   return {
-    slug: slugFrom({ publicSlug: row.public_slug, title: row.title, id: row.id }),
-    title: row.title.trim(),
+    slug: slugFrom(row),
+    title: row.title,
     location: row.location,
     type: row.employment_type,
-    statusLabel: statusLabel(row.closes_at),
+    statusLabel: "Always open",
     summary: summaryFromMarkdown(row.description_md),
     descriptionMd: row.description_md,
     requirements: requirementsToList(row.requirements),
-    salary: formatSalary(row.salary_text),
+    salary: row.salary_text,
     closesAt: row.closes_at,
     postedAt: row.created_at,
-    applyUrl: applySlug && base ? `${base}/apply/${applySlug}` : null,
+    applyUrl: applySlug && adminPortalUrl ? `${adminPortalUrl.replace(/\/$/, "")}/apply/${applySlug}` : null,
     isFallback: false,
-    listedInGrid: statusLabel(row.closes_at) !== "Closed",
+    listedInGrid: true,
   };
 }
 
-async function fetchFromPortal(): Promise<WebsiteJob[] | null> {
-  const base = portalBase();
-  if (!base) return null;
-  const url = `${base}/api/trpc/hr.publicJobs`;
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-    next: { revalidate: 60, tags: ["jobs"] },
-  });
-  if (!res.ok) throw new Error(`portal publicJobs responded ${res.status}`);
-  const body = (await res.json()) as { result?: { data?: { json?: PortalPublicJob[] } } };
-  const rows = body.result?.data?.json;
-  if (!Array.isArray(rows)) throw new Error("portal publicJobs: unexpected payload");
-  return rows.map(mapPortalJob);
-}
-
-async function fetchFromSupabase(): Promise<WebsiteJob[] | null> {
+async function fetchLiveJobs(): Promise<WebsiteJob[]> {
   const base = process.env.NEXT_PUBLIC_JOBS_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_JOBS_SUPABASE_ANON_KEY;
-  if (!base || !key) return null;
+  if (!base || !key) return [];
   const url =
     `${base}/rest/v1/job_postings?status=eq.live` +
     `&select=id,title,location,salary_text,employment_type,description_md,requirements,status,closes_at,created_at,public_slug,apply_slug,apply_link_enabled` +
     `&order=created_at.desc`;
   const res = await fetch(url, {
     headers: { apikey: key, Authorization: `Bearer ${key}` },
-    next: { revalidate: 60, tags: ["jobs"] },
+    next: { revalidate: 300 },
   });
-  if (!res.ok) throw new Error(`jobs supabase responded ${res.status}`);
+  if (!res.ok) throw new Error(`jobs source responded ${res.status}`);
   const rows = (await res.json()) as JobPostingRow[];
   return rows.map(mapRow);
-}
-
-async function fetchLiveJobs(): Promise<WebsiteJob[]> {
-  try {
-    const fromPortal = await fetchFromPortal();
-    if (fromPortal) return fromPortal;
-  } catch {
-    // try Supabase secondary
-  }
-  try {
-    const fromSb = await fetchFromSupabase();
-    if (fromSb) return fromSb;
-  } catch {
-    // fall through
-  }
-  return [];
 }
 
 function mapFallback(j: FallbackJob): WebsiteJob {
@@ -230,29 +142,39 @@ function mapFallback(j: FallbackJob): WebsiteJob {
 }
 
 /**
- * Live published jobs from the portal. Empty array if none / unreachable —
- * UI shows the empty state (no dummy catalogue).
+ * Live published jobs. Falls back to the brief's six roles only when the
+ * source is unreachable or returns nothing (per brief 0.3).
  */
 export async function getJobs(): Promise<WebsiteJob[]> {
-  return fetchLiveJobs();
+  try {
+    const live = await fetchLiveJobs();
+    if (live.length > 0) return live;
+  } catch {
+    // fall through to fallback content
+  }
+  return fallbackJobs.map(mapFallback);
 }
 
-/** Live jobs only (sitemap & generateStaticParams). */
+/** Live jobs only — no fallback (used for sitemap & generateStaticParams). */
 export async function getLiveJobsOnly(): Promise<WebsiteJob[]> {
-  return fetchLiveJobs();
+  try {
+    return await fetchLiveJobs();
+  } catch {
+    return [];
+  }
 }
 
 export async function getJob(slug: string): Promise<WebsiteJob | undefined> {
-  // General application stays as a static marketing page (brief 0.3).
+  // The General Application page is always available (brief 0.3).
   if (slug === "general-application") {
-    const ga = fallbackJobs.find((j) => j.slug === "general-application");
-    return ga ? mapFallback(ga) : undefined;
+    const ga = fallbackJobs.find((j) => j.slug === "general-application")!;
+    return mapFallback(ga);
   }
   const jobs = await getJobs();
   return jobs.find((j) => j.slug === slug);
 }
 
-/** Structured sections for the general-application (fallback) page only. */
+/** The fallback job definition, for structured sections on fallback pages. */
 export function getFallbackDefinition(slug: string): FallbackJob | undefined {
   return fallbackJobs.find((j) => j.slug === slug);
 }

@@ -3,7 +3,8 @@ import Image from "next/image";
 import { Facebook, Instagram, Linkedin, Mail, MapPin, Phone } from "lucide-react";
 import { services } from "@/content/services";
 import { areas } from "@/content/areas";
-import { site } from "@/content/site";
+import { adminPortalUrl, site } from "@/content/site";
+import SubscribeForm from "@/components/forms/SubscribeForm";
 
 export default function Footer() {
   const year = new Date().getFullYear();
@@ -88,12 +89,25 @@ export default function Footer() {
       </div>
 
       <div className="border-t border-white/15">
+        <div className="mx-auto flex max-w-content flex-wrap items-center justify-between gap-4 px-4 py-6">
+          <div>
+            <h2 className="font-heading text-lg font-semibold text-white">Stay in the loop</h2>
+            <p className="text-sm text-white/75">Care advice and company news, straight to your inbox.</p>
+          </div>
+          <SubscribeForm tone="dark" />
+        </div>
+      </div>
+
+      <div className="border-t border-white/15">
         <div className="mx-auto flex max-w-content flex-wrap items-center gap-x-5 gap-y-2 px-4 py-5 text-xs text-white/70">
           <span>© {year} {site.legalName}. All rights reserved.</span>
           <Link href="/privacy" className="hover:text-white hover:underline">Privacy Policy</Link>
           <Link href="/terms" className="hover:text-white hover:underline">Terms of Service</Link>
           <Link href="/modern-slavery" className="hover:text-white hover:underline">Modern Slavery Statement</Link>
           <Link href="/carbon-reduction-plan" className="hover:text-white hover:underline">Carbon Reduction Plan</Link>
+          <a href={adminPortalUrl || "#"} rel="nofollow" className="hover:text-white hover:underline">
+            Admin portal
+          </a>
           <span className="ml-auto">VAT: {site.vat}</span>
         </div>
       </div>

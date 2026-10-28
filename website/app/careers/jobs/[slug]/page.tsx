@@ -3,16 +3,18 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, Banknote, CalendarDays, Clock3, MapPin } from "lucide-react";
 import { employmentLabel, getFallbackDefinition, getJob, getLiveJobsOnly } from "@/lib/jobs-source";
+import { fallbackJobs } from "@/content/jobs-fallback";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import { Markdown } from "@/lib/markdown";
 import { JsonLd, jobPostingJsonLd } from "@/lib/jsonld";
 
-export const revalidate = 60;
+export const revalidate = 300;
 export const dynamicParams = true;
 
 export async function generateStaticParams() {
+  // Live jobs are resolved via ISR; fallbacks are pre-rendered.
   const live = await getLiveJobsOnly();
-  const slugs = new Set<string>(["general-application", ...live.map((j) => j.slug)]);
+  const slugs = new Set<string>([...fallbackJobs.map((j) => j.slug), ...live.map((j) => j.slug)]);
   return Array.from(slugs).map((slug) => ({ slug }));
 }
 

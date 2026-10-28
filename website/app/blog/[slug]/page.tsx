@@ -3,17 +3,23 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, Clock3 } from "lucide-react";
-import { getPost, posts, readingTime, relatedPosts } from "@/content/posts";
+import { readingTime } from "@/content/posts";
+import { getAllPosts, getPostBySlug, getRelatedPosts, isRemoteImage } from "@/lib/posts-source";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import ShareButtons from "@/components/ShareButtons";
+import { Markdown } from "@/lib/markdown";
 import { JsonLd, articleJsonLd } from "@/lib/jsonld";
 
-export function generateStaticParams() {
+export const revalidate = 300;
+export const dynamicParams = true;
+
+export async function generateStaticParams() {
+  const posts = await getAllPosts();
   return posts.map((p) => ({ slug: p.slug }));
 }
 
-export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
-  const p = getPost(params.slug);
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const p = await getPostBySlug(params.slug);
   if (!p) return {};
   return {
     title: `${p.title} | Unique Care UK Blog`,
@@ -23,10 +29,10 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   };
 }
 
-export default function BlogPostPage({ params }: { params: { slug: string } }) {
-  const p = getPost(params.slug);
+export default async function BlogPostPage({ params }: { params: { slug: string } }) {
+  const p = await getPostBySlug(params.slug);
   if (!p) notFound();
-  const related = relatedPosts(p.slug);
+  const related = await getRelatedPosts(p.slug);
 
   return (
     <>
@@ -58,14 +64,11 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
               width={1200}
               height={750}
               priority
+              unoptimized={isRemoteImage(p.image)}
               className="mt-8 w-full rounded-card object-cover shadow-card"
             />
 
-            <div className="prose-legal mt-8">
-              {p.body.map((para, i) => (
-                <p key={i}>{para}</p>
-              ))}
-            </div>
+            <Markdown text={p.body.join("\n\n")} className="prose-legal mt-8" />
 
             <div className="mt-8 border-t border-line pt-6">
               <ShareButtons title={p.title} slug={p.slug} />
@@ -100,7 +103,7 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
                   <li key={r.slug}>
                     <Link href={`/blog/${r.slug}`} className="group flex gap-3">
                       <span className="relative block h-16 w-20 shrink-0 overflow-hidden rounded-lg">
-                        <Image src={r.image} alt="" fill sizes="5rem" className="object-cover" />
+                        <Image src={r.image} alt="" fill sizes="5rem" unoptimized={isRemoteImage(r.image)} className="object-cover" />
                       </span>
                       <span>
                         <span className="text-xs text-ink-muted">{r.dateShort}</span>

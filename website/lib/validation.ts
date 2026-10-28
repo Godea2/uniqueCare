@@ -29,7 +29,37 @@ export const reviewSchema = z.object({
   turnstileToken: z.string().optional(),
 });
 
+export const subscribeSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Please enter a valid email address").max(254),
+  // honeypot — must stay empty
+  website: z.string().max(0).optional(),
+});
+
+export const applicationSchema = z.object({
+  name: z.string().trim().min(2, "Please enter your full name").max(100),
+  email: z.string().trim().email("Please enter a valid email address").max(254),
+  phone: z
+    .string()
+    .trim()
+    .optional()
+    .refine((v) => !v || ukPhone.test(v), "Please enter a valid UK phone number"),
+  jobSlug: z
+    .string()
+    .trim()
+    .min(1, "Job is required")
+    .max(120)
+    .regex(/^[a-z0-9-]+$/i, "Invalid job reference"),
+  coverLetter: z.string().trim().max(5000, "Cover letter is too long").default(""),
+  rightToWork: z.boolean().default(false),
+  drivingLicence: z.boolean().default(false),
+  // honeypot — must stay empty
+  website: z.string().max(0).optional(),
+  turnstileToken: z.string().optional(),
+});
+
 export type EnquiryInput = z.infer<typeof enquirySchema>;
+export type SubscribeInput = z.infer<typeof subscribeSchema>;
+export type ApplicationInput = z.infer<typeof applicationSchema>;
 export type ReviewInput = z.infer<typeof reviewSchema>;
 
 export async function verifyTurnstile(token: string | undefined, ip: string): Promise<boolean> {

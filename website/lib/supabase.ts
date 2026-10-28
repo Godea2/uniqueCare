@@ -83,6 +83,40 @@ export async function insertEnquiry(row: Record<string, unknown>): Promise<boole
   }
 }
 
+/** Public newsletter signup (anon INSERT only). Returns "exists" on a duplicate email. */
+export async function insertSubscriber(email: string): Promise<"created" | "exists" | "error"> {
+  if (!supabaseConfigured()) return "error";
+  try {
+    const res = await restAnon("website_subscribers", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ email, status: "active" }),
+    });
+    if (res.ok) return "created";
+    if (res.status === 409) return "exists";
+    return "error";
+  } catch (e) {
+    console.warn("[supabase] insertSubscriber failed:", e instanceof Error ? e.message : e);
+    return "error";
+  }
+}
+
+/** Public job application from the website form (anon INSERT only). */
+export async function insertApplication(row: Record<string, unknown>): Promise<boolean> {
+  if (!supabaseConfigured()) return false;
+  try {
+    const res = await restAnon("website_applications", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ ...row, status: "new" }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.warn("[supabase] insertApplication failed:", e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+
 export async function insertReview(row: Record<string, unknown>): Promise<string | null> {
   if (!supabaseConfigured()) return null;
   try {

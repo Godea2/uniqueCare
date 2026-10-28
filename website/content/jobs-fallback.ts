@@ -1,6 +1,7 @@
 /**
- * Static content for the General Application page only.
- * Open roles on /careers and /careers/jobs come from the portal (live jobs).
+ * Fallback job content (brief section 6.9). Shown ONLY when the existing
+ * application returns no published jobs or cannot be reached. Live jobs
+ * always come from the application's `job_postings` table (status = 'live').
  */
 export type FallbackJob = {
   slug: string;

@@ -3,9 +3,6 @@ import { ArrowRight, Clock3, MapPin } from "lucide-react";
 import { employmentLabel, type WebsiteJob } from "@/lib/jobs-source";
 
 export default function JobCard({ job }: { job: WebsiteJob }) {
-  const applyHref = job.applyUrl ?? `/careers/jobs/${job.slug}`;
-  const applyExternal = Boolean(job.applyUrl);
-
   return (
     <article className="fade-up rounded-card border border-line bg-white p-6 shadow-card transition hover:-translate-y-1 hover:shadow-card-hover">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -33,31 +30,13 @@ export default function JobCard({ job }: { job: WebsiteJob }) {
         </span>
       </div>
       {job.summary && <p className="mt-3 text-[15px] leading-relaxed text-ink-muted">{job.summary}</p>}
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        {applyExternal ? (
-          <a
-            href={applyHref}
-            className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-primary-dark"
-            aria-label={`Apply for ${job.title} on the recruitment portal`}
-          >
-            Apply <ArrowRight className="h-4 w-4" aria-hidden />
-          </a>
-        ) : (
-          <Link
-            href={applyHref}
-            className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-primary-dark"
-            aria-label={`View and apply for ${job.title}`}
-          >
-            Apply <ArrowRight className="h-4 w-4" aria-hidden />
-          </Link>
-        )}
-        <Link
-          href={`/careers/jobs/${job.slug}`}
-          className="text-sm font-semibold text-brand-primary hover:underline"
-        >
-          View role
-        </Link>
-      </div>
+      <Link
+        href={`/careers/jobs/${job.slug}`}
+        className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-primary-dark"
+        aria-label={`View and apply for ${job.title}`}
+      >
+        Apply <ArrowRight className="h-4 w-4" aria-hidden />
+      </Link>
     </article>
   );
 }
