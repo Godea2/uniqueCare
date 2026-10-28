@@ -139,10 +139,11 @@ async function graphSend(
 }
 
 async function deliver(
-  to: string, subject: string, bodyText: string, kind: string, attachments?: EmailAttachment[],
+  to: string, subject: string, bodyText: string, kind: string, attachments?: EmailAttachment[], htmlOverride?: string,
 ): Promise<SendResult> {
   const org = await orgProfile();
-  const html = renderEmailHtml({ orgName: org.name, subject, text: bodyText, kind, logoUrl: org.logoUrl });
+  const html = htmlOverride
+    ?? renderEmailHtml({ orgName: org.name, subject, text: bodyText, kind, logoUrl: org.logoUrl });
   return smtpSettings()
     ? smtpSend(to, subject, bodyText, html, attachments)
     : graphSend(to, subject, html, attachments);
@@ -158,8 +159,10 @@ export async function sendEmail(opts: {
   /** The body holds a sign-in link: never store it, and never queue it for a resend. */
   privateLink?: boolean;
   attachments?: EmailAttachment[];
+  /** Pre-rendered HTML (e.g. website newsletters). Falls back to the branded plain-text template. */
+  html?: string;
 }) {
-  const result = await deliver(opts.to, opts.subject, opts.body, opts.kind, opts.attachments);
+  const result = await deliver(opts.to, opts.subject, opts.body, opts.kind, opts.attachments, opts.html);
   const [row] = await db.from("emailOutbox").insert<EmailOutbox>({
     toEmail: opts.to,
     subject: opts.subject,

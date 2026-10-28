@@ -9,7 +9,7 @@ import {
   Settings, ScrollText, Bell, Search, LogOut, UserCog, ClipboardList,
   CalendarRange, Stethoscope, FileCheck2, GraduationCap, Network,
   ClipboardCheck, Star, AlertTriangle, FileText, FileOutput, ChevronDown, PhoneCall,
-  HelpCircle, Map, Compass, Menu, X,
+  HelpCircle, Map, Compass, Menu, X, Globe, MessageSquare, Mail, Newspaper,
 } from "lucide-react";
 import { AvatarDot } from "./common";
 import { startFullTour, startPageTour } from "@/tours/tours";
@@ -25,7 +25,7 @@ import { AuthLayoutSkeleton } from "./AuthLayoutSkeleton";
 import { LOGIN_PATH } from "@/const";
 import type { StaffRole } from "@db/schema";
 
-type NavItem = { label: string; path: string; icon: React.ElementType; roles?: StaffRole[] };
+type NavItem = { label: string; path: string; icon: React.ElementType; roles?: StaffRole[]; exact?: boolean };
 type NavGroup = { group: string; items: NavItem[] };
 
 const ALL: StaffRole[] = ["super_admin", "admin", "care_coordinator", "team_leader", "supervisor", "interview_panel", "care_worker", "crm_agent"];
@@ -93,6 +93,20 @@ const NAV: NavGroup[] = [
       { label: "Plan reviews", path: "/cqc/plan-reviews", icon: CalendarDays, roles: ["super_admin", "admin", "care_coordinator", "team_leader"] },
       { label: "Incidents", path: "/cqc/incidents", icon: AlertTriangle, roles: MGMT.concat(["supervisor"]) },
       { label: "Inspection pack", path: "/cqc/inspection-pack", icon: Stethoscope, roles: ["super_admin", "admin"] },
+    ],
+  },
+  {
+    // Registered Manager only (acting role; "view as" another role hides it).
+    group: "Website",
+    items: [
+      { label: "Overview", path: "/website", icon: Globe, roles: ["super_admin"], exact: true },
+      { label: "Enquiries", path: "/website/enquiries", icon: MessageSquare, roles: ["super_admin"] },
+      { label: "Reviews", path: "/website/reviews", icon: Star, roles: ["super_admin"] },
+      { label: "Applications", path: "/website/applications", icon: Briefcase, roles: ["super_admin"] },
+      { label: "Subscribers", path: "/website/subscribers", icon: Mail, roles: ["super_admin"] },
+      { label: "Newsletters", path: "/website/newsletters", icon: Newspaper, roles: ["super_admin"] },
+      { label: "Blog posts", path: "/website/posts", icon: FileText, roles: ["super_admin"] },
+      { label: "Audit log", path: "/website/audit", icon: ScrollText, roles: ["super_admin"] },
     ],
   },
   {
@@ -248,7 +262,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 <div className="space-y-0.5">
                   {g.items.map((item) => {
                     const active = location.pathname === item.path ||
-                      (item.path !== "/" && location.pathname.startsWith(item.path));
+                      (!item.exact && item.path !== "/" && location.pathname.startsWith(item.path));
                     return (
                       <Link
                         key={item.path}

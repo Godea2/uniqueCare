@@ -51,6 +51,15 @@ import Settings from "./pages/system/Settings";
 import AuditLog from "./pages/system/AuditLog";
 import UserManagement from "./pages/system/UserManagement";
 
+import WebsiteOverview from "./pages/website/Overview";
+import WebsiteEnquiries from "./pages/website/Enquiries";
+import WebsiteReviews from "./pages/website/Reviews";
+import WebsiteApplications from "./pages/website/Applications";
+import WebsiteSubscribers from "./pages/website/Subscribers";
+import WebsiteNewsletters from "./pages/website/Newsletters";
+import WebsitePosts from "./pages/website/Posts";
+import WebsiteAudit from "./pages/website/Audit";
+
 import Careers from "./pages/public/Careers";
 import Apply from "./pages/public/Apply";
 import Portal from "./pages/public/Portal";
@@ -163,6 +172,16 @@ export default function App() {
       <Route path="/users" element={<Guard roles={["super_admin"]}><UserManagement /></Guard>} />
       <Route path="/settings" element={<Guard roles={["super_admin"]}><Settings /></Guard>} />
       <Route path="/audit" element={<Guard roles={OFFICE_ROLES}><AuditLog /></Guard>} />
+
+      {/* Website marketing admin — Registered Manager only (the API re-checks the real role) */}
+      <Route path="/website" element={<Guard roles={["super_admin"]}><WebsiteOverview /></Guard>} />
+      <Route path="/website/enquiries" element={<Guard roles={["super_admin"]}><WebsiteEnquiries /></Guard>} />
+      <Route path="/website/reviews" element={<Guard roles={["super_admin"]}><WebsiteReviews /></Guard>} />
+      <Route path="/website/applications" element={<Guard roles={["super_admin"]}><WebsiteApplications /></Guard>} />
+      <Route path="/website/subscribers" element={<Guard roles={["super_admin"]}><WebsiteSubscribers /></Guard>} />
+      <Route path="/website/newsletters" element={<Guard roles={["super_admin"]}><WebsiteNewsletters /></Guard>} />
+      <Route path="/website/posts" element={<Guard roles={["super_admin"]}><WebsitePosts /></Guard>} />
+      <Route path="/website/audit" element={<Guard roles={["super_admin"]}><WebsiteAudit /></Guard>} />
 
       <Route path="/home" element={<Navigate to="/" replace />} />
       <Route path="*" element={<NotFound />} />

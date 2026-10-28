@@ -2,9 +2,15 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { site } from "@/content/site";
 import { escapeHtml } from "@/lib/email";
 
+/**
+ * Signing secret for unsubscribe links. The staff portal signs newsletter links with
+ * the same chain, so set WEBSITE_UNSUBSCRIBE_SECRET to the SAME value on both apps.
+ * (The legacy fallbacks keep previously-sent links valid.)
+ */
 function secret(): string {
   return (
-    process.env.WEBSITE_ADMIN_SESSION_SECRET
+    process.env.WEBSITE_UNSUBSCRIBE_SECRET
+    || process.env.WEBSITE_ADMIN_SESSION_SECRET
     || process.env.REVIEW_MODERATION_SECRET
     || process.env.REVALIDATE_SECRET
     || "dev-only-change-me"

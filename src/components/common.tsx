@@ -162,6 +162,14 @@ const CHIP_STYLES: Record<string, string> = {
   moderate: "bg-amber-100 text-amber-900 border-amber-200",
   serious: "bg-orange-100 text-orange-900 border-orange-300",
   severe: "bg-red-600 text-white border-red-700",
+  // website admin
+  read: "bg-slate-100 text-slate-700 border-slate-200",
+  replied: "bg-green-100 text-green-900 border-green-200",
+  reviewing: "bg-amber-100 text-amber-900 border-amber-200",
+  unsubscribed: "bg-slate-100 text-slate-700 border-slate-200",
+  sent: "bg-green-100 text-green-900 border-green-200",
+  archived: "bg-slate-100 text-slate-700 border-slate-200",
+  acquired: "bg-green-100 text-green-900 border-green-200",
 };
 
 export function Chip({ value, label }: { value: string; label?: string }) {

@@ -1,7 +1,7 @@
 import { posts as staticPosts, type Post, type PostCategory } from "@/content/posts";
 
 /**
- * Blog posts = published rows in `website_posts` (managed in /admin/posts)
+ * Blog posts = published rows in `website_posts` (managed in the staff portal: Website → Blog posts)
  * merged with the static posts in content/posts.ts. A database post with the
  * same slug as a static post replaces it. If the database is unreachable or
  * empty, the static posts are returned unchanged.
