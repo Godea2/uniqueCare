@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "/careers" },
 };
 
-export const revalidate = 300;
+export const revalidate = 60;
 
 const BENEFITS = [
   {
@@ -160,12 +160,11 @@ export default async function CareersPage() {
             ))}
             {jobs.length === 0 && (
               <li className="px-6 py-8 text-center text-ink-muted">
-                There are no open positions right now, but we&apos;re always happy to hear from compassionate
-                people.{" "}
-                <Link href="/careers/jobs/general-application" className="font-semibold text-brand-primary hover:underline">
-                  Send us a general application
-                </Link>
-                .
+                There are no open positions right now. Check back soon, or{" "}
+                <Link href="/contact" className="font-semibold text-brand-primary hover:underline">
+                  get in touch
+                </Link>{" "}
+                if you&apos;d like to introduce yourself.
               </li>
             )}
           </ul>

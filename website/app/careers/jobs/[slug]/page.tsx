@@ -2,20 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, Banknote, CalendarDays, Clock3, MapPin } from "lucide-react";
-import { employmentLabel, getFallbackDefinition, getJob, getLiveJobsOnly } from "@/lib/jobs-source";
-import { fallbackJobs } from "@/content/jobs-fallback";
+import { employmentLabel, getJob, getLiveJobsOnly } from "@/lib/jobs-source";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import { Markdown } from "@/lib/markdown";
 import { JsonLd, jobPostingJsonLd } from "@/lib/jsonld";
 
-export const revalidate = 300;
+export const revalidate = 60;
 export const dynamicParams = true;
 
 export async function generateStaticParams() {
-  // Live jobs are resolved via ISR; fallbacks are pre-rendered.
   const live = await getLiveJobsOnly();
-  const slugs = new Set<string>([...fallbackJobs.map((j) => j.slug), ...live.map((j) => j.slug)]);
-  return Array.from(slugs).map((slug) => ({ slug }));
+  return live.map((j) => ({ slug: j.slug }));
 }
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
@@ -45,8 +42,6 @@ function ListSection({ title, items }: { title: string; items?: string[] }) {
 export default async function JobPage({ params }: { params: { slug: string } }) {
   const job = await getJob(params.slug);
   if (!job) notFound();
-
-  const fb = getFallbackDefinition(params.slug);
 
   return (
     <>
@@ -97,30 +92,21 @@ export default async function JobPage({ params }: { params: { slug: string } }) 
 
         <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_340px]">
           <div className="space-y-10">
-            {/* Live job: render the app's own description; fallback: structured sections */}
             {job.descriptionMd ? (
               <section aria-label="About the role">
                 <Markdown text={job.descriptionMd} />
               </section>
             ) : (
-              fb && (
-                <section aria-label="About the role">
-                  <h2 className="font-heading text-2xl font-semibold text-ink">About the Role</h2>
-                  {fb.about.map((p, i) => (
-                    <p key={i} className="mt-3 leading-relaxed text-ink-muted">
-                      {p}
-                    </p>
-                  ))}
-                </section>
-              )
+              <section aria-label="About the role">
+                <p className="leading-relaxed text-ink-muted">
+                  See the requirements below, then apply through our recruitment portal.
+                </p>
+              </section>
             )}
 
-            {fb && <ListSection title="Key Duties" items={fb.duties} />}
-            <ListSection title="Requirements" items={job.requirements.length ? job.requirements : fb?.requirements} />
-            {fb && <ListSection title="What We Offer" items={fb.offer} />}
+            <ListSection title="Requirements" items={job.requirements} />
           </div>
 
-          {/* Apply card — links to the existing application's public apply flow (brief 0.4) */}
           <aside className="lg:sticky lg:top-28 lg:self-start">
             <div className="rounded-card border border-line bg-brand-soft p-6" id="apply">
               <h2 className="font-heading text-2xl font-semibold text-ink">Apply for this role</h2>

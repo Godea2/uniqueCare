@@ -28,8 +28,8 @@ npm run dev
 
 | Variable | Purpose |
 |---|---|
-| `NEXT_PUBLIC_ADMIN_PORTAL_URL` | Existing application's landing page (footer **Admin portal** link + job Apply links) |
-| `NEXT_PUBLIC_JOBS_SUPABASE_URL` / `NEXT_PUBLIC_JOBS_SUPABASE_ANON_KEY` | Read-only jobs source (existing app's Supabase project; published jobs = `job_postings.status = 'live'`) |
+| `NEXT_PUBLIC_ADMIN_PORTAL_URL` | Staff portal base URL — careers load live jobs from `{url}/api/public/jobs`; also footer **Admin portal** + Apply links |
+| `JOBS_PORTAL_URL` | Optional override if the public jobs API host differs from the portal UI |
 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Website's own `website_` tables (same project is fine) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only, for review moderation links. Never shipped to the browser. |
 | `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_TO` | Email notifications + auto-replies |

@@ -1,12 +1,12 @@
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
 /**
  * On-demand revalidation for careers/reviews/blog — trigger with the secret.
- * The staff portal calls this after website admin changes and may pass extra
- * `?path=/blog/my-post` params (same-site paths only).
+ * The staff portal calls this after job/website admin changes and may pass extra
+ * `?path=/careers/jobs/my-slug` params (same-site paths only).
  */
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -24,5 +24,6 @@ export async function GET(req: Request) {
   for (const path of paths) {
     revalidatePath(path);
   }
+  revalidateTag("website-jobs");
   return NextResponse.json({ revalidated: true, at: new Date().toISOString() });
 }

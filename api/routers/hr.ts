@@ -176,7 +176,7 @@ export const hrRouter = createRouter({
       const job = (await db.from("jobPostings").eq("id", jobRow.id).first<JobPostings>())!;
       await syncJobForm(job, { by: sc.staff.fullName, publish: true, templateId: formTemplateId ?? null });
       await audit(sc.staff.fullName, "job_created", "job_postings", job.id, { title: input.title });
-      bumpWebsiteJobsCache();
+      bumpWebsiteJobsCache([`/careers/jobs/${slug}`]);
       return { id: job.id, slug };
     }),
 
@@ -205,7 +205,7 @@ export const hrRouter = createRouter({
         templateId: switchTemplate ? formTemplateId : null,
       });
       await audit(sc.staff.fullName, "job_updated", "job_postings", id, { title: input.title });
-      bumpWebsiteJobsCache();
+      bumpWebsiteJobsCache(job.publicSlug ? [`/careers/jobs/${job.publicSlug}`] : []);
       return { ok: true };
     }),
 
@@ -227,7 +227,7 @@ export const hrRouter = createRouter({
       }
       await db.from("jobPostings").eq("id", input.id).update({ status: input.status });
       await audit(sc.staff.fullName, `job_${input.status}`, "job_postings", input.id);
-      bumpWebsiteJobsCache();
+      bumpWebsiteJobsCache(job.publicSlug ? [`/careers/jobs/${job.publicSlug}`] : []);
       return { ok: true };
     }),
 
@@ -237,9 +237,10 @@ export const hrRouter = createRouter({
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, "super_admin", "admin");
+      const job = await db.from("jobPostings").eq("id", input.jobId).first<JobPostings>();
       await db.from("jobPostings").eq("id", input.jobId).update({ applyLinkEnabled: input.enabled });
       await audit(sc.staff.fullName, input.enabled ? "apply_link_enabled" : "apply_link_disabled", "job_postings", input.jobId);
-      bumpWebsiteJobsCache();
+      bumpWebsiteJobsCache(job?.publicSlug ? [`/careers/jobs/${job.publicSlug}`] : []);
       return { ok: true };
     }),
 
@@ -253,6 +254,7 @@ export const hrRouter = createRouter({
       const applySlug = newApplySlug(job.title);
       await db.from("jobPostings").eq("id", input.jobId).update({ applySlug, applyLinkCreatedAt: new Date(), applyLinkEnabled: true });
       await audit(sc.staff.fullName, "apply_link_regenerated", "job_postings", input.jobId);
+      bumpWebsiteJobsCache(job.publicSlug ? [`/careers/jobs/${job.publicSlug}`] : []);
       return { applySlug };
     }),
 
@@ -283,18 +285,8 @@ export const hrRouter = createRouter({
 
   // ── Public careers ──
   publicJobs: publicQuery.query(async () => {
-    const today = new Date().toISOString().slice(0, 10);
-    const rows = await db.from("jobPostings").eq("status", "live").many<JobPostings>();
-    return rows
-      .filter((j) => !j.closesAt || String(j.closesAt) >= today)
-      .map((j) => ({
-        id: j.id, title: j.title, location: j.location,
-        salaryText: j.salaryText, employmentType: j.employmentType,
-        descriptionMd: j.descriptionMd, publicSlug: j.publicSlug,
-        applySlug: j.applySlug, applyLinkEnabled: j.applyLinkEnabled,
-        closesAt: j.closesAt,
-        requirements: jobRequirements(j).map((r) => r.label).filter(Boolean),
-      }));
+    const { listPublicLiveJobs } = await import("../lib/public-jobs");
+    return listPublicLiveJobs();
   }),
 
   /** Public application page data: job header + published form schema. Never 404s a closed link. */

@@ -60,6 +60,18 @@ app.post("/api/cron/expiry-reminders", dailyCronHandler);
 app.get("/api/cron/attendance-sweep", dailyCronHandler);
 app.post("/api/cron/attendance-sweep", dailyCronHandler);
 
+/** Public careers feed for the marketing website (service-role; no anon RLS). */
+app.get("/api/public/jobs", async (c) => {
+  try {
+    const { listPublicLiveJobs } = await import("./lib/public-jobs");
+    const jobs = await listPublicLiveJobs();
+    c.header("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+    return c.json({ jobs });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Could not load jobs" }, 500);
+  }
+});
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

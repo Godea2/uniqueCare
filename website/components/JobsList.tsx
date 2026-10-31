@@ -42,8 +42,11 @@ export default function JobsList({ jobs }: { jobs: WebsiteJob[] }) {
       </div>
       {shown.length === 0 && (
         <p className="rounded-card border border-line bg-surface-alt p-8 text-center text-ink-muted">
-          There are no open positions right now, but we&apos;re always happy to hear from compassionate
-          people. <a href="/careers/jobs/general-application" className="font-semibold text-brand-primary hover:underline">Send us a general application</a>.
+          There are no open positions right now.{" "}
+          <a href="/contact" className="font-semibold text-brand-primary hover:underline">
+            Get in touch
+          </a>{" "}
+          if you&apos;d like to introduce yourself.
         </p>
       )}
     </div>
