@@ -18,14 +18,14 @@ function mapsLink(address: string) {
 export default function ContactPage() {
   return (
     <div className="mx-auto max-w-content px-4 pb-16 pt-12 md:pb-20">
-      <h1 className="font-heading text-4xl font-semibold text-ink md:text-5xl">Contact Us</h1>
+      <h1 className="fade-up font-heading text-4xl font-semibold text-ink md:text-5xl">Contact Us</h1>
       <p className="mt-4 max-w-2xl text-lg text-ink-muted">
         Send us a message and we will get back to you as soon as possible.
       </p>
 
       <div className="mt-10 grid gap-10 lg:grid-cols-2">
         {/* Contact information */}
-        <section aria-labelledby="contact-info-h">
+        <section aria-labelledby="contact-info-h" className="fade-up">
           <h2 id="contact-info-h" className="font-heading text-2xl font-semibold text-ink">
             Contact Information
           </h2>
@@ -36,7 +36,7 @@ export default function ContactPage() {
 
           <ul className="mt-6 space-y-5">
             <li className="flex gap-3">
-              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-primary">
+              <span className="uc-icon-3d h-11 w-11 shrink-0">
                 <Phone className="h-5 w-5" aria-hidden />
               </span>
               <div>
@@ -53,7 +53,7 @@ export default function ContactPage() {
               </div>
             </li>
             <li className="flex gap-3">
-              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-primary">
+              <span className="uc-icon-3d h-11 w-11 shrink-0">
                 <Mail className="h-5 w-5" aria-hidden />
               </span>
               <div>
@@ -66,7 +66,7 @@ export default function ContactPage() {
               </div>
             </li>
             <li className="flex gap-3">
-              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-primary">
+              <span className="uc-icon-3d h-11 w-11 shrink-0">
                 <Clock3 className="h-5 w-5" aria-hidden />
               </span>
               <div>
@@ -75,7 +75,7 @@ export default function ContactPage() {
               </div>
             </li>
             <li className="flex gap-3">
-              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-primary">
+              <span className="uc-icon-3d h-11 w-11 shrink-0">
                 <MapPin className="h-5 w-5" aria-hidden />
               </span>
               <div>
@@ -101,7 +101,7 @@ export default function ContactPage() {
         </section>
 
         {/* Form */}
-        <section aria-labelledby="contact-form-h">
+        <section aria-labelledby="contact-form-h" id="contact-form" className="fade-up" data-stagger="1">
           <h2 id="contact-form-h" className="font-heading text-2xl font-semibold text-ink">
             Send us a message
           </h2>

@@ -45,7 +45,7 @@ export default function TestimonialCarousel({ reviews }: { reviews: CarouselRevi
           {Array.from({ length: 5 }).map((_, i) => (
             <Star
               key={i}
-              className={`h-5 w-5 ${i < r.rating ? "fill-amber-400 text-amber-400" : "text-line"}`}
+              className={`h-5 w-5 ${i < r.rating ? "fill-brand-gold text-brand-gold" : "text-line"}`}
               aria-hidden
             />
           ))}

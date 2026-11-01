@@ -41,7 +41,7 @@ export default function CertificationGrid() {
               setOpen(i);
             }}
             aria-haspopup="dialog"
-            className="fade-up group rounded-card border border-line bg-white p-5 text-left shadow-card transition hover:-translate-y-1 hover:shadow-card-hover"
+            className="fade-up uc-card group p-5 text-left"
           >
             <span className="relative block aspect-[4/3] overflow-hidden rounded-lg bg-surface-alt">
               <Image src={c.src} alt={c.alt} fill sizes="(min-width:1024px) 25vw, 50vw" className="object-contain p-2" />

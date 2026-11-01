@@ -29,11 +29,21 @@ export default function Header() {
   const menuTimeout = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
+    const onScroll = () => setScrolled(window.scrollY > 24);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Escape closes an open dropdown
+  useEffect(() => {
+    if (!openMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenMenu(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [openMenu]);
 
   // close drawer on route change + lock body scroll
   useEffect(() => {
@@ -72,6 +82,20 @@ export default function Header() {
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
+
+  // Transparent over the dark video heroes until the user scrolls.
+  const overHero = ["/", "/about", "/careers"].includes(pathname) && !scrolled;
+
+  const navLinkClass = (active: boolean) =>
+    `block rounded-full px-3.5 py-2 text-[15px] font-medium transition-colors ${
+      overHero
+        ? active
+          ? "bg-white/15 text-white"
+          : "text-white hover:bg-white/10"
+        : active
+          ? "text-brand-primary hover:bg-brand-soft"
+          : "text-ink hover:bg-brand-soft"
+    }`;
 
   const openDropdown = (key: string) => {
     clearTimeout(menuTimeout.current);
@@ -116,10 +140,16 @@ export default function Header() {
 
       {/* Main header */}
       <header
-        className={`sticky top-0 z-50 bg-white transition-shadow ${scrolled ? "shadow-card" : ""}`}
+        className={`sticky top-0 z-50 transition-[background-color,box-shadow,border-color] ${
+          overHero ? "border-b border-transparent bg-transparent" : "border-b border-line bg-white"
+        } ${scrolled ? "shadow-card" : ""}`}
       >
         <div className="mx-auto flex max-w-content items-center justify-between gap-4 px-4 py-3">
-          <Link href="/" aria-label="Unique Care UK — home" className="shrink-0">
+          <Link
+            href="/"
+            aria-label="Unique Care UK — home"
+            className={`shrink-0 ${overHero ? "rounded-xl bg-white/95 p-1.5 shadow-card" : ""}`}
+          >
             <Image
               src="/images/logo-horizontal.png"
               alt="Unique Care UK"
@@ -148,12 +178,13 @@ export default function Header() {
                         onClick={() => setOpenMenu(openMenu === item.dropdown ? null : item.dropdown!)}
                         onFocus={() => openDropdown(item.dropdown!)}
                         onBlur={closeDropdown}
-                        className={`flex items-center gap-1 rounded-full px-3.5 py-2 text-[15px] font-medium transition-colors hover:bg-brand-soft ${
-                          isActive(item.href) ? "text-brand-primary" : "text-ink"
-                        }`}
+                        className={`flex items-center gap-1 ${navLinkClass(isActive(item.href))}`}
                       >
                         {item.label}
-                        <ChevronDown className="h-4 w-4" aria-hidden />
+                        <ChevronDown
+                          className={`h-4 w-4 transition-transform ${openMenu === item.dropdown ? "rotate-180" : ""}`}
+                          aria-hidden
+                        />
                       </button>
                       {openMenu === item.dropdown && (
                         <div
@@ -185,9 +216,7 @@ export default function Header() {
                     <Link
                       href={item.href}
                       aria-current={isActive(item.href) ? "page" : undefined}
-                      className={`block rounded-full px-3.5 py-2 text-[15px] font-medium transition-colors hover:bg-brand-soft ${
-                        isActive(item.href) ? "text-brand-primary" : "text-ink"
-                      }`}
+                      className={navLinkClass(isActive(item.href))}
                     >
                       {item.label}
                     </Link>
@@ -200,20 +229,25 @@ export default function Header() {
           <div className="flex items-center gap-2">
             <a
               href={site.phonePrimaryTel}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line text-brand-primary lg:hidden"
+              className={`inline-flex h-11 w-11 items-center justify-center rounded-full border lg:hidden ${
+                overHero ? "border-white/60 text-white" : "border-line text-brand-primary"
+              }`}
               aria-label={`Call us on ${site.phonePrimaryDisplay}`}
             >
               <Phone className="h-5 w-5" aria-hidden />
             </a>
             <Link
               href="/contact"
-              className="hidden rounded-full bg-brand-primary px-5 py-2.5 text-[15px] font-semibold text-white transition-colors hover:bg-brand-primary-dark sm:inline-flex"
+              aria-label="Get in Touch"
+              className="uc-btn-primary hidden px-5 py-2.5 text-[15px] sm:inline-flex"
             >
               Get in Touch
             </Link>
             <button
               type="button"
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line lg:hidden"
+              className={`inline-flex h-11 w-11 items-center justify-center rounded-full border lg:hidden ${
+                overHero ? "border-white/60 text-white" : "border-line text-ink"
+              }`}
               aria-expanded={drawer}
               aria-label={drawer ? "Close menu" : "Open menu"}
               onClick={() => setDrawer((v) => !v)}
@@ -293,7 +327,8 @@ export default function Header() {
             <div className="space-y-2 border-t border-line px-5 py-4">
               <Link
                 href="/contact"
-                className="block rounded-full bg-brand-primary px-5 py-3 text-center text-[15px] font-semibold text-white"
+                aria-label="Get in Touch"
+                className="uc-btn-primary w-full px-5 py-3 text-[15px]"
               >
                 Get in Touch
               </Link>

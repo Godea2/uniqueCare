@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { Phone } from "lucide-react";
+import { ArrowRight, Phone } from "lucide-react";
 import { site } from "@/content/site";
 
 export default function CtaBand() {
@@ -13,9 +13,13 @@ export default function CtaBand() {
         sizes="100vw"
         className="object-cover"
       />
-      <div className="absolute inset-0 bg-gradient-to-r from-brand-primary-dark/90 to-brand-primary-dark/60" aria-hidden />
-      <div className="relative mx-auto max-w-content px-4 py-16 text-center text-white">
-        <h2 id="cta-band-heading" className="font-heading text-3xl font-semibold md:text-4xl">
+      <div
+        className="absolute inset-0 bg-gradient-to-r from-brand-ink/95 via-brand-ink/85 to-brand-primary-dark/70"
+        aria-hidden
+      />
+      <div className="relative mx-auto max-w-content px-4 py-16 text-center text-white lg:py-20">
+        <div className="fade-up">
+        <h2 id="cta-band-heading" className="font-heading font-semibold">
           Ready to discuss care?
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-white/85">
@@ -24,16 +28,15 @@ export default function CtaBand() {
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
           <a
             href={site.phonePrimaryTel}
-            className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-semibold text-brand-primary-dark transition hover:bg-brand-soft"
+            aria-label="Call us now"
+            className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-semibold text-brand-ink transition hover:-translate-y-0.5 hover:bg-brand-soft"
           >
             <Phone className="h-4 w-4" aria-hidden /> Call us now
           </a>
-          <Link
-            href="/contact"
-            className="inline-flex items-center gap-2 rounded-full border-2 border-white px-6 py-3 font-semibold text-white transition hover:bg-white/10"
-          >
-            Send enquiry
+          <Link href="/contact" aria-label="Send enquiry" className="uc-btn-outline">
+            Send enquiry <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>
+        </div>
         </div>
       </div>
     </section>

@@ -10,6 +10,7 @@ import { getApprovedReviews } from "@/lib/supabase";
 import { organizationJsonLd, JsonLd } from "@/lib/jsonld";
 import ServiceCard from "@/components/ServiceCard";
 import CertificationGrid from "@/components/CertificationGrid";
+import HeroVideo from "@/components/HeroVideo";
 import TestimonialCarousel, { type CarouselReview } from "@/components/TestimonialCarousel";
 
 export const metadata: Metadata = {
@@ -17,6 +18,10 @@ export const metadata: Metadata = {
   description:
     "Professional domiciliary, live-in care, and supported living across London and Hertfordshire. Compassionate, personalised home care.",
   alternates: { canonical: "/" },
+  openGraph: {
+    images: [{ url: "/images/hero-caregiver.jpg", width: 1200, height: 630, alt: "Unique Care UK" }],
+  },
+  twitter: { card: "summary_large_image" },
 };
 
 export const revalidate = 300;
@@ -35,21 +40,25 @@ const WHY_US = [
     icon: ShieldCheck,
     title: "Certified Quality",
     text: "We don't just claim quality. We prove it. Our ISO 9001 and ISO 45001 certifications mean every process, every visit, and every care plan meets independently verified standards.",
+    thumb: "/images/cards/why-certified.jpg",
   },
   {
     icon: Heart,
     title: "Genuine Compassion",
     text: "Our care workers are chosen for their warmth and empathy first. Skills can be taught; a caring heart cannot. We treat every service user as we would our own family.",
+    thumb: "/images/cards/why-cqc.jpg",
   },
   {
     icon: MapPin,
     title: "Local Roots",
     text: "We live and work in the communities we serve across London, Essex, and Hertfordshire. We understand the unique needs of our neighbours.",
+    thumb: "/images/cards/why-local.jpg",
   },
   {
     icon: Sparkles,
     title: "Transparent Trust",
     text: "We welcome scrutiny. Our CQC 'Good' rating, our certifications, and our commitment to honest communication mean you always know exactly where you stand.",
+    thumb: "/images/cards/why-environment.jpg",
   },
 ];
 
@@ -66,21 +75,23 @@ export default async function HomePage() {
 
       {/* 1. Hero */}
       <section className="relative overflow-hidden" aria-labelledby="home-hero-h">
-        <Image
-          src="/images/hero-caregiver.jpg"
-          alt="Professional caregiver providing compassionate home care"
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover"
+        <HeroVideo
+          src="/videos/hero-home-care.mp4"
+          poster="/images/hero-caregiver.jpg"
+          sources={[
+            "/videos/hero-home-care.mp4",
+            "/videos/personal-care.mp4",
+            "/videos/companionship.mp4",
+            "/videos/complex-care.mp4",
+            "/videos/home-support.mp4",
+          ]}
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-ink/85 via-ink/60 to-ink/25" aria-hidden />
         <div className="relative mx-auto max-w-content px-4 py-24 md:py-32">
-          <div className="max-w-2xl text-white">
+          <div className="fade-up max-w-2xl text-white">
             <span className="inline-block rounded-full bg-brand-secondary px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">
               ISO certified care provider
             </span>
-            <h1 id="home-hero-h" className="mt-5 font-heading text-4xl font-semibold leading-tight md:text-6xl">
+            <h1 id="home-hero-h" className="mt-5 font-heading font-semibold">
               Exceptional care in the comfort of your home
             </h1>
             <p className="mt-4 font-heading text-xl text-white/90 md:text-2xl">
@@ -90,16 +101,10 @@ export default async function HomePage() {
               Trusted CQC-rated home care provider, ISO 9001 &amp; 45001 certified for quality and safety.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link
-                href="/contact"
-                className="inline-flex items-center gap-2 rounded-full bg-brand-primary px-6 py-3.5 font-semibold text-white transition hover:bg-brand-primary-dark"
-              >
+              <Link href="/contact" aria-label="Book a free assessment" className="uc-btn-primary">
                 Book a free assessment <ArrowRight className="h-4 w-4" aria-hidden />
               </Link>
-              <a
-                href={site.phonePrimaryTel}
-                className="inline-flex items-center gap-2 rounded-full border-2 border-white px-6 py-3.5 font-semibold text-white transition hover:bg-white/10"
-              >
+              <a href={site.phonePrimaryTel} aria-label="Call us" className="uc-btn-outline">
                 <Phone className="h-4 w-4" aria-hidden /> Call us
               </a>
             </div>
@@ -124,15 +129,15 @@ export default async function HomePage() {
       </section>
 
       {/* Stats strip */}
-      <section aria-label="Key facts" className="border-b border-line bg-white">
+      <section aria-label="Key facts" className="uc-stats-bar">
         <div className="mx-auto grid max-w-content grid-cols-1 gap-6 px-4 py-8 sm:grid-cols-3">
           {[
             { icon: Award, figure: "ISO 9001", label: "Quality certified" },
             { icon: Clock3, figure: "24/7", label: "Support available" },
             { icon: Users, figure: `${yearsOfCare}+ years`, label: "Of trusted care" },
-          ].map((s) => (
-            <div key={s.label} className="flex items-center gap-4">
-              <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-primary">
+          ].map((s, i) => (
+            <div key={s.label} className="fade-up flex items-center gap-4" data-stagger={i}>
+              <span className="uc-icon-3d h-12 w-12 shrink-0">
                 <s.icon className="h-6 w-6" aria-hidden />
               </span>
               <div>
@@ -145,12 +150,14 @@ export default async function HomePage() {
       </section>
 
       {/* 2. Services */}
-      <section aria-labelledby="home-services-h" className="mx-auto max-w-content px-4 py-16 md:py-20">
-        <p className="eyebrow">Services</p>
-        <h2 id="home-services-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
-          What we offer
-        </h2>
-        <p className="mt-3 max-w-2xl text-ink-muted">Eight specialist care services, all independently certified.</p>
+      <section aria-labelledby="home-services-h" className="mx-auto max-w-content px-4 py-16 lg:py-24">
+        <div className="fade-up">
+          <p className="eyebrow">Services</p>
+          <h2 id="home-services-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
+            What we offer
+          </h2>
+          <p className="mt-3 max-w-2xl text-ink-muted">Eight specialist care services, all independently certified.</p>
+        </div>
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {services.slice(0, 4).map((s) => (
             <ServiceCard key={s.slug} service={s} />
@@ -168,7 +175,7 @@ export default async function HomePage() {
 
       {/* 3. Why us */}
       <section aria-labelledby="home-why-h" className="bg-surface-alt">
-        <div className="mx-auto grid max-w-content items-center gap-10 px-4 py-16 md:py-20 lg:grid-cols-2">
+        <div className="mx-auto grid max-w-content items-center gap-10 px-4 py-16 lg:py-24 lg:grid-cols-2">
           <div className="fade-up relative">
             <Image
               src="/images/why-choose-us.jpg"
@@ -183,17 +190,25 @@ export default async function HomePage() {
             </div>
           </div>
           <div>
-            <p className="eyebrow">Why us</p>
-            <h2 id="home-why-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
-              What makes us different
-            </h2>
-            <p className="mt-3 text-ink-muted">
-              In a market with 45+ providers, here&apos;s why families choose us.
-            </p>
+            <div className="fade-up">
+              <p className="eyebrow">Why us</p>
+              <h2 id="home-why-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
+                What makes us different
+              </h2>
+              <p className="mt-3 text-ink-muted">
+                In a market with 45+ providers, here&apos;s why families choose us.
+              </p>
+            </div>
             <div className="mt-8 space-y-6">
-              {WHY_US.map((f) => (
-                <div key={f.title} className="fade-up flex gap-4">
-                  <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-primary">
+              {WHY_US.map((f, i) => (
+                <div key={f.title} className="fade-up flex gap-4" data-stagger={i}>
+                  <img
+                    src={f.thumb}
+                    alt=""
+                    loading="lazy"
+                    className="h-24 w-24 shrink-0 rounded-2xl object-cover"
+                  />
+                  <span className="uc-icon-3d h-11 w-11 shrink-0">
                     <f.icon className="h-5 w-5" aria-hidden />
                   </span>
                   <div>
@@ -209,15 +224,17 @@ export default async function HomePage() {
 
       {/* 4. Certifications */}
       <section aria-labelledby="home-certs-h" className="bg-brand-soft">
-        <div className="mx-auto max-w-content px-4 py-16 md:py-20">
-          <p className="eyebrow">Certified Quality</p>
-          <h2 id="home-certs-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
-            Our certifications
-          </h2>
-          <p className="mt-3 max-w-2xl text-ink-muted">
-            Independently verified standards you can trust. We go beyond CQC registration with international
-            certifications.
-          </p>
+        <div className="mx-auto max-w-content px-4 py-16 lg:py-24">
+          <div className="fade-up">
+            <p className="eyebrow">Certified Quality</p>
+            <h2 id="home-certs-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
+              Our certifications
+            </h2>
+            <p className="mt-3 max-w-2xl text-ink-muted">
+              Independently verified standards you can trust. We go beyond CQC registration with international
+              certifications.
+            </p>
+          </div>
           <div className="mt-8">
             <CertificationGrid />
           </div>
@@ -225,8 +242,8 @@ export default async function HomePage() {
       </section>
 
       {/* 5. Testimonials */}
-      <section aria-labelledby="home-testimonials-h" className="mx-auto max-w-content px-4 py-16 md:py-20">
-        <div className="text-center">
+      <section aria-labelledby="home-testimonials-h" className="mx-auto max-w-content px-4 py-16 lg:py-24">
+        <div className="fade-up text-center">
           <h2 id="home-testimonials-h" className="font-heading text-3xl font-semibold text-ink md:text-4xl">
             Trusted by families
           </h2>
@@ -246,8 +263,8 @@ export default async function HomePage() {
 
       {/* 6. Blog */}
       <section aria-labelledby="home-blog-h" className="bg-surface-alt">
-        <div className="mx-auto max-w-content px-4 py-16 md:py-20">
-          <div className="flex items-end justify-between gap-4">
+        <div className="mx-auto max-w-content px-4 py-16 lg:py-24">
+          <div className="fade-up flex items-end justify-between gap-4">
             <div>
               <p className="eyebrow">Blog</p>
               <h2 id="home-blog-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
@@ -260,7 +277,7 @@ export default async function HomePage() {
           </div>
           <div className="mt-8 grid gap-6 md:grid-cols-3">
             {posts.slice(0, 3).map((p) => (
-              <article key={p.slug} className="fade-up group overflow-hidden rounded-card border border-line bg-white shadow-card transition hover:-translate-y-1 hover:shadow-card-hover">
+              <article key={p.slug} className="fade-up uc-card group overflow-hidden">
                 <Link href={`/blog/${p.slug}`} className="block">
                   <span className="relative block aspect-[16/10] overflow-hidden">
                     <Image src={p.image} alt={p.imageAlt} fill unoptimized={isRemoteImage(p.image)} sizes="(min-width:768px) 33vw, 100vw" className="object-cover transition-transform group-hover:scale-105" />
@@ -287,8 +304,8 @@ export default async function HomePage() {
       </section>
 
       {/* 7. Areas we serve */}
-      <section aria-labelledby="home-areas-h" className="mx-auto max-w-content px-4 py-16 md:py-20">
-        <div className="text-center">
+      <section aria-labelledby="home-areas-h" className="mx-auto max-w-content px-4 py-16 lg:py-24">
+        <div className="fade-up text-center">
           <h2 id="home-areas-h" className="font-heading text-3xl font-semibold text-ink md:text-4xl">
             Areas we serve
           </h2>
@@ -311,8 +328,8 @@ export default async function HomePage() {
 
       {/* 8. Closing CTA */}
       <section aria-labelledby="home-closing-h" className="bg-surface-alt">
-        <div className="mx-auto grid max-w-content items-center gap-10 px-4 py-16 md:py-20 lg:grid-cols-2">
-          <div>
+        <div className="mx-auto grid max-w-content items-center gap-10 px-4 py-16 lg:py-24 lg:grid-cols-2">
+          <div className="fade-up">
             <h2 id="home-closing-h" className="font-heading text-3xl font-semibold text-ink md:text-4xl">
               Ready to talk about care?
             </h2>
@@ -320,10 +337,7 @@ export default async function HomePage() {
               Book a free, no-obligation assessment. We&apos;ll come to you at a time that suits.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <Link
-                href="/contact"
-                className="inline-flex items-center gap-2 rounded-full bg-brand-primary px-6 py-3.5 font-semibold text-white transition hover:bg-brand-primary-dark"
-              >
+              <Link href="/contact" aria-label="Book a free assessment" className="uc-btn-primary">
                 Book a free assessment <ArrowRight className="h-4 w-4" aria-hidden />
               </Link>
               <Link

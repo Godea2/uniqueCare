@@ -3,20 +3,22 @@ import localFont from "next/font/local";
 import "./globals.css";
 
 // Self-hosted fonts (no external font downloads at build time).
+// HCA-style pairing: Montserrat for BOTH headings and body.
 const heading = localFont({
   src: [
-    { path: "./fonts/fraunces-latin-500-normal.woff2", weight: "500", style: "normal" },
-    { path: "./fonts/fraunces-latin-600-normal.woff2", weight: "600", style: "normal" },
-    { path: "./fonts/fraunces-latin-700-normal.woff2", weight: "700", style: "normal" },
+    { path: "./fonts/montserrat-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/montserrat-latin-600-normal.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/montserrat-latin-700-normal.woff2", weight: "700", style: "normal" },
   ],
   variable: "--font-heading",
   display: "swap",
 });
 const body = localFont({
   src: [
-    { path: "./fonts/inter-latin-400-normal.woff2", weight: "400", style: "normal" },
-    { path: "./fonts/inter-latin-500-normal.woff2", weight: "500", style: "normal" },
-    { path: "./fonts/inter-latin-600-normal.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/montserrat-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/montserrat-latin-500-normal.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/montserrat-latin-600-normal.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/montserrat-latin-700-normal.woff2", weight: "700", style: "normal" },
   ],
   variable: "--font-body",
   display: "swap",
@@ -27,7 +29,10 @@ import Footer from "@/components/Footer";
 import CtaBand from "@/components/CtaBand";
 import WhatsAppButton from "@/components/WhatsAppButton";
 import FadeUpObserver from "@/components/FadeUpObserver";
+import MobileCtaBar from "@/components/MobileCtaBar";
 import PublicChrome from "@/components/PublicChrome";
+import JsonLd from "@/components/JsonLd";
+import { organizationJsonLd } from "@/lib/jsonld";
 
 export const metadata: Metadata = {
   metadataBase: new URL(site.url),
@@ -62,11 +67,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en-GB" className={`${heading.variable} ${body.variable}`}>
       <body>
+        <JsonLd data={organizationJsonLd()} />
         <PublicChrome
           header={<Header />}
           footer={<Footer />}
           cta={<CtaBand />}
-          floating={<WhatsAppButton />}
+          floating={
+            <>
+              <WhatsAppButton />
+              <MobileCtaBar />
+            </>
+          }
         >
           {children}
         </PublicChrome>

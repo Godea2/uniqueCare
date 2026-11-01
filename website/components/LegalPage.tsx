@@ -96,7 +96,7 @@ export default function LegalPage({
 
           <div className="prose-legal">
             {sections.map((s) => (
-              <section key={s.id} id={s.id} aria-labelledby={`${s.id}-h`}>
+              <section key={s.id} id={s.id} aria-labelledby={`${s.id}-h`} className="fade-up">
                 <h2 id={`${s.id}-h`}>{s.title}</h2>
                 {s.blocks.map((b, j) => (
                   <Block key={j} block={b} />

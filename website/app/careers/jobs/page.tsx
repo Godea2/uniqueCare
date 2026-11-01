@@ -3,6 +3,8 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { getJobs } from "@/lib/jobs-source";
 import JobsList from "@/components/JobsList";
+import JsonLd from "@/components/JsonLd";
+import { jobPostingJsonLd } from "@/lib/jsonld";
 
 export const metadata: Metadata = {
   title: "Care Jobs | Open Positions in London, Essex & Hertfordshire | Unique Care UK",
@@ -18,27 +20,28 @@ export default async function JobsPage() {
 
   return (
     <div className="mx-auto max-w-content px-4 pb-16 pt-12 md:pb-20">
-      <p className="eyebrow">Careers</p>
-      <h1 className="mt-2 font-heading text-4xl font-semibold text-ink md:text-5xl">Open Positions</h1>
-      <p className="mt-4 max-w-2xl text-lg text-ink-muted">
-        Browse roles currently open at Unique Care UK. Listings update when our team publishes a vacancy in
-        the recruitment portal.
-      </p>
+      <JsonLd data={jobs.map(jobPostingJsonLd)} />
+
+      <div className="fade-up">
+        <p className="eyebrow">Careers</p>
+        <h1 className="mt-2 font-heading text-4xl font-semibold text-ink md:text-5xl">Open Positions</h1>
+        <p className="mt-4 max-w-2xl text-lg text-ink-muted">
+          Browse roles currently open at Unique Care UK. Listings update when our team publishes a vacancy in
+          the recruitment portal.
+        </p>
+      </div>
 
       <div className="mt-10">
         <JobsList jobs={jobs} />
       </div>
 
-      <div className="mt-12 rounded-card border border-line bg-brand-soft p-8 text-center">
+      <div className="fade-up mt-12 rounded-card border border-line bg-brand-soft p-8 text-center">
         <h2 className="font-heading text-2xl font-semibold text-ink">Don&apos;t see your role?</h2>
         <p className="mx-auto mt-2 max-w-xl text-ink-muted">
           We&apos;re always interested in hearing from talented care professionals. Get in touch and we&apos;ll
           keep your details for future opportunities.
         </p>
-        <Link
-          href="/contact"
-          className="mt-5 inline-flex items-center gap-2 rounded-full bg-brand-primary px-6 py-3 font-semibold text-white transition hover:bg-brand-primary-dark"
-        >
+        <Link href="/contact" aria-label="Contact us" className="uc-btn-primary mt-5">
           Contact us <ArrowRight className="h-4 w-4" aria-hidden />
         </Link>
       </div>

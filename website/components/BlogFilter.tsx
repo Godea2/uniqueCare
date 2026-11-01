@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useState } from "react";
 import type { Post } from "@/content/posts";
 
+const CATEGORIES = ["All", "Care Advice", "Company News"];
+const isRemoteImage = (src: string) => /^https?:\/\//i.test(src);
+
 export default function BlogFilter({ posts }: { posts: Post[] }) {
   const [cat, setCat] = useState("All");
-  const CATEGORIES = ["All", ...Array.from(new Set(posts.map((p) => p.category)))];
   const shown = cat === "All" ? posts : posts.filter((p) => p.category === cat);
 
   return (
@@ -29,10 +31,11 @@ export default function BlogFilter({ posts }: { posts: Post[] }) {
       </div>
 
       <div className="mt-8 grid gap-6 md:grid-cols-3">
-        {shown.map((p) => (
+        {shown.map((p, i) => (
           <article
             key={p.slug}
-            className="group overflow-hidden rounded-card border border-line bg-white shadow-card transition hover:-translate-y-1 hover:shadow-card-hover"
+            className="fade-up uc-card group overflow-hidden"
+            data-stagger={i % 3}
           >
             <Link href={`/blog/${p.slug}`} className="block">
               <span className="relative block aspect-[16/10] overflow-hidden">
@@ -40,7 +43,7 @@ export default function BlogFilter({ posts }: { posts: Post[] }) {
                   src={p.image}
                   alt={p.imageAlt}
                   fill
-                  unoptimized={/^https?:\/\//i.test(p.image)}
+                  unoptimized={isRemoteImage(p.image)}
                   sizes="(min-width:768px) 33vw, 100vw"
                   className="object-cover transition-transform group-hover:scale-105"
                 />

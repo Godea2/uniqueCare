@@ -27,12 +27,14 @@ export default async function ReviewsPage({ searchParams }: { searchParams: { pa
     <div className="mx-auto max-w-content px-4 pb-16 pt-12 md:pb-20">
       {reviews.length > 0 && <JsonLd data={aggregateRatingJsonLd(avg, reviews.length)} />}
 
-      <p className="eyebrow">Client Reviews</p>
-      <h1 className="mt-2 font-heading text-4xl font-semibold text-ink md:text-5xl">What our clients say</h1>
-      <p className="mt-4 max-w-2xl text-lg text-ink-muted">
-        Don&apos;t just take our word for it. Hear from the families and individuals we support across London,
-        Essex, and Hertfordshire.
-      </p>
+      <div className="fade-up">
+        <p className="eyebrow">Client Reviews</p>
+        <h1 className="mt-2 font-heading text-4xl font-semibold text-ink md:text-5xl">What our clients say</h1>
+        <p className="mt-4 max-w-2xl text-lg text-ink-muted">
+          Don&apos;t just take our word for it. Hear from the families and individuals we support across London,
+          Essex, and Hertfordshire.
+        </p>
+      </div>
 
       {reviews.length > 0 && (
         <div className="mt-6 flex items-center gap-3 rounded-card border border-line bg-brand-soft px-6 py-4">
@@ -40,7 +42,7 @@ export default async function ReviewsPage({ searchParams }: { searchParams: { pa
             {Array.from({ length: 5 }).map((_, i) => (
               <Star
                 key={i}
-                className={`h-5 w-5 ${i < Math.round(avg) ? "fill-amber-400 text-amber-400" : "text-line"}`}
+                className={`h-5 w-5 ${i < Math.round(avg) ? "fill-brand-gold text-brand-gold" : "text-line"}`}
                 aria-hidden
               />
             ))}
@@ -60,12 +62,12 @@ export default async function ReviewsPage({ searchParams }: { searchParams: { pa
         <>
           <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {shown.map((r) => (
-              <article key={r.id} className="fade-up flex flex-col rounded-card border border-line bg-white p-6 shadow-card">
+              <article key={r.id} className="fade-up uc-card flex flex-col p-6">
                 <div className="flex gap-0.5" aria-label={`${r.rating} out of 5 stars`}>
                   {Array.from({ length: 5 }).map((_, i) => (
                     <Star
                       key={i}
-                      className={`h-4 w-4 ${i < r.rating ? "fill-amber-400 text-amber-400" : "text-line"}`}
+                      className={`h-4 w-4 ${i < r.rating ? "fill-brand-gold text-brand-gold" : "text-line"}`}
                       aria-hidden
                     />
                   ))}
@@ -108,7 +110,7 @@ export default async function ReviewsPage({ searchParams }: { searchParams: { pa
         </>
       )}
 
-      <section aria-labelledby="leave-review-h" className="mt-16 grid gap-10 lg:grid-cols-2">
+      <section aria-labelledby="leave-review-h" className="fade-up mt-16 grid gap-10 lg:grid-cols-2">
         <div>
           <h2 id="leave-review-h" className="font-heading text-3xl font-semibold text-ink">Leave a review</h2>
           <p className="mt-3 text-ink-muted">
@@ -120,7 +122,7 @@ export default async function ReviewsPage({ searchParams }: { searchParams: { pa
         </div>
       </section>
 
-      <section aria-labelledby="reviews-cta-h" className="mt-16 rounded-card bg-brand-soft p-8 text-center">
+      <section aria-labelledby="reviews-cta-h" className="fade-up mt-16 rounded-card bg-brand-soft p-8 text-center">
         <h2 id="reviews-cta-h" className="font-heading text-2xl font-semibold text-ink">
           Ready to experience our care?
         </h2>
@@ -130,7 +132,8 @@ export default async function ReviewsPage({ searchParams }: { searchParams: { pa
         <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
           <Link
             href="/contact"
-            className="inline-flex items-center gap-2 rounded-full bg-brand-primary px-6 py-3 font-semibold text-white transition hover:bg-brand-primary-dark"
+            aria-label="Book a free assessment"
+            className="uc-btn-primary"
           >
             Book a free assessment <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>

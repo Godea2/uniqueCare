@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
   Banknote,
+  Bike,
   Clock3,
   GraduationCap,
   HeartHandshake,
@@ -12,6 +12,9 @@ import {
   Zap,
 } from "lucide-react";
 import { getJobs, employmentLabel } from "@/lib/jobs-source";
+import HeroVideo from "@/components/HeroVideo";
+import JsonLd from "@/components/JsonLd";
+import { jobPostingJsonLd } from "@/lib/jsonld";
 
 export const metadata: Metadata = {
   title: "Careers in Care | Join Our Team in London & Essex | Unique Care UK",
@@ -27,36 +30,49 @@ const BENEFITS = [
     icon: GraduationCap,
     title: "Mandatory Training for Staff",
     text: "Comprehensive induction course and ongoing mandatory training provided to all staff members at no cost.",
+    thumb: "/images/cards/benefits-training.jpg",
   },
   {
     icon: Banknote,
     title: "Good Rates of Pay",
     text: "Competitive pay rates that reflect your skills and dedication. We value the work our carers do every day.",
+    thumb: "/images/cards/benefits-pay.jpg",
   },
   {
     icon: HeartHandshake,
     title: "Various Work Environments",
     text: "Opportunities across both public and private healthcare sectors. Gain diverse experience and grow your career.",
+    thumb: "/images/cards/benefits-environments.jpg",
   },
   {
     icon: MapPin,
     title: "A Variety of Work Locations",
     text: "Placements across London, Essex, and Hertfordshire. Work close to home or explore new areas. The choice is yours.",
+    thumb: "/images/cards/benefits-locations.jpg",
   },
   {
     icon: Zap,
     title: "Fast Track Applications",
     text: "Our streamlined application process gets you into work quickly. Apply today and start making a difference sooner.",
+    thumb: "/images/cards/benefits-fasttrack.jpg",
   },
   {
     icon: PhoneCall,
     title: "Contact Available Around the Clock",
     text: "24/7 on-call management support. Whether it's day or night, our team is always there when you need us.",
+    thumb: "/images/cards/benefits-247.jpg",
   },
   {
     icon: Clock3,
     title: "Flexible Working",
     text: "Days, evenings, nights, weekends, and bank holidays. Choose a schedule that works around your life.",
+    thumb: "/images/cards/benefits-flexible.jpg",
+  },
+  {
+    icon: Bike,
+    title: "Paid Mileage & Motorbike Scheme",
+    text: "Mileage paid on every client visit, or ride one of our company motorbikes on your daily rounds. Your travel to clients is always covered.",
+    thumb: "/images/cards/benefits-mileage.jpg",
   },
 ];
 
@@ -65,19 +81,13 @@ export default async function CareersPage() {
 
   return (
     <>
+      <JsonLd data={jobs.map(jobPostingJsonLd)} />
+
       {/* Hero */}
       <section className="relative overflow-hidden" aria-labelledby="careers-h">
-        <Image
-          src="/images/careers-hero.jpg"
-          alt="Healthcare team working together"
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-ink/85 via-ink/55 to-ink/25" aria-hidden />
+        <HeroVideo src="/videos/care-at-home.mp4" poster="/images/careers-hero.jpg" />
         <div className="relative mx-auto max-w-content px-4 py-20 md:py-28">
-          <div className="max-w-2xl text-white">
+          <div className="fade-up max-w-2xl text-white">
             <span className="inline-block rounded-full bg-brand-secondary px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">
               We&apos;re Hiring
             </span>
@@ -90,7 +100,8 @@ export default async function CareersPage() {
             </p>
             <Link
               href="/careers/jobs"
-              className="mt-7 inline-flex items-center gap-2 rounded-full bg-brand-primary px-6 py-3.5 font-semibold text-white transition hover:bg-brand-primary-dark"
+              aria-label="View Open Positions"
+              className="uc-btn-primary mt-7"
             >
               View Open Positions <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
@@ -99,22 +110,27 @@ export default async function CareersPage() {
       </section>
 
       {/* Benefits */}
-      <section aria-labelledby="benefits-h" className="mx-auto max-w-content px-4 py-16 md:py-20">
-        <p className="eyebrow">Benefits</p>
-        <h2 id="benefits-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
-          Why work with us?
-        </h2>
-        <p className="mt-3 max-w-2xl text-ink-muted">
-          We strive to create a supportive and nurturing environment for both our service users and our staff.
-        </p>
+      <section aria-labelledby="benefits-h" className="mx-auto max-w-content px-4 py-16 lg:py-24">
+        <div className="fade-up">
+          <p className="eyebrow">Benefits</p>
+          <h2 id="benefits-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
+            Why work with us?
+          </h2>
+          <p className="mt-3 max-w-2xl text-ink-muted">
+            We strive to create a supportive and nurturing environment for both our service users and our staff.
+          </p>
+        </div>
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {BENEFITS.map((b) => (
-            <div key={b.title} className="fade-up rounded-card border border-line bg-white p-6 shadow-card">
-              <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-brand-soft text-brand-primary">
-                <b.icon className="h-6 w-6" aria-hidden />
-              </span>
-              <h3 className="mt-4 font-heading text-lg font-semibold text-ink">{b.title}</h3>
-              <p className="mt-2 text-[15px] leading-relaxed text-ink-muted">{b.text}</p>
+            <div key={b.title} className="fade-up uc-card overflow-hidden">
+              <img src={b.thumb} alt="" loading="lazy" className="h-44 w-full object-cover" />
+              <div className="p-6">
+                <span className="uc-icon-3d h-12 w-12">
+                  <b.icon className="h-6 w-6" aria-hidden />
+                </span>
+                <h3 className="mt-4 font-heading text-lg font-semibold text-ink">{b.title}</h3>
+                <p className="mt-2 text-[15px] leading-relaxed text-ink-muted">{b.text}</p>
+              </div>
             </div>
           ))}
         </div>
@@ -122,12 +138,14 @@ export default async function CareersPage() {
 
       {/* Current openings */}
       <section aria-labelledby="openings-h" className="bg-surface-alt">
-        <div className="mx-auto max-w-content px-4 py-16 md:py-20">
-          <h2 id="openings-h" className="font-heading text-3xl font-semibold text-ink md:text-4xl">
-            Current openings
-          </h2>
-          <p className="mt-3 text-ink-muted">Browse our available positions and apply today.</p>
-          <ul className="mt-8 divide-y divide-line overflow-hidden rounded-card border border-line bg-white shadow-card">
+        <div className="mx-auto max-w-content px-4 py-16 lg:py-24">
+          <div className="fade-up">
+            <h2 id="openings-h" className="font-heading text-3xl font-semibold text-ink md:text-4xl">
+              Current openings
+            </h2>
+            <p className="mt-3 text-ink-muted">Browse our available positions and apply today.</p>
+          </div>
+          <ul className="fade-up mt-8 divide-y divide-line overflow-hidden rounded-card border border-line bg-white shadow-card">
             {jobs.map((j) => (
               <li key={j.slug}>
                 <Link
@@ -138,13 +156,13 @@ export default async function CareersPage() {
                     <h3 className="font-heading text-lg font-semibold text-ink">{j.title}</h3>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-muted">
                       {j.location && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-3.5 w-3.5" aria-hidden /> {j.location}
+                        <span className="flex items-center gap-1.5">
+                          <span className="uc-icon-3d h-6 w-6 shrink-0"><MapPin className="h-3 w-3" aria-hidden /></span> {j.location}
                         </span>
                       )}
                       {j.type && (
-                        <span className="flex items-center gap-1">
-                          <Clock3 className="h-3.5 w-3.5" aria-hidden /> {employmentLabel(j.type)}
+                        <span className="flex items-center gap-1.5">
+                          <span className="uc-icon-3d h-6 w-6 shrink-0"><Clock3 className="h-3 w-3" aria-hidden /></span> {employmentLabel(j.type)}
                         </span>
                       )}
                     </p>

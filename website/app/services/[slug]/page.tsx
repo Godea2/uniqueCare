@@ -33,13 +33,14 @@ export default function ServicePage({ params }: { params: { slug: string } }) {
 
       <div className="mx-auto max-w-content px-4 pb-16 pt-6 md:pb-20">
         {/* Hero */}
-        <div className="max-w-3xl">
+        <div className="fade-up max-w-3xl">
           <h1 className="font-heading text-4xl font-semibold text-ink md:text-5xl">{s.name}</h1>
           <p className="mt-4 text-lg leading-relaxed text-ink-muted">{s.short}</p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
               href={`/contact?service=${s.slug}`}
-              className="inline-flex items-center gap-2 rounded-full bg-brand-primary px-6 py-3 font-semibold text-white transition hover:bg-brand-primary-dark"
+              aria-label="Enquire about this service"
+              className="uc-btn-primary"
             >
               Enquire about this service <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
@@ -57,17 +58,17 @@ export default function ServicePage({ params }: { params: { slug: string } }) {
           alt={s.imageAlt}
           width={1200}
           height={800}
-          className="mt-10 w-full rounded-card object-cover shadow-card"
+          className="fade-up mt-10 w-full rounded-card object-cover shadow-card"
           priority={s.slug === "domiciliary-care"}
         />
 
         <div className="mt-12 grid gap-10 lg:grid-cols-[1fr_320px]">
-          <div className="prose-legal">
+          <div className="fade-up prose-legal" data-stagger="1">
             <p>{s.body[0]}</p>
             <p>{s.body[1]}</p>
           </div>
 
-          <aside className="space-y-6 lg:sticky lg:top-28 lg:self-start">
+          <aside className="fade-up space-y-6 lg:sticky lg:top-28 lg:self-start" data-stagger="2">
             <div className="rounded-card border border-line bg-brand-soft p-6">
               <h2 className="font-heading text-xl font-semibold text-ink">Need this service?</h2>
               <p className="mt-2 text-sm leading-relaxed text-ink-muted">
@@ -75,7 +76,8 @@ export default function ServicePage({ params }: { params: { slug: string } }) {
               </p>
               <Link
                 href={`/contact?service=${s.slug}`}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand-primary px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-primary-dark"
+                aria-label="Get in Touch"
+                className="uc-btn-primary mt-4 w-full px-5 py-3 text-sm"
               >
                 Get in Touch <ArrowRight className="h-4 w-4" aria-hidden />
               </Link>
