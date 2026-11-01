@@ -100,7 +100,7 @@ export default async function HomePage() {
             <p className="mt-3 text-white/85 md:text-lg">
               Trusted CQC-rated home care provider, ISO 9001 &amp; 45001 certified for quality and safety.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
+            <div className="uc-cta-row mt-8">
               <Link href="/contact" aria-label="Book a free assessment" className="uc-btn-primary">
                 Book a free assessment <ArrowRight className="h-4 w-4" aria-hidden />
               </Link>
@@ -336,13 +336,13 @@ export default async function HomePage() {
             <p className="mt-3 text-ink-muted">
               Book a free, no-obligation assessment. We&apos;ll come to you at a time that suits.
             </p>
-            <div className="mt-7 flex flex-wrap gap-3">
+            <div className="uc-cta-row mt-7">
               <Link href="/contact" aria-label="Book a free assessment" className="uc-btn-primary">
                 Book a free assessment <ArrowRight className="h-4 w-4" aria-hidden />
               </Link>
               <Link
                 href="/careers"
-                className="inline-flex items-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3.5 font-semibold text-brand-primary transition hover:bg-brand-soft"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3.5 font-semibold text-brand-primary transition hover:bg-brand-soft"
               >
                 View careers
               </Link>

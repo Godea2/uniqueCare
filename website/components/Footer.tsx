@@ -99,7 +99,7 @@ export default function Footer() {
       </div>
 
       <div className="border-t border-white/15">
-        <div className="mx-auto flex max-w-content flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-24 pt-5 text-xs text-white/70 md:py-5">
+        <div className="mx-auto flex max-w-content flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-5 text-xs text-white/70 md:py-5">
           <span>© {year} {site.legalName}. All rights reserved.</span>
           <Link href="/privacy" className="inline-block py-1.5 hover:text-white hover:underline">Privacy Policy</Link>
           <Link href="/terms" className="inline-block py-1.5 hover:text-white hover:underline">Terms of Service</Link>

@@ -35,13 +35,13 @@ export default async function BlogPage() {
         <p className="mx-auto mt-2 max-w-xl text-ink-muted">
           Our team is here to help. Get in touch for a free, no-obligation care assessment.
         </p>
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+        <div className="uc-cta-row uc-cta-row-center mt-5">
           <Link href="/contact" aria-label="Book a free assessment" className="uc-btn-primary">
             Book a free assessment
           </Link>
           <a
             href={site.phonePrimaryTel}
-            className="inline-flex items-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3 font-semibold text-brand-primary transition hover:bg-white"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3 font-semibold text-brand-primary transition hover:bg-white"
           >
             <Phone className="h-4 w-4" aria-hidden /> {site.phonePrimaryDisplay}
           </a>

@@ -25,11 +25,11 @@ export default function CtaBand() {
         <p className="mx-auto mt-3 max-w-xl text-white/85">
           Get a free, no-obligation assessment. We come to you at a time that suits.
         </p>
-        <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+        <div className="uc-cta-row uc-cta-row-center mt-7">
           <a
             href={site.phonePrimaryTel}
             aria-label="Call us now"
-            className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 font-semibold text-brand-ink transition hover:-translate-y-0.5 hover:bg-brand-soft"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-white px-6 py-3 font-semibold text-brand-ink transition hover:-translate-y-0.5 hover:bg-brand-soft"
           >
             <Phone className="h-4 w-4" aria-hidden /> Call us now
           </a>

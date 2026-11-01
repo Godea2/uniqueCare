@@ -41,7 +41,7 @@ export default async function JobsPage() {
           We&apos;re always interested in hearing from talented care professionals. Get in touch and we&apos;ll
           keep your details for future opportunities.
         </p>
-        <Link href="/contact" aria-label="Contact us" className="uc-btn-primary mt-5">
+        <Link href="/contact" aria-label="Contact us" className="uc-btn-primary mt-5 w-full sm:w-auto">
           Contact us <ArrowRight className="h-4 w-4" aria-hidden />
         </Link>
       </div>

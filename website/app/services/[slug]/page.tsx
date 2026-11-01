@@ -36,7 +36,7 @@ export default function ServicePage({ params }: { params: { slug: string } }) {
         <div className="fade-up max-w-3xl">
           <h1 className="font-heading text-4xl font-semibold text-ink md:text-5xl">{s.name}</h1>
           <p className="mt-4 text-lg leading-relaxed text-ink-muted">{s.short}</p>
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="uc-cta-row mt-6">
             <Link
               href={`/contact?service=${s.slug}`}
               aria-label="Enquire about this service"
@@ -46,7 +46,7 @@ export default function ServicePage({ params }: { params: { slug: string } }) {
             </Link>
             <a
               href={site.phonePrimaryTel}
-              className="inline-flex items-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3 font-semibold text-brand-primary transition hover:bg-brand-soft"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3 font-semibold text-brand-primary transition hover:bg-brand-soft"
             >
               <Phone className="h-4 w-4" aria-hidden /> {site.phonePrimary}
             </a>

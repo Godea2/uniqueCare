@@ -324,7 +324,7 @@ export default function Header() {
                 )}
               </ul>
             </nav>
-            <div className="space-y-2 border-t border-line px-5 py-4">
+            <div className="space-y-2.5 border-t border-line px-5 py-4">
               <Link
                 href="/contact"
                 aria-label="Get in Touch"
@@ -334,9 +334,9 @@ export default function Header() {
               </Link>
               <a
                 href={site.phonePrimaryTel}
-                className="flex items-center justify-center gap-2 rounded-full border border-line px-5 py-3 text-[15px] font-semibold text-brand-primary"
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-line px-5 py-3 text-[15px] font-semibold text-brand-primary"
               >
-                <Phone className="h-4 w-4" aria-hidden /> Call {site.phonePrimaryDisplay}
+                <Phone className="h-4 w-4 shrink-0" aria-hidden /> Call {site.phonePrimaryDisplay}
               </a>
             </div>
           </div>

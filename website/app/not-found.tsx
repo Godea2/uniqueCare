@@ -13,7 +13,7 @@ export default function NotFound() {
         The page you were looking for may have moved or no longer exists. Try one of these links, or call us
         on <a href={site.phonePrimaryTel} className="font-semibold text-brand-primary hover:underline">{site.phonePrimaryDisplay}</a>.
       </p>
-      <nav aria-label="Quick links" className="mt-8 flex flex-wrap items-center justify-center gap-3">
+      <nav aria-label="Quick links" className="uc-cta-row uc-cta-row-center mt-8">
         {[
           { href: "/", label: "Home" },
           { href: "/services", label: "Services" },
@@ -23,7 +23,7 @@ export default function NotFound() {
           <Link
             key={l.href}
             href={l.href}
-            className="inline-flex items-center gap-1.5 rounded-full border-2 border-brand-primary px-5 py-2.5 font-semibold text-brand-primary transition hover:bg-brand-soft"
+            className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border-2 border-brand-primary px-5 py-2.5 font-semibold text-brand-primary transition hover:bg-brand-soft"
           >
             {l.label} <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>

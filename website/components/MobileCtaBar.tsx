@@ -24,25 +24,27 @@ export default function MobileCtaBar() {
 
   return (
     <div
-      className={`fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-lift backdrop-blur transition md:hidden ${
-        hidden ? "invisible translate-y-full" : "visible"
+      className={`fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-lift backdrop-blur transition md:hidden ${
+        hidden ? "invisible translate-y-full pointer-events-none" : "visible"
       }`}
       aria-hidden={hidden}
     >
-      <div className="flex items-center gap-3">
+      <div className="mx-auto grid max-w-content grid-cols-2 gap-2.5">
         <a
           href={site.phonePrimaryTel}
           aria-label="Call us"
-          className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-full border-2 border-brand-primary px-4 py-2.5 text-[15px] font-semibold text-brand-primary"
+          className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-full border-2 border-brand-primary px-3 py-2.5 text-sm font-semibold text-brand-primary"
         >
-          <Phone className="h-4 w-4" aria-hidden /> Call us
+          <Phone className="h-4 w-4 shrink-0" aria-hidden />
+          <span>Call us</span>
         </a>
         <Link
           href="/contact"
           aria-label="Book a free assessment"
-          className="uc-btn-primary min-h-[44px] flex-1 px-4 py-2.5 text-[15px]"
+          className="uc-btn-primary min-h-11 px-3 py-2.5 text-sm"
         >
-          Book a free assessment <ArrowRight className="h-4 w-4" aria-hidden />
+          <span>Book now</span>
+          <ArrowRight className="h-4 w-4 shrink-0" aria-hidden />
         </Link>
       </div>
     </div>

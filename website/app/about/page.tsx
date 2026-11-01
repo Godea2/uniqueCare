@@ -153,13 +153,13 @@ export default function AboutPage() {
           <p className="mx-auto mt-3 max-w-xl text-ink-muted">
             Book a free, no-obligation assessment. We&apos;ll come to you at a time that suits.
           </p>
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+          <div className="uc-cta-row uc-cta-row-center mt-7">
             <Link href="/contact" aria-label="Book a free assessment" className="uc-btn-primary">
               Book a free assessment <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
             <a
               href={site.phonePrimaryTel}
-              className="inline-flex items-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3.5 font-semibold text-brand-primary transition hover:bg-white"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3.5 font-semibold text-brand-primary transition hover:bg-white"
             >
               <Phone className="h-4 w-4" aria-hidden /> Call us now
             </a>

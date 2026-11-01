@@ -86,7 +86,7 @@ export default function AreaPage({ params }: { params: { slug: string } }) {
           </span>
         </div>
 
-        <div className="mt-7 flex flex-wrap gap-3">
+        <div className="uc-cta-row mt-7">
           <Link
             href="/contact"
             aria-label="Book a Free Assessment"
@@ -96,7 +96,7 @@ export default function AreaPage({ params }: { params: { slug: string } }) {
           </Link>
           <a
             href={site.phonePrimaryTel}
-            className="inline-flex items-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3 font-semibold text-brand-primary transition hover:bg-brand-soft"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3 font-semibold text-brand-primary transition hover:bg-brand-soft"
           >
             <Phone className="h-4 w-4" aria-hidden /> {site.phonePrimary}
           </a>
@@ -148,9 +148,9 @@ export default function AreaPage({ params }: { params: { slug: string } }) {
             <Link
               href="/contact"
               aria-label={`Request a Free Assessment in ${a.name}`}
-              className="uc-btn-primary"
+              className="uc-btn-primary w-full sm:w-auto"
             >
-              Request a Free Assessment in {a.name} <ArrowRight className="h-4 w-4" aria-hidden />
+              Request a Free Assessment in {a.name} <ArrowRight className="h-4 w-4 shrink-0" aria-hidden />
             </Link>
           </div>
         </section>

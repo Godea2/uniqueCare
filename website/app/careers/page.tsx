@@ -101,7 +101,7 @@ export default async function CareersPage() {
             <Link
               href="/careers/jobs"
               aria-label="View Open Positions"
-              className="uc-btn-primary mt-7"
+              className="uc-btn-primary mt-7 w-full sm:w-auto"
             >
               View Open Positions <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
