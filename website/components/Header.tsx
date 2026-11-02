@@ -148,15 +148,15 @@ export default function Header() {
           <Link
             href="/"
             aria-label="Unique Care UK — home"
-            className={`shrink-0 ${overHero ? "rounded-xl bg-white/95 p-1.5 shadow-card" : ""}`}
+            className={`shrink-0 ${overHero ? "rounded-xl bg-white/95 px-2.5 py-1.5 shadow-card" : ""}`}
           >
             <Image
               src="/images/logo-horizontal.png"
               alt="Unique Care UK"
-              width={340}
-              height={96}
+              width={896}
+              height={161}
               priority
-              className="h-11 w-auto md:h-12"
+              className="h-10 w-auto sm:h-11 md:h-12"
             />
           </Link>
 
@@ -267,7 +267,7 @@ export default function Header() {
             className="absolute right-0 top-0 flex h-full w-[85%] max-w-sm flex-col overflow-y-auto bg-white shadow-card-hover"
           >
             <div className="flex items-center justify-between border-b border-line px-5 py-4">
-              <Image src="/images/logo-horizontal.png" alt="Unique Care UK" width={170} height={48} className="h-9 w-auto" />
+              <Image src="/images/logo-horizontal.png" alt="Unique Care UK" width={896} height={161} className="h-9 w-auto" />
               <button
                 type="button"
                 className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line"

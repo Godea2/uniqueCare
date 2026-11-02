@@ -15,9 +15,9 @@ export default function Footer() {
           <Image
             src="/images/logo-horizontal.png"
             alt="Unique Care UK"
-            width={340}
-            height={96}
-            className="h-12 w-auto rounded-md bg-white/95 p-1.5"
+            width={896}
+            height={161}
+            className="h-11 w-auto md:h-12"
           />
           <p className="mt-4 text-sm leading-relaxed">
             ISO 9001 &amp; ISO 45001 certified home care provider. Compassionate, personalised care across
