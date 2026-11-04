@@ -23,6 +23,14 @@ import {
   sniffWebsiteMedia,
   websiteMediaUploadTarget,
 } from "../lib/website-media";
+import {
+  removeWebsiteKb,
+  signedWebsiteKbUrl,
+  websiteKbUploadTarget,
+} from "../lib/website-kb-store";
+import { indexWebsiteKbDocument } from "../lib/website-kb-index";
+import { answerWebsiteChat, getWebsiteAiPublicConfig } from "../ai/website-chat";
+import { AiMisconfigured, AiUnavailable } from "../ai/ai-client";
 import type { StaffRole } from "@db/schema";
 
 /* ── Row types (snake_case, as stored) ─────────────────────────────────────── */
@@ -92,7 +100,8 @@ type CertRow = {
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
 
-export const ENQUIRY_STATUSES = ["new", "read", "replied"] as const;
+/** new=New, read=In Progress, replied=Responded, closed=Closed */
+export const ENQUIRY_STATUSES = ["new", "read", "replied", "closed"] as const;
 export const REVIEW_STATUSES = ["pending", "approved", "rejected"] as const;
 export const APPLICATION_STATUSES = ["new", "reviewing", "shortlisted", "rejected"] as const;
 export const SUBSCRIBER_STATUSES = ["active", "unsubscribed"] as const;
@@ -1617,5 +1626,252 @@ export const websiteRouter = createRouter({
       bumpWebsiteJobsCache(["/", "/about"]);
       return { ok: true as const };
     })),
+  }),
+
+  /* ── AI Assistant (knowledge base, prompt, test console) ────────────────── */
+  ai: createRouter({
+    config: websiteProcedure.query(() => guard(async () => getWebsiteAiPublicConfig())),
+
+    settingsGet: websiteProcedure.query(() => guard(async () => {
+      const row = await websiteSelectOne<{
+        id: string; enabled: boolean; welcome_message: string; system_prompt: string;
+        updated_at: string; updated_by: string | null;
+      }>("website_ai_settings", { eq: { id: "default" } });
+      return {
+        enabled: row?.enabled !== false,
+        welcomeMessage: row?.welcome_message ?? "",
+        systemPrompt: row?.system_prompt ?? "",
+        updatedAt: row?.updated_at ?? null,
+        updatedBy: row?.updated_by ?? null,
+      };
+    })),
+
+    settingsUpdate: websiteProcedure
+      .input(z.object({
+        enabled: z.boolean(),
+        welcomeMessage: z.string().trim().min(1).max(1000),
+        systemPrompt: z.string().trim().min(20).max(20000),
+        note: z.string().trim().max(200).optional(),
+      }))
+      .mutation(({ ctx, input }) => guard(async () => {
+        const now = new Date().toISOString();
+        const actor = ctx.staffCtx.staff.fullName;
+        const existing = await websiteSelectOne("website_ai_settings", { eq: { id: "default" } });
+        const payload = {
+          enabled: input.enabled,
+          welcome_message: input.welcomeMessage,
+          system_prompt: input.systemPrompt,
+          updated_at: now,
+          updated_by: actor,
+        };
+        if (existing) {
+          await websiteUpdate("website_ai_settings", { eq: { id: "default" } }, payload);
+        } else {
+          await websiteInsert("website_ai_settings", { id: "default", ...payload });
+        }
+        await websiteInsert("website_ai_prompt_versions", {
+          prompt: input.systemPrompt,
+          note: input.note || "Prompt updated",
+          created_by: actor,
+        });
+        await writeWebsiteAudit({
+          action: "cms.ai.settings_updated", entityType: "ai_settings", entityId: "default",
+          actorName: actor, details: { enabled: input.enabled },
+        });
+        return { ok: true as const, updatedAt: now };
+      })),
+
+    promptVersions: websiteProcedure.query(() => guard(async () => {
+      const rows = await websiteSelect<{
+        id: number; prompt: string; note: string; created_at: string; created_by: string | null;
+      }>("website_ai_prompt_versions", {
+        order: { column: "created_at", ascending: false }, limit: 30,
+      });
+      return {
+        items: rows.map((r) => ({
+          id: r.id, prompt: r.prompt, note: r.note, createdAt: r.created_at, createdBy: r.created_by,
+        })),
+      };
+    })),
+
+    restorePrompt: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const ver = await websiteSelectOne<{ id: number; prompt: string }>("website_ai_prompt_versions", {
+        eq: { id: input.id },
+      });
+      if (!ver) notFound("Prompt version");
+      const now = new Date().toISOString();
+      const actor = ctx.staffCtx.staff.fullName;
+      await websiteUpdate("website_ai_settings", { eq: { id: "default" } }, {
+        system_prompt: ver.prompt, updated_at: now, updated_by: actor,
+      });
+      await websiteInsert("website_ai_prompt_versions", {
+        prompt: ver.prompt, note: `Restored version #${ver.id}`, created_by: actor,
+      });
+      await writeWebsiteAudit({
+        action: "cms.ai.prompt_restored", entityType: "ai_settings", entityId: "default",
+        actorName: actor, details: { versionId: ver.id },
+      });
+      return { ok: true as const, systemPrompt: ver.prompt, updatedAt: now };
+    })),
+
+    documentsList: websiteProcedure
+      .input(z.object({ q: z.string().max(100).optional() }).optional())
+      .query(({ input }) => guard(async () => {
+        const filter: WebsiteFilter = {};
+        if (input?.q) filter.search = { columns: ["title", "file_name"], q: input.q };
+        const rows = await websiteSelect<{
+          id: number; title: string; file_name: string; storage_key: string; mime_type: string;
+          bytes: number | null; status: string; error_message: string | null; chunk_count: number;
+          created_at: string; updated_at: string; created_by: string | null;
+        }>("website_ai_documents", {
+          ...filter, order: { column: "created_at", ascending: false }, limit: 100,
+        });
+        return {
+          items: rows.map((r) => ({
+            id: r.id, title: r.title, fileName: r.file_name, mimeType: r.mime_type, bytes: r.bytes,
+            status: r.status, errorMessage: r.error_message, chunkCount: r.chunk_count,
+            createdAt: r.created_at, updatedAt: r.updated_at, createdBy: r.created_by,
+          })),
+        };
+      })),
+
+    documentsPrepareUpload: websiteProcedure
+      .input(z.object({
+        fileName: z.string().trim().min(1).max(200),
+        mimeType: z.string().trim().max(120).optional(),
+        title: z.string().trim().max(200).optional(),
+      }))
+      .mutation(({ input }) => guard(async () => {
+        const target = await websiteKbUploadTarget(input.fileName);
+        return { ...target, title: input.title || input.fileName.replace(/\.[^.]+$/, "") };
+      })),
+
+    documentsRegister: websiteProcedure
+      .input(z.object({
+        key: z.string().trim().min(1).max(500),
+        fileName: z.string().trim().min(1).max(200),
+        title: z.string().trim().min(1).max(200),
+        mimeType: z.string().trim().max(120).default("application/octet-stream"),
+        bytes: z.number().int().min(0).optional(),
+      }))
+      .mutation(({ ctx, input }) => guard(async () => {
+        const [row] = await websiteInsert<{
+          id: number; title: string; file_name: string; storage_key: string; mime_type: string;
+          bytes: number | null; status: string; chunk_count: number; created_at: string; updated_at: string;
+        }>("website_ai_documents", {
+          title: input.title,
+          file_name: input.fileName,
+          storage_key: input.key,
+          mime_type: input.mimeType,
+          bytes: input.bytes ?? null,
+          status: "pending",
+          created_by: ctx.staffCtx.staff.fullName,
+        });
+        if (!row) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Could not register document." });
+        try {
+          await indexWebsiteKbDocument({
+            id: row.id, storage_key: input.key, mime_type: input.mimeType, file_name: input.fileName,
+          });
+        } catch (e) {
+          // Status already set to error inside indexer
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: e instanceof Error ? e.message : "Could not index this document.",
+          });
+        }
+        await writeWebsiteAudit({
+          action: "cms.ai.document_uploaded", entityType: "ai_document", entityId: row.id,
+          actorName: ctx.staffCtx.staff.fullName, details: { fileName: input.fileName },
+        });
+        const fresh = await websiteSelectOne<{
+          id: number; title: string; file_name: string; mime_type: string; bytes: number | null;
+          status: string; error_message: string | null; chunk_count: number; created_at: string; updated_at: string;
+          created_by: string | null;
+        }>("website_ai_documents", { eq: { id: row.id } });
+        return {
+          id: fresh!.id, title: fresh!.title, fileName: fresh!.file_name, mimeType: fresh!.mime_type,
+          bytes: fresh!.bytes, status: fresh!.status, errorMessage: fresh!.error_message,
+          chunkCount: fresh!.chunk_count, createdAt: fresh!.created_at, updatedAt: fresh!.updated_at,
+          createdBy: fresh!.created_by,
+        };
+      })),
+
+    documentsReindex: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const row = await websiteSelectOne<{
+        id: number; storage_key: string; mime_type: string; file_name: string;
+      }>("website_ai_documents", { eq: { id: input.id } });
+      if (!row) notFound("Document");
+      await websiteUpdate("website_ai_documents", { eq: { id: input.id } }, {
+        status: "pending", error_message: null, updated_at: new Date().toISOString(),
+      });
+      const result = await indexWebsiteKbDocument(row);
+      await writeWebsiteAudit({
+        action: "cms.ai.document_reindexed", entityType: "ai_document", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { chunkCount: result.chunkCount },
+      });
+      return { ok: true as const, chunkCount: result.chunkCount };
+    })),
+
+    documentsReindexAll: websiteProcedure.mutation(({ ctx }) => guard(async () => {
+      const rows = await websiteSelect<{
+        id: number; storage_key: string; mime_type: string; file_name: string; status: string;
+      }>("website_ai_documents", { order: { column: "id", ascending: true }, limit: 200 });
+      let ok = 0;
+      let failed = 0;
+      for (const row of rows) {
+        if (row.status === "archived") continue;
+        try {
+          await indexWebsiteKbDocument(row);
+          ok += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      await writeWebsiteAudit({
+        action: "cms.ai.reindex_all", entityType: "ai_settings", entityId: "default",
+        actorName: ctx.staffCtx.staff.fullName, details: { ok, failed },
+      });
+      return { ok: true as const, indexed: ok, failed };
+    })),
+
+    documentsPreviewUrl: websiteProcedure.input(z.object({ id: intId })).mutation(({ input }) => guard(async () => {
+      const row = await websiteSelectOne<{ storage_key: string }>("website_ai_documents", { eq: { id: input.id } });
+      if (!row) notFound("Document");
+      const url = await signedWebsiteKbUrl(row.storage_key);
+      return { url };
+    })),
+
+    documentsDelete: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const row = await websiteSelectOne<{ id: number; storage_key: string; file_name: string }>(
+        "website_ai_documents", { eq: { id: input.id } },
+      );
+      if (!row) notFound("Document");
+      await websiteDelete("website_ai_chunks", { eq: { document_id: input.id } });
+      await websiteDelete("website_ai_documents", { eq: { id: input.id } });
+      await removeWebsiteKb(row.storage_key);
+      await writeWebsiteAudit({
+        action: "cms.ai.document_deleted", entityType: "ai_document", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { fileName: row.file_name },
+      });
+      return { ok: true as const };
+    })),
+
+    testChat: websiteProcedure
+      .input(z.object({
+        messages: z.array(z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string().trim().min(1).max(4000),
+        })).min(1).max(20),
+      }))
+      .mutation(({ input }) => guard(async () => {
+        try {
+          return await answerWebsiteChat({ messages: input.messages, bypassEnabled: true });
+        } catch (e) {
+          if (e instanceof AiMisconfigured || e instanceof AiUnavailable) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: e.message });
+          }
+          throw e;
+        }
+      })),
   }),
 });

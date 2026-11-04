@@ -1,12 +1,14 @@
 import { Link, useNavigate } from "react-router";
 import {
   MessageSquare, Star, Briefcase, Mail, Newspaper, FileText, Settings, HeartHandshake, MapPin, LayoutTemplate,
-  Palette, ImageIcon, Building2, Menu, Award,
+  Palette, ImageIcon, Building2, Menu, Award, Bot,
 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, StatCard, Loading, ErrorState, EmptyState, Chip, fmtDateTime } from "@/components/common";
+import { enquiryStatusLabel } from "./shared";
 
 const CONTENT_LINKS = [
+  { to: "/website/ai", label: "AI Assistant", hint: "Knowledge base, prompt and test console for the website chat", icon: Bot },
   { to: "/website/brand", label: "Brand & theme", hint: "Colours, logos, default SEO, call-to-action band", icon: Palette },
   { to: "/website/media", label: "Media library", hint: "Upload and manage images and videos", icon: ImageIcon },
   { to: "/website/branches", label: "Branches", hint: "Offices shown on Contact and About", icon: Building2 },
@@ -37,19 +39,19 @@ export default function WebsiteOverview() {
         <StatCard
           label="New enquiries" value={d.enquiryCounts.new} icon={MessageSquare}
           tone={d.enquiryCounts.new > 0 ? "warn" : "default"}
-          hint={`${d.enquiryCounts.total} total Â· ${d.lastSevenDays.enquiries} in the last 7 days`}
+          hint={`${d.enquiryCounts.total} total · ${d.lastSevenDays.enquiries} in the last 7 days`}
           onClick={() => navigate("/website/enquiries")}
         />
         <StatCard
           label="Reviews awaiting approval" value={d.reviewCounts.pending} icon={Star}
           tone={d.reviewCounts.pending > 0 ? "warn" : "default"}
-          hint={`${d.reviewCounts.approved} published Â· ${d.reviewCounts.rejected} rejected`}
+          hint={`${d.reviewCounts.approved} published · ${d.reviewCounts.rejected} rejected`}
           onClick={() => navigate("/website/reviews")}
         />
         <StatCard
           label="New applications" value={d.applicationCounts.new} icon={Briefcase}
           tone={d.applicationCounts.new > 0 ? "warn" : "default"}
-          hint={`${d.applicationCounts.shortlisted} shortlisted Â· ${d.applicationCounts.total} total`}
+          hint={`${d.applicationCounts.shortlisted} shortlisted · ${d.applicationCounts.total} total`}
           onClick={() => navigate("/website/applications")}
         />
         <StatCard
@@ -102,7 +104,7 @@ export default function WebsiteOverview() {
                     <p className="truncate text-xs text-muted-foreground">{e.message}</p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">{fmtDateTime(e.createdAt)}</p>
                   </div>
-                  <Chip value={e.status} />
+                  <Chip value={e.status} label={enquiryStatusLabel(e.status)} />
                 </li>
               ))}
             </ul>
@@ -140,7 +142,7 @@ export default function WebsiteOverview() {
               {d.recentReviews.map((r) => (
                 <li key={r.id} className="flex items-start justify-between gap-3 px-4 py-3" style={{ borderColor: "var(--line)" }}>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">{r.title} <span className="text-xs font-normal text-muted-foreground">Â· {r.rating}/5 Â· {r.name}</span></p>
+                    <p className="text-sm font-medium">{r.title} <span className="text-xs font-normal text-muted-foreground">· {r.rating}/5 · {r.name}</span></p>
                     <p className="truncate text-xs text-muted-foreground">{r.body}</p>
                   </div>
                   <Chip value={r.status} />

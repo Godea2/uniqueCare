@@ -30,6 +30,7 @@ import CtaBand from "@/components/CtaBand";
 import WhatsAppButton from "@/components/WhatsAppButton";
 import FadeUpObserver from "@/components/FadeUpObserver";
 import MobileCtaBar from "@/components/MobileCtaBar";
+import ChatbotWidget from "@/components/ChatbotWidget";
 import PublicChrome from "@/components/PublicChrome";
 import JsonLd from "@/components/JsonLd";
 import { organizationJsonLd } from "@/lib/jsonld";
@@ -104,6 +105,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           cta={<CtaBand cta={site.ctaBand} phoneTel={site.phonePrimaryTel} />}
           floating={
             <>
+              <ChatbotWidget />
               <WhatsAppButton href={site.whatsapp} enabled={site.whatsappEnabled} />
               <MobileCtaBar items={mobileNav} phoneTel={site.phonePrimaryTel} />
             </>

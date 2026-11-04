@@ -24,6 +24,10 @@ export const WEBSITE_TABLES = [
   "website_media_assets",
   "website_nav_items",
   "website_certifications",
+  "website_ai_settings",
+  "website_ai_prompt_versions",
+  "website_ai_documents",
+  "website_ai_chunks",
 ] as const;
 
 export type WebsiteTable = (typeof WEBSITE_TABLES)[number];

@@ -10,7 +10,7 @@ import {
   CalendarRange, Stethoscope, FileCheck2, GraduationCap, Network,
   ClipboardCheck, Star, AlertTriangle, FileText, FileOutput, ChevronDown, PhoneCall,
   HelpCircle, Map, Compass, Menu, X, Globe, MessageSquare, Mail, Newspaper,
-  HeartHandshake, MapPin, LayoutTemplate, Palette, ImageIcon, Building2, Award,
+  HeartHandshake, MapPin, LayoutTemplate, Palette, ImageIcon, Building2, Award, Bot,
 } from "lucide-react";
 import { AvatarDot } from "./common";
 import { startFullTour, startPageTour } from "@/tours/tours";
@@ -107,6 +107,7 @@ const NAV: NavGroup[] = [
       { label: "Subscribers", path: "/website/subscribers", icon: Mail, roles: ["super_admin"] },
       { label: "Newsletters", path: "/website/newsletters", icon: Newspaper, roles: ["super_admin"] },
       { label: "Blog posts", path: "/website/posts", icon: FileText, roles: ["super_admin"] },
+      { label: "AI Assistant", path: "/website/ai", icon: Bot, roles: ["super_admin"] },
       { label: "Brand & theme", path: "/website/brand", icon: Palette, roles: ["super_admin"] },
       { label: "Media", path: "/website/media", icon: ImageIcon, roles: ["super_admin"] },
       { label: "Branches", path: "/website/branches", icon: Building2, roles: ["super_admin"] },

@@ -68,6 +68,10 @@ import WebsiteBranches from "./pages/website/Branches";
 import WebsiteNavigation from "./pages/website/Navigation";
 import WebsiteCertifications from "./pages/website/Certifications";
 import WebsiteAudit from "./pages/website/Audit";
+import WebsiteAiAssistant from "./pages/website/AiAssistant";
+import WebsiteAiKnowledge from "./pages/website/AiKnowledge";
+import WebsiteAiPrompt from "./pages/website/AiPrompt";
+import WebsiteAiTest from "./pages/website/AiTest";
 
 import Careers from "./pages/public/Careers";
 import Apply from "./pages/public/Apply";
@@ -200,6 +204,10 @@ export default function App() {
       <Route path="/website/navigation" element={<Guard roles={["super_admin"]}><WebsiteNavigation /></Guard>} />
       <Route path="/website/certifications" element={<Guard roles={["super_admin"]}><WebsiteCertifications /></Guard>} />
       <Route path="/website/audit" element={<Guard roles={["super_admin"]}><WebsiteAudit /></Guard>} />
+      <Route path="/website/ai" element={<Guard roles={["super_admin"]}><WebsiteAiAssistant /></Guard>} />
+      <Route path="/website/ai/knowledge" element={<Guard roles={["super_admin"]}><WebsiteAiKnowledge /></Guard>} />
+      <Route path="/website/ai/prompt" element={<Guard roles={["super_admin"]}><WebsiteAiPrompt /></Guard>} />
+      <Route path="/website/ai/test" element={<Guard roles={["super_admin"]}><WebsiteAiTest /></Guard>} />
 
       <Route path="/home" element={<Navigate to="/" replace />} />
       <Route path="*" element={<NotFound />} />

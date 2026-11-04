@@ -31,11 +31,18 @@ export function useListParams(limit = 25) {
 
 export type ListParams = ReturnType<typeof useListParams>;
 
+/** Display labels for enquiry statuses (stored values stay new/read/replied/closed). */
+export const ENQUIRY_STATUS_LABELS: Record<string, string> = {
+  new: "New", read: "In Progress", replied: "Responded", closed: "Closed",
+};
+export const enquiryStatusLabel = (s: string) => ENQUIRY_STATUS_LABELS[s] ?? s;
+
 export function FilterBar({
-  params, statuses, counts, placeholder = "Search…", actions,
+  params, statuses, counts, placeholder = "Search…", actions, labels,
 }: {
   params: ListParams;
   statuses: readonly string[];
+  labels?: Record<string, string>;
   counts?: Record<string, number>;
   placeholder?: string;
   actions?: ReactNode;
@@ -57,7 +64,7 @@ export function FilterBar({
                 : "border-[--card-line] bg-white text-[--ink-500] hover:text-[--brand-900]",
             )}
           >
-            {t}
+            {t === "all" ? t : (labels?.[t] ?? t)}
             {counts && <span className="ml-1.5 tabular-nums text-muted-foreground">{counts[t] ?? 0}</span>}
           </button>
         ))}

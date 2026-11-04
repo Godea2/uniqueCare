@@ -11,10 +11,10 @@ const LIMIT = 5;
 
 const hits = new Map<string, number[]>();
 
-export function rateLimitOk(key: string): boolean {
+export function rateLimitOk(key: string, limit = LIMIT, windowMs = WINDOW_MS): boolean {
   const now = Date.now();
-  const arr = (hits.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
-  if (arr.length >= LIMIT) {
+  const arr = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
+  if (arr.length >= limit) {
     hits.set(key, arr);
     return false;
   }

@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   const ip = clientIp(req);
+  const submittedAt = new Date();
 
   let body: unknown;
   try {
@@ -33,6 +34,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Spam check failed. Please try again." }, { status: 400 });
   }
 
+  const sourcePage = data.service ? `/contact?service=${encodeURIComponent(data.service)}` : "/contact";
+
   const saved = await insertEnquiry({
     full_name: data.fullName,
     email: data.email,
@@ -40,27 +43,42 @@ export async function POST(req: Request) {
     enquiry_type: data.enquiryType,
     care_type: data.careType || null,
     message: data.message,
-    source_page: data.service ? `/contact?service=${data.service}` : "/contact",
+    source_page: sourcePage,
     ip_hash: hashIp(ip),
   });
   if (!saved) {
     return NextResponse.json({ error: "Could not save your enquiry. Please try again." }, { status: 500 });
   }
 
-  await sendEmail({
+  const when = submittedAt.toLocaleString("en-GB", {
+    timeZone: "Europe/London",
+    dateStyle: "full",
+    timeStyle: "short",
+  });
+
+  const notifyOk = await sendEmail({
     to: notifyInbox(),
-    subject: `New website enquiry: ${data.enquiryType} from ${data.fullName}`,
+    subject: `New Website Enquiry - ${data.fullName}`,
     replyTo: data.email,
     html: `
-      <h2>New website enquiry</h2>
-      <p><b>Name:</b> ${escapeHtml(data.fullName)}<br/>
-      <b>Email:</b> ${escapeHtml(data.email)}<br/>
-      <b>Phone:</b> ${escapeHtml(data.phone || "—")}<br/>
-      <b>Enquiry type:</b> ${escapeHtml(data.enquiryType)}<br/>
-      ${data.careType ? `<b>Type of care:</b> ${escapeHtml(data.careType)}<br/>` : ""}
-      <b>Message:</b></p>
-      <p>${escapeHtml(data.message).replace(/\n/g, "<br/>")}</p>`,
+      <h2 style="font-family:Arial,sans-serif;color:#0a2540">New Website Enquiry</h2>
+      <table style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#1a1f24;border-collapse:collapse">
+        <tr><td style="padding:4px 12px 4px 0;font-weight:600">Full name</td><td>${escapeHtml(data.fullName)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;font-weight:600">Email</td><td>${escapeHtml(data.email)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;font-weight:600">Phone</td><td>${escapeHtml(data.phone || "Not provided")}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;font-weight:600">Subject</td><td>${escapeHtml(data.enquiryType)}</td></tr>
+        ${data.careType ? `<tr><td style="padding:4px 12px 4px 0;font-weight:600">Type of care</td><td>${escapeHtml(data.careType)}</td></tr>` : ""}
+        <tr><td style="padding:4px 12px 4px 0;font-weight:600">Submitted</td><td>${escapeHtml(when)}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;font-weight:600">Source page</td><td>${escapeHtml(sourcePage)}</td></tr>
+      </table>
+      <p style="font-family:Arial,sans-serif;font-size:14px;margin-top:16px"><b>Message</b></p>
+      <p style="font-family:Arial,sans-serif;font-size:14px;white-space:pre-wrap">${escapeHtml(data.message).replace(/\n/g, "<br/>")}</p>
+      <p style="font-family:Arial,sans-serif;font-size:12px;color:#5b6670;margin-top:24px">Sent from the Unique Care UK website contact form.</p>`,
   });
+
+  if (!notifyOk) {
+    console.error(`[enquiry] saved but email to ${notifyInbox()} failed for ${data.email}`);
+  }
 
   await sendEmail({
     to: data.email,
@@ -72,5 +90,5 @@ export async function POST(req: Request) {
       <p>Kind regards,<br/>The Unique Care UK team</p>`,
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, emailDelivered: notifyOk });
 }

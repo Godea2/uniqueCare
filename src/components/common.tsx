@@ -169,6 +169,8 @@ const CHIP_STYLES: Record<string, string> = {
   unsubscribed: "bg-slate-100 text-slate-700 border-slate-200",
   sent: "bg-green-100 text-green-900 border-green-200",
   archived: "bg-slate-100 text-slate-700 border-slate-200",
+  ready: "bg-green-100 text-green-900 border-green-200",
+  error: "bg-red-100 text-red-900 border-red-200",
   acquired: "bg-green-100 text-green-900 border-green-200",
 };
 
