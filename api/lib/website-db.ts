@@ -41,6 +41,17 @@ export class WebsiteDbError extends Error {
   }
 }
 
+/** True when PostgREST/schema cache cannot find a website_* table (migration not applied). */
+export function isMissingWebsiteTable(err: unknown, table?: string): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (!/schema cache|does not exist|Could not find the table/i.test(msg)) return false;
+  if (!table) return /website_/i.test(msg);
+  return msg.includes(table);
+}
+
+export const WEBSITE_AI_MIGRATION_HINT =
+  "Run website/supabase/migrations/0006_website_ai_chatbot.sql in the Supabase SQL Editor, then click Retry.";
+
 type Scalar = string | number | boolean | null;
 
 export type WebsiteFilter = {

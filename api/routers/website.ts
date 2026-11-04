@@ -8,6 +8,8 @@ import { bumpWebsiteJobsCache } from "../lib/website-revalidate";
 import { writeWebsiteAudit, humaniseAuditAction } from "../lib/website-audit";
 import {
   WebsiteDbError,
+  WEBSITE_AI_MIGRATION_HINT,
+  isMissingWebsiteTable,
   websiteCount,
   websiteDelete,
   websiteInsert,
@@ -1663,17 +1665,33 @@ export const websiteRouter = createRouter({
     config: websiteProcedure.query(() => guard(async () => getWebsiteAiPublicConfig())),
 
     settingsGet: websiteProcedure.query(() => guard(async () => {
-      const row = await websiteSelectOne<{
-        id: string; enabled: boolean; welcome_message: string; system_prompt: string;
-        updated_at: string; updated_by: string | null;
-      }>("website_ai_settings", { eq: { id: "default" } });
-      return {
-        enabled: row?.enabled !== false,
-        welcomeMessage: row?.welcome_message ?? "",
-        systemPrompt: row?.system_prompt ?? "",
-        updatedAt: row?.updated_at ?? null,
-        updatedBy: row?.updated_by ?? null,
-      };
+      try {
+        const row = await websiteSelectOne<{
+          id: string; enabled: boolean; welcome_message: string; system_prompt: string;
+          updated_at: string; updated_by: string | null;
+        }>("website_ai_settings", { eq: { id: "default" } });
+        return {
+          enabled: row?.enabled !== false,
+          welcomeMessage: row?.welcome_message ?? "",
+          systemPrompt: row?.system_prompt ?? "",
+          updatedAt: row?.updated_at ?? null,
+          updatedBy: row?.updated_by ?? null,
+          migrationRequired: false as const,
+        };
+      } catch (e) {
+        if (isMissingWebsiteTable(e, "website_ai_settings")) {
+          return {
+            enabled: false,
+            welcomeMessage: "",
+            systemPrompt: "",
+            updatedAt: null,
+            updatedBy: null,
+            migrationRequired: true as const,
+            migrationHint: WEBSITE_AI_MIGRATION_HINT,
+          };
+        }
+        throw e;
+      }
     })),
 
     settingsUpdate: websiteProcedure
@@ -1686,24 +1704,31 @@ export const websiteRouter = createRouter({
       .mutation(({ ctx, input }) => guard(async () => {
         const now = new Date().toISOString();
         const actor = ctx.staffCtx.staff.fullName;
-        const existing = await websiteSelectOne("website_ai_settings", { eq: { id: "default" } });
-        const payload = {
-          enabled: input.enabled,
-          welcome_message: input.welcomeMessage,
-          system_prompt: input.systemPrompt,
-          updated_at: now,
-          updated_by: actor,
-        };
-        if (existing) {
-          await websiteUpdate("website_ai_settings", { eq: { id: "default" } }, payload);
-        } else {
-          await websiteInsert("website_ai_settings", { id: "default", ...payload });
+        try {
+          const existing = await websiteSelectOne("website_ai_settings", { eq: { id: "default" } });
+          const payload = {
+            enabled: input.enabled,
+            welcome_message: input.welcomeMessage,
+            system_prompt: input.systemPrompt,
+            updated_at: now,
+            updated_by: actor,
+          };
+          if (existing) {
+            await websiteUpdate("website_ai_settings", { eq: { id: "default" } }, payload);
+          } else {
+            await websiteInsert("website_ai_settings", { id: "default", ...payload });
+          }
+          await websiteInsert("website_ai_prompt_versions", {
+            prompt: input.systemPrompt,
+            note: input.note || "Prompt updated",
+            created_by: actor,
+          });
+        } catch (e) {
+          if (isMissingWebsiteTable(e)) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: WEBSITE_AI_MIGRATION_HINT });
+          }
+          throw e;
         }
-        await websiteInsert("website_ai_prompt_versions", {
-          prompt: input.systemPrompt,
-          note: input.note || "Prompt updated",
-          created_by: actor,
-        });
         await writeWebsiteAudit({
           action: "cms.ai.settings_updated", entityType: "ai_settings", entityId: "default",
           actorName: actor, details: { enabled: input.enabled },
@@ -1712,16 +1737,21 @@ export const websiteRouter = createRouter({
       })),
 
     promptVersions: websiteProcedure.query(() => guard(async () => {
-      const rows = await websiteSelect<{
-        id: number; prompt: string; note: string; created_at: string; created_by: string | null;
-      }>("website_ai_prompt_versions", {
-        order: { column: "created_at", ascending: false }, limit: 30,
-      });
-      return {
-        items: rows.map((r) => ({
-          id: r.id, prompt: r.prompt, note: r.note, createdAt: r.created_at, createdBy: r.created_by,
-        })),
-      };
+      try {
+        const rows = await websiteSelect<{
+          id: number; prompt: string; note: string; created_at: string; created_by: string | null;
+        }>("website_ai_prompt_versions", {
+          order: { column: "created_at", ascending: false }, limit: 30,
+        });
+        return {
+          items: rows.map((r) => ({
+            id: r.id, prompt: r.prompt, note: r.note, createdAt: r.created_at, createdBy: r.created_by,
+          })),
+        };
+      } catch (e) {
+        if (isMissingWebsiteTable(e, "website_ai_prompt_versions")) return { items: [] };
+        throw e;
+      }
     })),
 
     restorePrompt: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
@@ -1747,22 +1777,30 @@ export const websiteRouter = createRouter({
     documentsList: websiteProcedure
       .input(z.object({ q: z.string().max(100).optional() }).optional())
       .query(({ input }) => guard(async () => {
-        const filter: WebsiteFilter = {};
-        if (input?.q) filter.search = { columns: ["title", "file_name"], q: input.q };
-        const rows = await websiteSelect<{
-          id: number; title: string; file_name: string; storage_key: string; mime_type: string;
-          bytes: number | null; status: string; error_message: string | null; chunk_count: number;
-          created_at: string; updated_at: string; created_by: string | null;
-        }>("website_ai_documents", {
-          ...filter, order: { column: "created_at", ascending: false }, limit: 100,
-        });
-        return {
-          items: rows.map((r) => ({
-            id: r.id, title: r.title, fileName: r.file_name, mimeType: r.mime_type, bytes: r.bytes,
-            status: r.status, errorMessage: r.error_message, chunkCount: r.chunk_count,
-            createdAt: r.created_at, updatedAt: r.updated_at, createdBy: r.created_by,
-          })),
-        };
+        try {
+          const filter: WebsiteFilter = {};
+          if (input?.q) filter.search = { columns: ["title", "file_name"], q: input.q };
+          const rows = await websiteSelect<{
+            id: number; title: string; file_name: string; storage_key: string; mime_type: string;
+            bytes: number | null; status: string; error_message: string | null; chunk_count: number;
+            created_at: string; updated_at: string; created_by: string | null;
+          }>("website_ai_documents", {
+            ...filter, order: { column: "created_at", ascending: false }, limit: 100,
+          });
+          return {
+            migrationRequired: false as const,
+            items: rows.map((r) => ({
+              id: r.id, title: r.title, fileName: r.file_name, mimeType: r.mime_type, bytes: r.bytes,
+              status: r.status, errorMessage: r.error_message, chunkCount: r.chunk_count,
+              createdAt: r.created_at, updatedAt: r.updated_at, createdBy: r.created_by,
+            })),
+          };
+        } catch (e) {
+          if (isMissingWebsiteTable(e, "website_ai_documents")) {
+            return { migrationRequired: true as const, items: [], migrationHint: WEBSITE_AI_MIGRATION_HINT };
+          }
+          throw e;
+        }
       })),
 
     documentsPrepareUpload: websiteProcedure

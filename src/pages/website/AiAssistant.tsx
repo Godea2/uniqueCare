@@ -22,6 +22,7 @@ export default function AiAssistant() {
   const items = docs.data?.items ?? [];
   const ready = items.filter((d) => d.status === "ready").length;
   const failed = items.filter((d) => d.status === "error").length;
+  const migrationRequired = s.migrationRequired || docs.data?.migrationRequired;
 
   return (
     <div>
@@ -37,6 +38,27 @@ export default function AiAssistant() {
         }
       />
 
+      {migrationRequired && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="alert">
+          <p className="font-medium">Database migration required</p>
+          <p className="mt-1 text-amber-900/90">
+            The AI tables are not in Supabase yet. In the Supabase dashboard open{" "}
+            <strong>SQL Editor</strong>, paste and run{" "}
+            <code className="rounded bg-amber-100 px-1 text-xs">website/supabase/migrations/0006_website_ai_chatbot.sql</code>
+            , then click Retry on this page.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="mt-3"
+            onClick={() => { void settings.refetch(); void docs.refetch(); }}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
       <div className="uc-card mb-8 flex flex-wrap items-center justify-between gap-4 p-4">
         <div className="flex items-center gap-3">
           <Chip value={s.enabled ? "active" : "paused"} label={s.enabled ? "Enabled" : "Disabled"} />
@@ -50,7 +72,7 @@ export default function AiAssistant() {
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          {docs.isLoading ? "Loading documents…" : `${ready} of ${items.length} documents ready${failed ? ` · ${failed} with errors` : ""}`}
+          {docs.isLoading ? "Loading documents..." : `${ready} of ${items.length} documents ready${failed ? ` / ${failed} with errors` : ""}`}
         </p>
       </div>
 
