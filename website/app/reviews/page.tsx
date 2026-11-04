@@ -3,7 +3,8 @@ import Link from "next/link";
 import { ArrowRight, Phone, Star } from "lucide-react";
 import { getApprovedReviews } from "@/lib/supabase";
 import ReviewForm from "@/components/forms/ReviewForm";
-import { site } from "@/content/site";
+import { getSiteSettings } from "@/lib/site-source";
+import { asString, getSection } from "@/lib/sections-source";
 import { aggregateRatingJsonLd, JsonLd } from "@/lib/jsonld";
 
 export const metadata: Metadata = {
@@ -16,7 +17,11 @@ export const metadata: Metadata = {
 export const revalidate = 300;
 
 export default async function ReviewsPage({ searchParams }: { searchParams: { page?: string } }) {
-  const reviews = await getApprovedReviews();
+  const [reviews, site, heroS] = await Promise.all([
+    getApprovedReviews(),
+    getSiteSettings(),
+    getSection("reviews", "hero"),
+  ]);
   const page = Math.max(1, Number(searchParams.page ?? 1) || 1);
   const perPage = 9;
   const totalPages = Math.max(1, Math.ceil(reviews.length / perPage));
@@ -25,14 +30,19 @@ export default async function ReviewsPage({ searchParams }: { searchParams: { pa
 
   return (
     <div className="mx-auto max-w-content px-4 pb-16 pt-12 md:pb-20">
-      {reviews.length > 0 && <JsonLd data={aggregateRatingJsonLd(avg, reviews.length)} />}
+      {reviews.length > 0 && <JsonLd data={aggregateRatingJsonLd(avg, reviews.length, site)} />}
 
       <div className="fade-up">
-        <p className="eyebrow">Client Reviews</p>
-        <h1 className="mt-2 font-heading text-4xl font-semibold text-ink md:text-5xl">What our clients say</h1>
+        <p className="eyebrow">{asString(heroS, "eyebrow", "Client Reviews")}</p>
+        <h1 className="mt-2 font-heading text-4xl font-semibold text-ink md:text-5xl">
+          {asString(heroS, "title", "What our clients say")}
+        </h1>
         <p className="mt-4 max-w-2xl text-lg text-ink-muted">
-          Don&apos;t just take our word for it. Hear from the families and individuals we support across London,
-          Essex, and Hertfordshire.
+          {asString(
+            heroS,
+            "subtitle",
+            "Don't just take our word for it. Hear from the families and individuals we support across London, Essex, and Hertfordshire.",
+          )}
         </p>
       </div>
 

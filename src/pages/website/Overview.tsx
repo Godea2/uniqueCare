@@ -1,13 +1,21 @@
 import { Link, useNavigate } from "react-router";
-import { MessageSquare, Star, Briefcase, Mail, Newspaper, FileText, Settings, HeartHandshake, MapPin, LayoutTemplate } from "lucide-react";
+import {
+  MessageSquare, Star, Briefcase, Mail, Newspaper, FileText, Settings, HeartHandshake, MapPin, LayoutTemplate,
+  Palette, ImageIcon, Building2, Menu, Award,
+} from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, StatCard, Loading, ErrorState, EmptyState, Chip, fmtDateTime } from "@/components/common";
 
 const CONTENT_LINKS = [
-  { to: "/website/settings", label: "Site settings", hint: "Contact details, footer, CQC and social links", icon: Settings },
+  { to: "/website/brand", label: "Brand & theme", hint: "Colours, logos, default SEO, call-to-action band", icon: Palette },
+  { to: "/website/media", label: "Media library", hint: "Upload and manage images and videos", icon: ImageIcon },
+  { to: "/website/branches", label: "Branches", hint: "Offices shown on Contact and About", icon: Building2 },
+  { to: "/website/navigation", label: "Navigation", hint: "Header, footer and mobile menu links", icon: Menu },
+  { to: "/website/certifications", label: "Certifications", hint: "Accreditation badges such as ISO", icon: Award },
+  { to: "/website/settings", label: "Settings", hint: "Contact details, footer, CQC and social links", icon: Settings },
   { to: "/website/services", label: "Services", hint: "Care services shown on the website", icon: HeartHandshake },
   { to: "/website/areas", label: "Areas", hint: "Locations we cover", icon: MapPin },
-  { to: "/website/sections", label: "Page sections", hint: "Text blocks on Home, About, Careers, Contact", icon: LayoutTemplate },
+  { to: "/website/sections", label: "Page sections", hint: "Text, images and videos on Home, About, Careers, Contact", icon: LayoutTemplate },
 ] as const;
 
 export default function WebsiteOverview() {

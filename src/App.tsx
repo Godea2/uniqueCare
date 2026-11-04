@@ -62,6 +62,11 @@ import WebsiteSiteSettings from "./pages/website/SiteSettings";
 import WebsiteCmsServices from "./pages/website/CmsServices";
 import WebsiteCmsAreas from "./pages/website/CmsAreas";
 import WebsitePageSections from "./pages/website/PageSections";
+import WebsiteBrandTheme from "./pages/website/BrandTheme";
+import WebsiteMediaLibrary from "./pages/website/MediaLibrary";
+import WebsiteBranches from "./pages/website/Branches";
+import WebsiteNavigation from "./pages/website/Navigation";
+import WebsiteCertifications from "./pages/website/Certifications";
 import WebsiteAudit from "./pages/website/Audit";
 
 import Careers from "./pages/public/Careers";
@@ -189,6 +194,11 @@ export default function App() {
       <Route path="/website/services" element={<Guard roles={["super_admin"]}><WebsiteCmsServices /></Guard>} />
       <Route path="/website/areas" element={<Guard roles={["super_admin"]}><WebsiteCmsAreas /></Guard>} />
       <Route path="/website/sections" element={<Guard roles={["super_admin"]}><WebsitePageSections /></Guard>} />
+      <Route path="/website/brand" element={<Guard roles={["super_admin"]}><WebsiteBrandTheme /></Guard>} />
+      <Route path="/website/media" element={<Guard roles={["super_admin"]}><WebsiteMediaLibrary /></Guard>} />
+      <Route path="/website/branches" element={<Guard roles={["super_admin"]}><WebsiteBranches /></Guard>} />
+      <Route path="/website/navigation" element={<Guard roles={["super_admin"]}><WebsiteNavigation /></Guard>} />
+      <Route path="/website/certifications" element={<Guard roles={["super_admin"]}><WebsiteCertifications /></Guard>} />
       <Route path="/website/audit" element={<Guard roles={["super_admin"]}><WebsiteAudit /></Guard>} />
 
       <Route path="/home" element={<Navigate to="/" replace />} />

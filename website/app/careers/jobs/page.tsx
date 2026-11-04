@@ -20,7 +20,7 @@ export default async function JobsPage() {
 
   return (
     <div className="mx-auto max-w-content px-4 pb-16 pt-12 md:pb-20">
-      <JsonLd data={jobs.map(jobPostingJsonLd)} />
+      <JsonLd data={jobs.map((job) => jobPostingJsonLd(job))} />
 
       <div className="fade-up">
         <p className="eyebrow">Careers</p>

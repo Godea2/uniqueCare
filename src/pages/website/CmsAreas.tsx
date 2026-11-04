@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import type { RouterOutputs } from "@/lib/router-types";
 import { ConfirmDelete, FilterBar, Pager, rowStyle, thClass, useListParams } from "./shared";
+import { MediaField } from "./MediaPicker";
 
 type Area = RouterOutputs["website"]["areasCms"]["list"]["items"][number];
 const STATUSES = ["draft", "published", "archived"] as const;
@@ -120,6 +121,8 @@ function AreaEditor({ area, onClose, onSaved }: { area: Area | null; onClose: ()
   const [sortOrder, setSortOrder] = useState(String(area?.sortOrder ?? 0));
   const [intro, setIntro] = useState(area?.intro ?? "");
   const [surrounding, setSurrounding] = useState(area?.surrounding ?? "");
+  const [image, setImage] = useState(area?.image ?? "");
+  const [imageAlt, setImageAlt] = useState(area?.imageAlt ?? "");
   const [seoTitle, setSeoTitle] = useState(area?.seoTitle ?? "");
   const [seoDescription, setSeoDescription] = useState(area?.seoDescription ?? "");
 
@@ -149,6 +152,8 @@ function AreaEditor({ area, onClose, onSaved }: { area: Area | null; onClose: ()
               region: region.trim(),
               intro,
               surrounding,
+              image: image.trim(),
+              imageAlt: imageAlt.trim(),
               sortOrder: Number.isFinite(order) ? Math.min(9999, Math.max(0, order)) : 0,
               status,
               seoTitle: seoTitle.trim() || undefined,
@@ -189,6 +194,16 @@ function AreaEditor({ area, onClose, onSaved }: { area: Area | null; onClose: ()
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="area-surr">Surrounding-area text</Label>
               <Input id="area-surr" value={surrounding} onChange={(e) => setSurrounding(e.target.value)} placeholder="e.g. London and the surrounding Greater London area" maxLength={500} />
+            </div>
+            <div className="sm:col-span-2">
+              <MediaField
+                id="area-image" label="Image" kindFilter="image" value={image} onChange={setImage}
+                onAltChange={(a) => { if (!imageAlt) setImageAlt(a); }}
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="area-alt">Image alt text</Label>
+              <Input id="area-alt" value={imageAlt} onChange={(e) => setImageAlt(e.target.value)} maxLength={200} />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="area-seot">SEO title (optional)</Label>

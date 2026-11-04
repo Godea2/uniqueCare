@@ -3,15 +3,13 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { FALLBACK_CERTS, type Certification } from "@/lib/certifications-defaults";
 
-const CERTS = [
-  { src: "/images/iso9001.jpeg", code: "ISO 9001:2015", label: "Quality Management", alt: "ISO 9001:2015 - Quality Management" },
-  { src: "/images/iso45001.jpeg", code: "ISO 45001:2018", label: "Occupational Health & Safety", alt: "ISO 45001:2018 - Occupational Health & Safety" },
-  { src: "/images/iso14001.jpeg", code: "ISO 14001:2015", label: "Environmental Management", alt: "ISO 14001:2015 - Environmental Management" },
-  { src: "/images/iso27001.jpeg", code: "ISO 27001:2022", label: "Information Security Management", alt: "ISO 27001:2022 - Information Security Management" },
-];
+const isRemote = (src: string) => /^https?:\/\//i.test(src);
 
-export default function CertificationGrid() {
+
+export default function CertificationGrid({ certs }: { certs?: Certification[] }) {
+  const CERTS = certs && certs.length > 0 ? certs : FALLBACK_CERTS;
   const [open, setOpen] = useState<number | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const lastTrigger = useRef<HTMLButtonElement | null>(null);
@@ -34,7 +32,7 @@ export default function CertificationGrid() {
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         {CERTS.map((c, i) => (
           <button
-            key={c.code}
+            key={c.id}
             type="button"
             onClick={(e) => {
               lastTrigger.current = e.currentTarget;
@@ -44,7 +42,7 @@ export default function CertificationGrid() {
             className="fade-up uc-card group p-5 text-left"
           >
             <span className="relative block aspect-[4/3] overflow-hidden rounded-lg bg-surface-alt">
-              <Image src={c.src} alt={c.alt} fill sizes="(min-width:1024px) 25vw, 50vw" className="object-contain p-2" />
+              <Image src={c.image} alt={c.imageAlt} unoptimized={isRemote(c.image)} fill sizes="(min-width:1024px) 25vw, 50vw" className="object-contain p-2" />
             </span>
             <span className="mt-3 block font-semibold text-ink">{c.code}</span>
             <span className="block text-sm text-ink-muted">{c.label}</span>
@@ -57,7 +55,7 @@ export default function CertificationGrid() {
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
-          aria-label={CERTS[open].alt}
+          aria-label={CERTS[open].imageAlt}
           className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setOpen(null);
@@ -73,10 +71,10 @@ export default function CertificationGrid() {
               <X className="h-5 w-5" aria-hidden />
             </button>
             <div className="relative aspect-[4/3] w-full">
-              <Image src={CERTS[open].src} alt={CERTS[open].alt} fill sizes="(min-width:768px) 42rem, 90vw" className="object-contain" />
+              <Image src={CERTS[open].image} alt={CERTS[open].imageAlt} unoptimized={isRemote(CERTS[open].image)} fill sizes="(min-width:768px) 42rem, 90vw" className="object-contain" />
             </div>
             <p className="mt-3 text-center text-sm text-ink-muted">
-              <strong className="text-ink">{CERTS[open].code}</strong> â€” {CERTS[open].label}
+              <strong className="text-ink">{CERTS[open].code}</strong> — {CERTS[open].label}
             </p>
           </div>
         </div>

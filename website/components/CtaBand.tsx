@@ -1,16 +1,31 @@
-import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight, Phone } from "lucide-react";
-import { site } from "@/content/site";
+import CtaLink from "@/components/CtaLink";
+import { DEFAULT_CTA_BAND, type CtaBandSettings } from "@/lib/theme-defaults";
 
-export default function CtaBand() {
+export default function CtaBand({
+  cta = DEFAULT_CTA_BAND,
+  phoneTel,
+}: {
+  cta?: CtaBandSettings;
+  /** Used when a CTA href is a blank `tel:` placeholder. */
+  phoneTel?: string;
+}) {
+  const resolve = (href: string) => (/^tel:?$/i.test(href.trim()) && phoneTel ? phoneTel : href);
+  const primaryHref = resolve(cta.primaryCta.href);
+  const secondaryHref = resolve(cta.secondaryCta.href);
+  const icon = (href: string) =>
+    href.startsWith("tel:") ? <Phone className="h-4 w-4" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />;
+  const remote = /^https?:\/\//i.test(cta.image);
+
   return (
     <section aria-labelledby="cta-band-heading" className="relative overflow-hidden">
       <Image
-        src="/images/hero-caregiver.jpg"
+        src={cta.image}
         alt=""
         fill
         sizes="100vw"
+        unoptimized={remote}
         className="object-cover"
       />
       <div
@@ -20,22 +35,20 @@ export default function CtaBand() {
       <div className="relative mx-auto max-w-content px-4 py-16 text-center text-white lg:py-20">
         <div className="fade-up">
         <h2 id="cta-band-heading" className="font-heading font-semibold">
-          Ready to discuss care?
+          {cta.title}
         </h2>
-        <p className="mx-auto mt-3 max-w-xl text-white/85">
-          Get a free, no-obligation assessment. We come to you at a time that suits.
-        </p>
+        <p className="mx-auto mt-3 max-w-xl text-white/85">{cta.text}</p>
         <div className="uc-cta-row uc-cta-row-center mt-7">
-          <a
-            href={site.phonePrimaryTel}
-            aria-label="Call us now"
+          <CtaLink
+            href={primaryHref}
+            ariaLabel={cta.primaryCta.label}
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-white px-6 py-3 font-semibold text-brand-ink transition hover:-translate-y-0.5 hover:bg-brand-soft"
           >
-            <Phone className="h-4 w-4" aria-hidden /> Call us now
-          </a>
-          <Link href="/contact" aria-label="Send enquiry" className="uc-btn-outline">
-            Send enquiry <ArrowRight className="h-4 w-4" aria-hidden />
-          </Link>
+            {primaryHref.startsWith("tel:") && icon(primaryHref)} {cta.primaryCta.label}
+          </CtaLink>
+          <CtaLink href={secondaryHref} ariaLabel={cta.secondaryCta.label} className="uc-btn-outline">
+            {cta.secondaryCta.label} {icon(secondaryHref)}
+          </CtaLink>
         </div>
         </div>
       </div>

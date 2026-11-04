@@ -4,6 +4,9 @@ export type Area = {
   region: string;
   intro: string;
   surrounding: string;
+  /** Optional card / hero image (CMS). Empty string when none. */
+  image?: string;
+  imageAlt?: string;
 };
 
 export const areas: Area[] = [

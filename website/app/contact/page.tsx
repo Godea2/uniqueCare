@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Clock3, ExternalLink, Mail, MapPin, Phone } from "lucide-react";
 import EnquiryForm from "@/components/forms/EnquiryForm";
-import { site } from "@/content/site";
+import { getSiteSettings } from "@/lib/site-source";
+import { getBranches, branchMapsUrl } from "@/lib/branches-source";
+import { asString, getSectionMap } from "@/lib/sections-source";
 
 export const metadata: Metadata = {
   title: "Contact Us | Book a Free Care Assessment | Unique Care UK",
@@ -11,16 +13,21 @@ export const metadata: Metadata = {
   alternates: { canonical: "/contact" },
 };
 
-function mapsLink(address: string) {
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
-}
+export const revalidate = 60;
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const [site, branches, sections] = await Promise.all([getSiteSettings(), getBranches(), getSectionMap("contact")]);
+  const heroS = sections.hero ?? null;
+  const formS = sections.form_intro ?? null;
+  const heroEyebrow = asString(heroS, "eyebrow", "");
   return (
     <div className="mx-auto max-w-content px-4 pb-16 pt-12 md:pb-20">
-      <h1 className="fade-up font-heading text-4xl font-semibold text-ink md:text-5xl">Contact Us</h1>
+      {heroEyebrow && <p className="eyebrow fade-up">{heroEyebrow}</p>}
+      <h1 className="fade-up font-heading text-4xl font-semibold text-ink md:text-5xl">
+        {asString(heroS, "title", "Contact Us")}
+      </h1>
       <p className="mt-4 max-w-2xl text-lg text-ink-muted">
-        Send us a message and we will get back to you as soon as possible.
+        {asString(heroS, "subtitle", "Send us a message and we will get back to you as soon as possible.")}
       </p>
 
       <div className="mt-10 grid gap-10 lg:grid-cols-2">
@@ -80,13 +87,30 @@ export default function ContactPage() {
               </span>
               <div>
                 <h3 className="font-semibold text-ink">Our Offices</h3>
-                {site.offices.map((o) => (
-                  <div key={o.name} className="mt-2">
+                {branches.map((o) => (
+                  <div key={o.id} className="mt-2">
                     <p className="text-ink-muted">
                       <strong className="text-ink">{o.name}:</strong> {o.address}
                     </p>
+                    {(o.phone || o.email || o.hours) && (
+                      <p className="text-sm text-ink-muted">
+                        {o.phone && (
+                          <a href={`tel:${o.phone.replace(/\s+/g, "")}`} className="hover:text-brand-primary hover:underline">
+                            {o.phoneDisplay || o.phone}
+                          </a>
+                        )}
+                        {o.phone && (o.email || o.hours) && " · "}
+                        {o.email && (
+                          <a href={`mailto:${o.email}`} className="hover:text-brand-primary hover:underline">
+                            {o.email}
+                          </a>
+                        )}
+                        {o.email && o.hours && " · "}
+                        {o.hours}
+                      </p>
+                    )}
                     <a
-                      href={mapsLink(o.address)}
+                      href={branchMapsUrl(o)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="mt-0.5 inline-flex items-center gap-1 text-sm font-semibold text-brand-primary hover:underline"
@@ -103,12 +127,14 @@ export default function ContactPage() {
         {/* Form */}
         <section aria-labelledby="contact-form-h" id="contact-form" className="fade-up" data-stagger="1">
           <h2 id="contact-form-h" className="font-heading text-2xl font-semibold text-ink">
-            Send us a message
+            {asString(formS, "title", "Send us a message")}
           </h2>
-          <p className="mt-3 text-ink-muted">Fill in the form below and our team will respond promptly.</p>
+          <p className="mt-3 text-ink-muted">
+            {asString(formS, "text", "Fill in the form below and our team will respond promptly.")}
+          </p>
           <div className="mt-6 rounded-card border border-line bg-white p-6 shadow-card md:p-8">
             <Suspense>
-              <EnquiryForm />
+              <EnquiryForm phoneDisplay={site.phonePrimaryDisplay} phoneTel={site.phonePrimaryTel} />
             </Suspense>
           </div>
         </section>

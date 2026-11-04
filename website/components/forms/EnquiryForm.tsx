@@ -7,14 +7,20 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { enquirySchema, type EnquiryInput } from "@/lib/validation";
 import { services } from "@/content/services";
-import { site } from "@/content/site";
+import { site as staticSite } from "@/content/site";
 
 const inputCls =
   "w-full rounded-lg border border-line bg-white px-4 py-3 text-[15px] text-ink placeholder:text-ink-muted/70 focus:border-brand-primary";
 const labelCls = "mb-1.5 block text-sm font-semibold text-ink";
 const errCls = "mt-1 text-sm text-error";
 
-export default function EnquiryForm() {
+export default function EnquiryForm({
+  phoneDisplay = staticSite.phonePrimaryDisplay,
+  phoneTel = staticSite.phonePrimaryTel,
+}: {
+  phoneDisplay?: string;
+  phoneTel?: string;
+} = {}) {
   const params = useSearchParams();
   const preselectSlug = params.get("service") ?? "";
   const preselectName = services.find((s) => s.slug === preselectSlug)?.name ?? "";
@@ -58,7 +64,7 @@ export default function EnquiryForm() {
         <h3 className="font-heading text-xl font-semibold text-ink">Thank you</h3>
         <p className="mt-2 text-ink-muted">
           We&apos;ve received your message and will be in touch within 2 working days. For urgent care needs,
-          call <a href={site.phonePrimaryTel} className="font-semibold text-brand-primary hover:underline">{site.phonePrimary}</a>.
+          call <a href={phoneTel} className="font-semibold text-brand-primary hover:underline">{phoneDisplay}</a>.
         </p>
       </div>
     );
@@ -69,7 +75,7 @@ export default function EnquiryForm() {
       <div aria-live="polite">
         {status === "error" && (
           <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-error">
-            Sorry, something went wrong sending your message. Please try again, or call us on {site.phonePrimary}.
+            Sorry, something went wrong sending your message. Please try again, or call us on {phoneDisplay}.
           </p>
         )}
       </div>

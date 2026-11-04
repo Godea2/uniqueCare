@@ -1,4 +1,18 @@
 import { site as staticSite } from "@/content/site";
+import {
+  DEFAULT_BRAND,
+  DEFAULT_CTA_BAND,
+  DEFAULT_SEO,
+  DEFAULT_THEME,
+  normalizeBrand,
+  normalizeCtaBand,
+  normalizeSeo,
+  normalizeTheme,
+  type Brand,
+  type CtaBandSettings,
+  type SeoDefaults,
+  type Theme,
+} from "@/lib/theme-defaults";
 
 export type SiteOffice = { name: string; address: string };
 export type SiteSettings = {
@@ -23,6 +37,11 @@ export type SiteSettings = {
   cqcRating: string;
   social: { facebook: string; instagram: string; linkedin: string };
   areas: string[];
+  theme: Theme;
+  brand: Brand;
+  seo: SeoDefaults;
+  ctaBand: CtaBandSettings;
+  whatsappEnabled: boolean;
 };
 
 const base = () => process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.NEXT_PUBLIC_JOBS_SUPABASE_URL ?? "";
@@ -52,6 +71,11 @@ function fromStatic(): SiteSettings {
     cqcRating: staticSite.cqcRating,
     social: { ...staticSite.social },
     areas: [...staticSite.areas],
+    theme: { ...DEFAULT_THEME },
+    brand: { ...DEFAULT_BRAND },
+    seo: { ...DEFAULT_SEO, keywords: [...DEFAULT_SEO.keywords] },
+    ctaBand: { ...DEFAULT_CTA_BAND },
+    whatsappEnabled: true,
   };
 }
 
@@ -101,6 +125,11 @@ function merge(payload: Record<string, unknown> | null | undefined): SiteSetting
     cqcRating: typeof payload.cqcRating === "string" ? payload.cqcRating : fallback.cqcRating,
     social,
     areas: Array.isArray(payload.areas) ? payload.areas.map(String) : fallback.areas,
+    theme: normalizeTheme(payload.theme),
+    brand: normalizeBrand(payload.brand),
+    seo: normalizeSeo(payload.seo),
+    ctaBand: normalizeCtaBand(payload.ctaBand),
+    whatsappEnabled: typeof payload.whatsappEnabled === "boolean" ? payload.whatsappEnabled : fallback.whatsappEnabled,
   };
 }
 

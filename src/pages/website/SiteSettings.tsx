@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ComponentProps, FormEvent, ReactNode } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, Loading, ErrorState, fmtDateTime } from "@/components/common";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 
 type Payload = Record<string, unknown>;
-type Office = { name: string; address: string };
-
 const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
@@ -71,12 +69,6 @@ function SettingsForm({ payload, updatedAt }: { payload: Payload; updatedAt: str
   const [cqcRating, setCqcRating] = useState(str(payload.cqcRating));
   const [cqcReportUrl, setCqcReportUrl] = useState(str(payload.cqcReportUrl));
 
-  const [offices, setOffices] = useState<Office[]>(
-    Array.isArray(payload.offices)
-      ? payload.offices.map((o) => ({ name: str(rec(o).name), address: str(rec(o).address) }))
-      : [],
-  );
-
   const [facebook, setFacebook] = useState(str(social.facebook));
   const [instagram, setInstagram] = useState(str(social.instagram));
   const [linkedin, setLinkedin] = useState(str(social.linkedin));
@@ -85,9 +77,6 @@ function SettingsForm({ payload, updatedAt }: { payload: Payload; updatedAt: str
     onSuccess: () => { void utils.website.siteSettings.get.invalidate(); toast.success("Site settings saved"); },
     onError: (e) => toast.error(e.message),
   });
-
-  const setOffice = (i: number, patch: Partial<Office>) =>
-    setOffices((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -109,9 +98,6 @@ function SettingsForm({ payload, updatedAt }: { payload: Payload; updatedAt: str
       phoneMobileTel: toTel(phoneMobileDisplay),
       whatsapp: whatsapp.trim(),
       hours: hours.trim(),
-      offices: offices
-        .map((o) => ({ name: o.name.trim(), address: o.address.trim() }))
-        .filter((o) => o.name && o.address),
       footerLocation: footerLocation.trim(),
       footerBlurb: footerBlurb.trim(),
       cqcRating: cqcRating.trim(),
@@ -151,23 +137,10 @@ function SettingsForm({ payload, updatedAt }: { payload: Payload; updatedAt: str
         </div>
       </Section>
 
-      <Section title="Offices">
-        <div className="space-y-3 sm:col-span-2">
-          {offices.length === 0 && <p className="text-sm text-muted-foreground">No offices listed.</p>}
-          {offices.map((o, i) => (
-            <div key={i} className="grid gap-2 sm:grid-cols-[14rem_1fr_auto]">
-              <Input aria-label={`Office ${i + 1} name`} value={o.name} onChange={(e) => setOffice(i, { name: e.target.value })} placeholder="London Branch" maxLength={120} />
-              <Input aria-label={`Office ${i + 1} address`} value={o.address} onChange={(e) => setOffice(i, { address: e.target.value })} placeholder="Full address" maxLength={300} />
-              <Button type="button" variant="ghost" size="sm" aria-label={`Remove office ${i + 1}`} onClick={() => setOffices((rows) => rows.filter((_, idx) => idx !== i))}>
-                <Trash2 className="h-3.5 w-3.5 text-red-600" />
-              </Button>
-            </div>
-          ))}
-          <Button type="button" variant="outline" size="sm" onClick={() => setOffices((rows) => [...rows, { name: "", address: "" }])}>
-            <Plus className="mr-1 h-3.5 w-3.5" />Add office
-          </Button>
-        </div>
-      </Section>
+      <p className="uc-card p-4 text-sm text-muted-foreground sm:px-5">
+        Offices are now managed on the <Link to="/website/branches" className="font-medium text-[--brand-600] hover:underline">Branches page</Link>.
+        Existing office entries are kept and updated automatically from published branches.
+      </p>
 
       <Section title="Footer & coverage">
         <Field id="ss-footloc" label="Footer location" value={footerLocation} onChange={setFooterLocation} placeholder="London & Essex" maxLength={120} />

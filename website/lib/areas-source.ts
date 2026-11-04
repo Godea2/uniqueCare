@@ -9,8 +9,12 @@ type DbArea = {
   region: string;
   intro: string;
   surrounding: string;
+  image?: string | null;
+  image_alt?: string | null;
   sort_order: number;
 };
+
+const staticWithImages: Area[] = staticAreas.map((a) => ({ image: "", imageAlt: "", ...a }));
 
 function mapDb(r: DbArea): Area {
   return {
@@ -19,26 +23,35 @@ function mapDb(r: DbArea): Area {
     region: r.region,
     intro: r.intro,
     surrounding: r.surrounding,
+    image: r.image ?? "",
+    imageAlt: r.image_alt ?? "",
   };
 }
 
+async function fetchRows(select: string): Promise<DbArea[] | null> {
+  const res = await fetch(
+    `${base()}/rest/v1/website_areas?status=eq.published&select=${select}&order=sort_order.asc&limit=50`,
+    {
+      headers: { apikey: anonKey(), Authorization: `Bearer ${anonKey()}` },
+      next: { revalidate: 60, tags: ["website-cms", "website-areas"] },
+    },
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as DbArea[];
+}
+
 export async function getAreas(): Promise<Area[]> {
-  if (!base() || !anonKey()) return staticAreas;
+  if (!base() || !anonKey()) return staticWithImages;
   try {
-    const res = await fetch(
-      `${base()}/rest/v1/website_areas?status=eq.published&select=slug,name,region,intro,surrounding,sort_order&order=sort_order.asc&limit=50`,
-      {
-        headers: { apikey: anonKey(), Authorization: `Bearer ${anonKey()}` },
-        next: { revalidate: 60, tags: ["website-cms", "website-areas"] },
-      },
-    );
-    if (!res.ok) return staticAreas;
-    const rows = (await res.json()) as DbArea[];
-    if (!rows.length) return staticAreas;
+    // Prefer image columns (migration 0005); retry without them if the column set isn't there yet.
+    const rows =
+      (await fetchRows("slug,name,region,intro,surrounding,image,image_alt,sort_order")) ??
+      (await fetchRows("slug,name,region,intro,surrounding,sort_order"));
+    if (!rows || !rows.length) return staticWithImages;
     return rows.map(mapDb);
   } catch (e) {
     console.warn("[areas] CMS fetch failed:", e instanceof Error ? e.message : e);
-    return staticAreas;
+    return staticWithImages;
   }
 }
 

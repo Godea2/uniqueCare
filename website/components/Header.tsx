@@ -8,6 +8,10 @@ import { ChevronDown, Mail, Menu, Phone, X } from "lucide-react";
 import { services as staticServices, type Service } from "@/content/services";
 import { areas as staticAreas, type Area } from "@/content/areas";
 import { site as staticSite } from "@/content/site";
+import { FALLBACK_NAV, type NavItem } from "@/lib/nav-defaults";
+
+const DEFAULT_LOGO = "/images/logo-horizontal.png";
+const isRemote = (src: string) => /^https?:\/\//i.test(src);
 
 type NavService = Pick<Service, "slug" | "name">;
 type NavArea = Pick<Area, "slug" | "name">;
@@ -20,25 +24,30 @@ type HeaderSite = {
   email: string;
 };
 
-const NAV = [
-  { href: "/", label: "Home" },
-  { href: "/about", label: "About" },
-  { href: "/services", label: "Services", dropdown: "services" as const },
-  { href: "/areas", label: "Areas We Serve", dropdown: "areas" as const },
-  { href: "/careers", label: "Careers" },
-  { href: "/blog", label: "Blog" },
-  { href: "/reviews", label: "Reviews" },
-];
+type HeaderNavItem = { href: string; label: string; dropdown?: "services" | "areas" };
+
+const toHeaderNav = (items: Pick<NavItem, "href" | "label" | "dropdown">[]): HeaderNavItem[] =>
+  items.map((i) => ({ href: i.href, label: i.label, dropdown: i.dropdown || undefined }));
+
+const NAV: HeaderNavItem[] = toHeaderNav(FALLBACK_NAV.header);
 
 export default function Header({
   services = staticServices,
   areas = staticAreas,
   site = staticSite,
+  nav,
+  logoUrl,
 }: {
   services?: NavService[];
   areas?: NavArea[];
   site?: HeaderSite;
+  /** CMS header menu; falls back to the built-in NAV when omitted/empty. */
+  nav?: Pick<NavItem, "href" | "label" | "dropdown">[];
+  /** CMS brand logo; falls back to /images/logo-horizontal.png. */
+  logoUrl?: string;
 }) {
+  const navItems = nav && nav.length > 0 ? toHeaderNav(nav) : NAV;
+  const logo = logoUrl || DEFAULT_LOGO;
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -166,11 +175,11 @@ export default function Header({
         <div className="mx-auto flex max-w-content items-center justify-between gap-4 px-4 py-3">
           <Link
             href="/"
-            aria-label="Unique Care UK — home"
+            aria-label="Unique Care UK ? home"
             className={`shrink-0 ${overHero ? "rounded-xl bg-white/95 px-2.5 py-1.5 shadow-card" : ""}`}
           >
             <Image
-              src="/images/logo-horizontal.png"
+              src={logo} unoptimized={isRemote(logo)}
               alt="Unique Care UK"
               width={896}
               height={161}
@@ -181,9 +190,9 @@ export default function Header({
 
           <nav aria-label="Main" className="hidden lg:block">
             <ul className="flex items-center gap-1">
-              {NAV.map((item) => (
+              {navItems.map((item) => (
                 <li
-                  key={item.href}
+                  key={`${item.label}-${item.href}`}
                   className="relative"
                   onMouseEnter={item.dropdown ? () => openDropdown(item.dropdown!) : undefined}
                   onMouseLeave={item.dropdown ? closeDropdown : undefined}
@@ -286,7 +295,7 @@ export default function Header({
             className="absolute right-0 top-0 flex h-full w-[85%] max-w-sm flex-col overflow-y-auto bg-white shadow-card-hover"
           >
             <div className="flex items-center justify-between border-b border-line px-5 py-4">
-              <Image src="/images/logo-horizontal.png" alt="Unique Care UK" width={896} height={161} className="h-9 w-auto" />
+              <Image src={logo} unoptimized={isRemote(logo)} alt="Unique Care UK" width={896} height={161} className="h-9 w-auto" />
               <button
                 type="button"
                 className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line"
@@ -298,9 +307,9 @@ export default function Header({
             </div>
             <nav aria-label="Mobile" className="flex-1 px-5 py-4">
               <ul className="space-y-1">
-                {NAV.map((item) =>
+                {navItems.map((item) =>
                   item.dropdown ? (
-                    <li key={item.href}>
+                    <li key={`${item.label}-${item.href}`}>
                       <button
                         type="button"
                         className="flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-[15px] font-medium"
@@ -328,7 +337,7 @@ export default function Header({
                       )}
                     </li>
                   ) : (
-                    <li key={item.href}>
+                    <li key={`${item.label}-${item.href}`}>
                       <Link
                         href={item.href}
                         aria-current={isActive(item.href) ? "page" : undefined}

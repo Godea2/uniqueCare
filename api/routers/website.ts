@@ -17,6 +17,12 @@ import {
   type WebsiteFilter,
   type WebsiteTable,
 } from "../lib/website-db";
+import {
+  publicMediaUrl,
+  removeWebsiteMedia,
+  sniffWebsiteMedia,
+  websiteMediaUploadTarget,
+} from "../lib/website-media";
 import type { StaffRole } from "@db/schema";
 
 /* ── Row types (snake_case, as stored) ─────────────────────────────────────── */
@@ -56,12 +62,32 @@ type ServiceRow = {
 };
 type AreaRow = {
   id: number; slug: string; name: string; region: string; intro: string; surrounding: string;
+  image?: string; image_alt?: string;
   sort_order: number; status: string; seo_title: string | null; seo_description: string | null;
   created_at: string; updated_at: string;
 };
 type SectionRow = {
   id: number; page_key: string; section_key: string; label: string; content: unknown;
   sort_order: number; status: string; updated_at: string;
+};
+type BranchRow = {
+  id: number; name: string; address: string; city: string; postcode: string;
+  phone: string; phone_display: string; email: string; hours: string; maps_url: string;
+  image: string; image_alt: string; sort_order: number; status: string;
+  created_at: string; updated_at: string;
+};
+type MediaRow = {
+  id: number; kind: string; url: string; storage_key: string | null; file_name: string;
+  alt: string; folder: string; width: number | null; height: number | null;
+  bytes: number | null; mime_type: string; created_by: string | null; created_at: string;
+};
+type NavRow = {
+  id: number; menu: string; label: string; href: string; dropdown: string;
+  sort_order: number; visible: boolean; created_at: string; updated_at: string;
+};
+type CertRow = {
+  id: number; code: string; label: string; image: string; image_alt: string; url: string;
+  sort_order: number; status: string; created_at: string; updated_at: string;
 };
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
@@ -245,6 +271,7 @@ const mapArea = (a: AreaRow | undefined) => {
   if (!a) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Area row missing" });
   return {
     id: a.id, slug: a.slug, name: a.name, region: a.region, intro: a.intro, surrounding: a.surrounding,
+    image: a.image ?? "", imageAlt: a.image_alt ?? "",
     sortOrder: a.sort_order, status: a.status, seoTitle: a.seo_title, seoDescription: a.seo_description,
     createdAt: a.created_at, updatedAt: a.updated_at,
   };
@@ -257,6 +284,58 @@ const mapSection = (s: SectionRow | undefined) => {
     sortOrder: s.sort_order, status: s.status, updatedAt: s.updated_at,
   };
 };
+const mapBranch = (b: BranchRow | undefined) => {
+  if (!b) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Branch row missing" });
+  return {
+    id: b.id, name: b.name, address: b.address, city: b.city, postcode: b.postcode,
+    phone: b.phone, phoneDisplay: b.phone_display, email: b.email, hours: b.hours, mapsUrl: b.maps_url,
+    image: b.image, imageAlt: b.image_alt, sortOrder: b.sort_order, status: b.status,
+    createdAt: b.created_at, updatedAt: b.updated_at,
+  };
+};
+const mapMedia = (m: MediaRow | undefined) => {
+  if (!m) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Media row missing" });
+  return {
+    id: m.id, kind: m.kind, url: m.url, storageKey: m.storage_key, fileName: m.file_name,
+    alt: m.alt, folder: m.folder, width: m.width, height: m.height, bytes: m.bytes,
+    mimeType: m.mime_type, createdBy: m.created_by, createdAt: m.created_at,
+  };
+};
+const mapNav = (n: NavRow | undefined) => {
+  if (!n) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nav row missing" });
+  return {
+    id: n.id, menu: n.menu, label: n.label, href: n.href, dropdown: n.dropdown,
+    sortOrder: n.sort_order, visible: n.visible, createdAt: n.created_at, updatedAt: n.updated_at,
+  };
+};
+const mapCert = (c: CertRow | undefined) => {
+  if (!c) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Certification row missing" });
+  return {
+    id: c.id, code: c.code, label: c.label, image: c.image, imageAlt: c.image_alt, url: c.url,
+    sortOrder: c.sort_order, status: c.status, createdAt: c.created_at, updatedAt: c.updated_at,
+  };
+};
+
+/** Keep site_settings.offices in sync so older readers still work. */
+async function syncOfficesFromBranches() {
+  const rows = await websiteSelect<BranchRow>("website_branches", {
+    eq: { status: "published" },
+    order: { column: "sort_order", ascending: true },
+    limit: 100,
+  });
+  const offices = rows.map((b) => ({ name: b.name, address: b.address }));
+  const settings = await websiteSelectOne<SiteSettingsRow>("website_site_settings", { eq: { id: "default" } });
+  const payload = { ...(settings?.payload ?? {}), offices };
+  if (settings) {
+    await websiteUpdate("website_site_settings", { eq: { id: "default" } }, {
+      payload: payload as never, updated_at: new Date().toISOString(),
+    });
+  } else {
+    await websiteInsert("website_site_settings", {
+      id: "default", payload: payload as never, updated_at: new Date().toISOString(),
+    });
+  }
+}
 
 /* ── Newsletter email ──────────────────────────────────────────────────────── */
 
@@ -461,6 +540,8 @@ const areaInput = z.object({
   region: z.string().trim().max(120).default(""),
   intro: z.string().trim().max(2000).default(""),
   surrounding: z.string().trim().max(500).default(""),
+  image: z.string().trim().max(500).default(""),
+  imageAlt: z.string().trim().max(200).default(""),
   sortOrder: z.number().int().min(0).max(9999).default(0),
   status: z.enum(CMS_STATUSES).default("draft"),
   seoTitle: z.string().trim().max(200).optional(),
@@ -472,6 +553,44 @@ const sectionInput = z.object({
   sectionKey: z.string().trim().min(1).max(60),
   label: z.string().trim().max(120).default(""),
   content: z.record(z.string(), z.unknown()).default({}),
+  sortOrder: z.number().int().min(0).max(9999).default(0),
+  status: z.enum(CMS_STATUSES).default("published"),
+});
+
+const NAV_MENUS = ["header", "footer_company", "footer_legal", "mobile_cta"] as const;
+const MEDIA_KINDS = ["image", "video", "document", "other"] as const;
+
+const branchInput = z.object({
+  name: z.string().trim().min(2).max(120),
+  address: z.string().trim().max(400).default(""),
+  city: z.string().trim().max(120).default(""),
+  postcode: z.string().trim().max(40).default(""),
+  phone: z.string().trim().max(40).default(""),
+  phoneDisplay: z.string().trim().max(40).default(""),
+  email: z.string().trim().max(200).default(""),
+  hours: z.string().trim().max(200).default(""),
+  mapsUrl: z.string().trim().max(1000).default(""),
+  image: z.string().trim().max(500).default(""),
+  imageAlt: z.string().trim().max(200).default(""),
+  sortOrder: z.number().int().min(0).max(9999).default(0),
+  status: z.enum(CMS_STATUSES).default("published"),
+});
+
+const navInput = z.object({
+  menu: z.enum(NAV_MENUS),
+  label: z.string().trim().min(1).max(80),
+  href: z.string().trim().min(1).max(500),
+  dropdown: z.enum(["", "services", "areas"]).default(""),
+  sortOrder: z.number().int().min(0).max(9999).default(0),
+  visible: z.boolean().default(true),
+});
+
+const certInput = z.object({
+  code: z.string().trim().min(1).max(80),
+  label: z.string().trim().max(160).default(""),
+  image: z.string().trim().max(500).default(""),
+  imageAlt: z.string().trim().max(200).default(""),
+  url: z.string().trim().max(1000).default(""),
   sortOrder: z.number().int().min(0).max(9999).default(0),
   status: z.enum(CMS_STATUSES).default("published"),
 });
@@ -1016,7 +1135,7 @@ export const websiteRouter = createRouter({
         action: "cms.site_settings.updated", entityType: "site_settings", entityId: "default",
         actorName: ctx.staffCtx.staff.fullName,
       });
-      bumpWebsiteJobsCache(["/", "/contact", "/about", "/careers"]);
+      bumpWebsiteJobsCache(["/", "/contact", "/about", "/careers", "/services", "/areas", "/blog", "/reviews"]);
       return { ok: true as const, updatedAt: now };
     })),
   }),
@@ -1108,6 +1227,7 @@ export const websiteRouter = createRouter({
       const slug = await uniqueAreaSlug(slugify(input.slug || input.name));
       const [row] = await websiteInsert<AreaRow>("website_areas", {
         slug, name: input.name, region: input.region, intro: input.intro, surrounding: input.surrounding,
+        image: input.image, image_alt: input.imageAlt,
         sort_order: input.sortOrder, status: input.status,
         seo_title: input.seoTitle || null, seo_description: input.seoDescription || null,
       });
@@ -1124,6 +1244,7 @@ export const websiteRouter = createRouter({
       const slug = await uniqueAreaSlug(slugify(input.slug || input.name), input.id);
       const rows = await websiteUpdate<AreaRow>("website_areas", { eq: { id: input.id } }, {
         slug, name: input.name, region: input.region, intro: input.intro, surrounding: input.surrounding,
+        image: input.image, image_alt: input.imageAlt,
         sort_order: input.sortOrder, status: input.status,
         seo_title: input.seoTitle || null, seo_description: input.seoDescription || null,
         updated_at: new Date().toISOString(),
@@ -1199,6 +1320,301 @@ export const websiteRouter = createRouter({
         details: { pageKey: row.page_key, sectionKey: row.section_key },
       });
       bumpWebsiteJobsCache(sectionRevalidatePaths(row.page_key));
+      return { ok: true as const };
+    })),
+  }),
+
+  /* ── Branches ───────────────────────────────────────────────────────────── */
+  branches: createRouter({
+    list: websiteProcedure.input(listInput).query(({ input }) => guard(async () => {
+      const limit = input?.limit ?? 50;
+      const offset = input?.offset ?? 0;
+      const filter = baseFilter(CMS_STATUSES, ["name", "city", "address", "postcode"], input, true);
+      const countBase = baseFilter(CMS_STATUSES, ["name", "city", "address", "postcode"], input, false);
+      const [rows, total, all, ...perStatus] = await Promise.all([
+        websiteSelect<BranchRow>("website_branches", {
+          ...filter, order: { column: "sort_order", ascending: true }, limit, offset,
+        }),
+        websiteCount("website_branches", filter),
+        websiteCount("website_branches", countBase),
+        ...CMS_STATUSES.map((s) => websiteCount("website_branches", { ...countBase, eq: { status: s } })),
+      ]);
+      const counts: Record<string, number> = { all };
+      CMS_STATUSES.forEach((s, i) => { counts[s] = perStatus[i] ?? 0; });
+      return { items: rows.map(mapBranch), total, hasMore: offset + rows.length < total, counts, limit, offset };
+    })),
+    create: websiteProcedure.input(branchInput).mutation(({ ctx, input }) => guard(async () => {
+      const [row] = await websiteInsert<BranchRow>("website_branches", {
+        name: input.name, address: input.address, city: input.city, postcode: input.postcode,
+        phone: input.phone, phone_display: input.phoneDisplay, email: input.email, hours: input.hours,
+        maps_url: input.mapsUrl, image: input.image, image_alt: input.imageAlt,
+        sort_order: input.sortOrder, status: input.status,
+      });
+      await syncOfficesFromBranches();
+      await writeWebsiteAudit({
+        action: "cms.branch.created", entityType: "branch", entityId: row?.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { name: input.name },
+      });
+      bumpWebsiteJobsCache(["/", "/contact", "/about"]);
+      return mapBranch(row);
+    })),
+    update: websiteProcedure.input(branchInput.extend({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const before = await websiteSelectOne<BranchRow>("website_branches", { eq: { id: input.id } });
+      if (!before) notFound("Branch");
+      const rows = await websiteUpdate<BranchRow>("website_branches", { eq: { id: input.id } }, {
+        name: input.name, address: input.address, city: input.city, postcode: input.postcode,
+        phone: input.phone, phone_display: input.phoneDisplay, email: input.email, hours: input.hours,
+        maps_url: input.mapsUrl, image: input.image, image_alt: input.imageAlt,
+        sort_order: input.sortOrder, status: input.status, updated_at: new Date().toISOString(),
+      });
+      if (!rows[0]) notFound("Branch");
+      await syncOfficesFromBranches();
+      await writeWebsiteAudit({
+        action: "cms.branch.updated", entityType: "branch", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { name: input.name },
+      });
+      bumpWebsiteJobsCache(["/", "/contact", "/about"]);
+      return mapBranch(rows[0]);
+    })),
+    delete: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const row = await websiteSelectOne<BranchRow>("website_branches", { eq: { id: input.id } });
+      if (!row) notFound("Branch");
+      await websiteDelete("website_branches", { eq: { id: input.id } });
+      await syncOfficesFromBranches();
+      await writeWebsiteAudit({
+        action: "cms.branch.deleted", entityType: "branch", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { name: row.name },
+      });
+      bumpWebsiteJobsCache(["/", "/contact", "/about"]);
+      return { ok: true as const };
+    })),
+  }),
+
+  /* ── Media library ──────────────────────────────────────────────────────── */
+  media: createRouter({
+    list: websiteProcedure
+      .input(z.object({
+        folder: z.string().max(60).optional(),
+        kind: z.enum(MEDIA_KINDS).optional(),
+        q: z.string().max(100).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        offset: z.number().int().min(0).optional(),
+      }).optional())
+      .query(({ input }) => guard(async () => {
+        const limit = input?.limit ?? 60;
+        const offset = input?.offset ?? 0;
+        const filter: WebsiteFilter = {};
+        if (input?.folder) filter.eq = { ...(filter.eq ?? {}), folder: input.folder };
+        if (input?.kind) filter.eq = { ...(filter.eq ?? {}), kind: input.kind };
+        if (input?.q) filter.search = { columns: ["file_name", "alt", "url"], q: input.q };
+        const [rows, total] = await Promise.all([
+          websiteSelect<MediaRow>("website_media_assets", {
+            ...filter, order: { column: "created_at", ascending: false }, limit, offset,
+          }),
+          websiteCount("website_media_assets", filter),
+        ]);
+        return { items: rows.map(mapMedia), total, hasMore: offset + rows.length < total, limit, offset };
+      })),
+    prepareUpload: websiteProcedure
+      .input(z.object({
+        fileName: z.string().trim().min(1).max(200),
+        folder: z.string().trim().max(40).default("general"),
+        mimeType: z.string().trim().max(120).optional(),
+      }))
+      .mutation(({ input }) => guard(async () => {
+        const target = await websiteMediaUploadTarget(input.fileName, input.folder);
+        const sniffed = sniffWebsiteMedia(input.fileName, input.mimeType);
+        return { ...target, kind: sniffed.kind, mimeType: sniffed.mime };
+      })),
+    register: websiteProcedure
+      .input(z.object({
+        key: z.string().trim().min(1).max(500),
+        fileName: z.string().trim().min(1).max(200),
+        folder: z.string().trim().max(40).default("general"),
+        alt: z.string().trim().max(300).default(""),
+        mimeType: z.string().trim().max(120).optional(),
+        bytes: z.number().int().min(0).optional(),
+        width: z.number().int().min(0).optional(),
+        height: z.number().int().min(0).optional(),
+      }))
+      .mutation(({ ctx, input }) => guard(async () => {
+        const sniffed = sniffWebsiteMedia(input.fileName, input.mimeType);
+        const url = publicMediaUrl(input.key);
+        const [row] = await websiteInsert<MediaRow>("website_media_assets", {
+          kind: sniffed.kind, url, storage_key: input.key, file_name: input.fileName,
+          alt: input.alt, folder: input.folder, width: input.width ?? null, height: input.height ?? null,
+          bytes: input.bytes ?? null, mime_type: sniffed.mime,
+          created_by: ctx.staffCtx.staff.fullName,
+        });
+        await writeWebsiteAudit({
+          action: "cms.media.uploaded", entityType: "media", entityId: row?.id,
+          actorName: ctx.staffCtx.staff.fullName, details: { fileName: input.fileName, folder: input.folder },
+        });
+        return mapMedia(row);
+      })),
+    createExternal: websiteProcedure
+      .input(z.object({
+        url: z.string().trim().url().max(2000),
+        fileName: z.string().trim().max(200).optional(),
+        alt: z.string().trim().max(300).default(""),
+        folder: z.string().trim().max(40).default("general"),
+        kind: z.enum(MEDIA_KINDS).optional(),
+      }))
+      .mutation(({ ctx, input }) => guard(async () => {
+        const name = input.fileName || input.url.split("/").pop() || "asset";
+        const sniffed = sniffWebsiteMedia(name);
+        const [row] = await websiteInsert<MediaRow>("website_media_assets", {
+          kind: input.kind ?? sniffed.kind, url: input.url, storage_key: null, file_name: name,
+          alt: input.alt, folder: input.folder, mime_type: sniffed.mime,
+          created_by: ctx.staffCtx.staff.fullName,
+        });
+        await writeWebsiteAudit({
+          action: "cms.media.linked", entityType: "media", entityId: row?.id,
+          actorName: ctx.staffCtx.staff.fullName, details: { url: input.url },
+        });
+        return mapMedia(row);
+      })),
+    update: websiteProcedure
+      .input(z.object({
+        id: intId,
+        alt: z.string().trim().max(300).optional(),
+        folder: z.string().trim().max(40).optional(),
+      }))
+      .mutation(({ ctx, input }) => guard(async () => {
+        const before = await websiteSelectOne<MediaRow>("website_media_assets", { eq: { id: input.id } });
+        if (!before) notFound("Media");
+        const patch: Record<string, unknown> = {};
+        if (input.alt !== undefined) patch.alt = input.alt;
+        if (input.folder !== undefined) patch.folder = input.folder;
+        const rows = await websiteUpdate<MediaRow>("website_media_assets", { eq: { id: input.id } }, patch);
+        if (!rows[0]) notFound("Media");
+        await writeWebsiteAudit({
+          action: "cms.media.updated", entityType: "media", entityId: input.id,
+          actorName: ctx.staffCtx.staff.fullName,
+        });
+        return mapMedia(rows[0]);
+      })),
+    delete: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const row = await websiteSelectOne<MediaRow>("website_media_assets", { eq: { id: input.id } });
+      if (!row) notFound("Media");
+      if (row.storage_key) await removeWebsiteMedia(row.storage_key);
+      await websiteDelete("website_media_assets", { eq: { id: input.id } });
+      await writeWebsiteAudit({
+        action: "cms.media.deleted", entityType: "media", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { fileName: row.file_name },
+      });
+      return { ok: true as const };
+    })),
+  }),
+
+  /* ── Navigation ─────────────────────────────────────────────────────────── */
+  nav: createRouter({
+    list: websiteProcedure
+      .input(z.object({ menu: z.enum(NAV_MENUS).optional() }).optional())
+      .query(({ input }) => guard(async () => {
+        const filter: WebsiteFilter = {};
+        if (input?.menu) filter.eq = { menu: input.menu };
+        const rows = await websiteSelect<NavRow>("website_nav_items", {
+          ...filter, order: { column: "sort_order", ascending: true }, limit: 200,
+        });
+        return { items: rows.map(mapNav) };
+      })),
+    create: websiteProcedure.input(navInput).mutation(({ ctx, input }) => guard(async () => {
+      const [row] = await websiteInsert<NavRow>("website_nav_items", {
+        menu: input.menu, label: input.label, href: input.href, dropdown: input.dropdown,
+        sort_order: input.sortOrder, visible: input.visible,
+      });
+      await writeWebsiteAudit({
+        action: "cms.nav.created", entityType: "nav", entityId: row?.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { menu: input.menu, label: input.label },
+      });
+      bumpWebsiteJobsCache(["/", "/about", "/services", "/areas", "/careers", "/blog", "/reviews", "/contact"]);
+      return mapNav(row);
+    })),
+    update: websiteProcedure.input(navInput.extend({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const before = await websiteSelectOne<NavRow>("website_nav_items", { eq: { id: input.id } });
+      if (!before) notFound("Nav item");
+      const rows = await websiteUpdate<NavRow>("website_nav_items", { eq: { id: input.id } }, {
+        menu: input.menu, label: input.label, href: input.href, dropdown: input.dropdown,
+        sort_order: input.sortOrder, visible: input.visible, updated_at: new Date().toISOString(),
+      });
+      if (!rows[0]) notFound("Nav item");
+      await writeWebsiteAudit({
+        action: "cms.nav.updated", entityType: "nav", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { label: input.label },
+      });
+      bumpWebsiteJobsCache(["/", "/about", "/services", "/areas", "/careers", "/blog", "/reviews", "/contact"]);
+      return mapNav(rows[0]);
+    })),
+    delete: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const row = await websiteSelectOne<NavRow>("website_nav_items", { eq: { id: input.id } });
+      if (!row) notFound("Nav item");
+      await websiteDelete("website_nav_items", { eq: { id: input.id } });
+      await writeWebsiteAudit({
+        action: "cms.nav.deleted", entityType: "nav", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { label: row.label },
+      });
+      bumpWebsiteJobsCache(["/", "/about", "/services", "/areas", "/careers", "/blog", "/reviews", "/contact"]);
+      return { ok: true as const };
+    })),
+  }),
+
+  /* ── Certifications ─────────────────────────────────────────────────────── */
+  certifications: createRouter({
+    list: websiteProcedure.input(listInput).query(({ input }) => guard(async () => {
+      const limit = input?.limit ?? 50;
+      const offset = input?.offset ?? 0;
+      const filter = baseFilter(CMS_STATUSES, ["code", "label"], input, true);
+      const countBase = baseFilter(CMS_STATUSES, ["code", "label"], input, false);
+      const [rows, total, all, ...perStatus] = await Promise.all([
+        websiteSelect<CertRow>("website_certifications", {
+          ...filter, order: { column: "sort_order", ascending: true }, limit, offset,
+        }),
+        websiteCount("website_certifications", filter),
+        websiteCount("website_certifications", countBase),
+        ...CMS_STATUSES.map((s) => websiteCount("website_certifications", { ...countBase, eq: { status: s } })),
+      ]);
+      const counts: Record<string, number> = { all };
+      CMS_STATUSES.forEach((s, i) => { counts[s] = perStatus[i] ?? 0; });
+      return { items: rows.map(mapCert), total, hasMore: offset + rows.length < total, counts, limit, offset };
+    })),
+    create: websiteProcedure.input(certInput).mutation(({ ctx, input }) => guard(async () => {
+      const [row] = await websiteInsert<CertRow>("website_certifications", {
+        code: input.code, label: input.label, image: input.image, image_alt: input.imageAlt,
+        url: input.url, sort_order: input.sortOrder, status: input.status,
+      });
+      await writeWebsiteAudit({
+        action: "cms.cert.created", entityType: "certification", entityId: row?.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { code: input.code },
+      });
+      bumpWebsiteJobsCache(["/", "/about"]);
+      return mapCert(row);
+    })),
+    update: websiteProcedure.input(certInput.extend({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const before = await websiteSelectOne<CertRow>("website_certifications", { eq: { id: input.id } });
+      if (!before) notFound("Certification");
+      const rows = await websiteUpdate<CertRow>("website_certifications", { eq: { id: input.id } }, {
+        code: input.code, label: input.label, image: input.image, image_alt: input.imageAlt,
+        url: input.url, sort_order: input.sortOrder, status: input.status,
+        updated_at: new Date().toISOString(),
+      });
+      if (!rows[0]) notFound("Certification");
+      await writeWebsiteAudit({
+        action: "cms.cert.updated", entityType: "certification", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { code: input.code },
+      });
+      bumpWebsiteJobsCache(["/", "/about"]);
+      return mapCert(rows[0]);
+    })),
+    delete: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const row = await websiteSelectOne<CertRow>("website_certifications", { eq: { id: input.id } });
+      if (!row) notFound("Certification");
+      await websiteDelete("website_certifications", { eq: { id: input.id } });
+      await writeWebsiteAudit({
+        action: "cms.cert.deleted", entityType: "certification", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { code: row.code },
+      });
+      bumpWebsiteJobsCache(["/", "/about"]);
       return { ok: true as const };
     })),
   }),

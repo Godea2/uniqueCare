@@ -1,9 +1,17 @@
-import { site } from "@/content/site";
+import { site as staticSite } from "@/content/site";
 
-export default function WhatsAppButton() {
+export default function WhatsAppButton({
+  href = staticSite.whatsapp,
+  enabled = true,
+}: {
+  href?: string;
+  /** CMS `whatsappEnabled`; `false` hides the floating button. */
+  enabled?: boolean;
+}) {
+  if (!enabled || !href) return null;
   return (
     <a
-      href={site.whatsapp}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
       aria-label="Chat with us on WhatsApp"

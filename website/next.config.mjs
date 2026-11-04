@@ -12,7 +12,7 @@ const securityHeaders = [
       "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https:",
-      "media-src 'self'",
+      "media-src 'self' https://xjfihknleuwiocoaxsaw.supabase.co https://virdfofjivzlnhqrvwoi.supabase.co",
       "font-src 'self'",
       "connect-src 'self' https://xjfihknleuwiocoaxsaw.supabase.co https://virdfofjivzlnhqrvwoi.supabase.co https://challenges.cloudflare.com",
       "frame-src https://challenges.cloudflare.com",

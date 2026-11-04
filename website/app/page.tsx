@@ -6,11 +6,14 @@ import { getAllPosts, isRemoteImage } from "@/lib/posts-source";
 import { getServices } from "@/lib/services-source";
 import { getAreas } from "@/lib/areas-source";
 import { getSiteSettings, getYearsOfCare } from "@/lib/site-source";
-import { getSection } from "@/lib/sections-source";
+import { asCta, asItems, asString, asStrings, getSectionMap } from "@/lib/sections-source";
+import { getCertifications } from "@/lib/certifications-source";
 import { getApprovedReviews } from "@/lib/supabase";
 import { organizationJsonLd, JsonLd } from "@/lib/jsonld";
 import ServiceCard from "@/components/ServiceCard";
 import CertificationGrid from "@/components/CertificationGrid";
+import CtaLink from "@/components/CtaLink";
+import { iconByName } from "@/components/CmsIcon";
 import HeroVideo from "@/components/HeroVideo";
 import TestimonialCarousel, { type CarouselReview } from "@/components/TestimonialCarousel";
 
@@ -63,17 +66,44 @@ const WHY_US = [
   },
 ];
 
+const DEFAULT_HERO_VIDEOS = [
+  "/videos/hero-home-care.mp4",
+  "/videos/personal-care.mp4",
+  "/videos/companionship.mp4",
+  "/videos/complex-care.mp4",
+  "/videos/home-support.mp4",
+];
+
+function heroVideos(c: Record<string, unknown> | null): string[] {
+  const list = asStrings(c, "videos");
+  if (list.length > 0) return list;
+  const single = asString(c, "videoSrc", "");
+  return single ? [single] : DEFAULT_HERO_VIDEOS;
+}
+
+/** Image that may be a remote CMS URL (not in next/image remotePatterns) or a local /public path. */
+const remote = (src: string) => /^https?:\/\//i.test(src);
+
 export default async function HomePage() {
-  const [dbReviews, posts, services, areas, site, yearsOfCare, heroSection, whySection] = await Promise.all([
+  const [dbReviews, posts, services, areas, site, yearsOfCare, sections, certs] = await Promise.all([
     getApprovedReviews(),
     getAllPosts(),
     getServices(),
     getAreas(),
     getSiteSettings(),
     getYearsOfCare(),
-    getSection("home", "hero"),
-    getSection("home", "why_us"),
+    getSectionMap("home"),
+    getCertifications(),
   ]);
+  const heroSection = sections.hero ?? null;
+  const whySection = sections.why_us ?? null;
+  const whySide = sections.why_side ?? null;
+  const statsSection = sections.stats ?? null;
+  const servicesIntro = sections.services_intro ?? null;
+  const certsIntro = sections.certs_intro ?? null;
+  const testimonialsIntro = sections.testimonials_intro ?? null;
+  const areasIntro = sections.areas_intro ?? null;
+  const closing = sections.closing_cta ?? null;
   const reviews: CarouselReview[] =
     dbReviews.length > 0
       ? dbReviews.map((r) => ({ id: r.id, name: r.name, relationship: r.relationship, rating: r.rating, title: r.title, body: r.body }))
@@ -86,32 +116,52 @@ export default async function HomePage() {
     text: String(
       heroSection?.text ?? "Trusted CQC-rated home care provider, ISO 9001 & 45001 certified for quality and safety.",
     ),
-    videos: Array.isArray(heroSection?.videos)
-      ? (heroSection!.videos as string[])
-      : [
-          "/videos/hero-home-care.mp4",
-          "/videos/personal-care.mp4",
-          "/videos/companionship.mp4",
-          "/videos/complex-care.mp4",
-          "/videos/home-support.mp4",
-        ],
-    poster: String(heroSection?.poster ?? "/images/hero-caregiver.jpg"),
+    videos: heroVideos(heroSection),
+    poster: asString(heroSection, "poster", "/images/hero-caregiver.jpg"),
+    primaryCta: asCta(heroSection, "primaryCta", { label: "Book a free assessment", href: "/contact" }),
+    secondaryCta: asCta(heroSection, "secondaryCta", { label: "Call us", href: site.phonePrimaryTel }),
   };
 
+  const whyRaw = asItems(whySection);
   const whyItems =
-    whySection && Array.isArray(whySection.items) && whySection.items.length > 0
-      ? (whySection.items as { title: string; text: string; icon?: string; thumb?: string }[]).map((item) => ({
-          ...item,
-          icon:
-            WHY_US.find((w) => w.title === item.title)?.icon ??
-            WHY_US[0]!.icon,
-          thumb: item.thumb ?? "/images/cards/why-certified.jpg",
-        }))
+    whyRaw.length > 0
+      ? whyRaw.map((item, i) => {
+          const title = asString(item, "title", "");
+          const fallback = WHY_US.find((w) => w.title === title) ?? WHY_US[i % WHY_US.length]!;
+          return {
+            title: title || fallback.title,
+            text: asString(item, "text", fallback.text),
+            icon: iconByName(item.icon, fallback.icon),
+            thumb: asString(item, "thumb", fallback.thumb),
+          };
+        })
       : WHY_US;
+
+  const whySideImage = asString(whySide, "image", "/images/why-choose-us.jpg");
+  const closingImage = asString(closing, "image", "/images/live-in-care.jpg");
+  const closingPrimary = asCta(closing, "primaryCta", { label: "Book a free assessment", href: "/contact" });
+  const closingSecondary = asCta(closing, "secondaryCta", { label: "View careers", href: "/careers" });
+
+  const statIcons = [Award, Clock3, Users, ShieldCheck];
+  const statsRaw = asItems(statsSection);
+  const stats =
+    statsRaw.length > 0
+      ? statsRaw.map((s, i) => {
+          let figure = asString(s, "label", "");
+          // Keep the "N+ years" figure live rather than a stale number typed into the CMS.
+          if (/^\d+\+?\s*years?$/i.test(figure.trim())) figure = `${yearsOfCare}+ years`;
+          return { icon: iconByName(s.icon, statIcons[i % statIcons.length]), figure, label: asString(s, "text", "") };
+        })
+      : [
+          { icon: Award, figure: "ISO 9001", label: "Quality certified" },
+          { icon: Clock3, figure: "24/7", label: "Support available" },
+          { icon: Users, figure: `${yearsOfCare}+ years`, label: "Of trusted care" },
+        ];
+  const statsGrid = stats.length >= 4 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3";
 
   return (
     <>
-      <JsonLd data={organizationJsonLd()} />
+      <JsonLd data={organizationJsonLd(site)} />
 
       {/* 1. Hero */}
       <section className="relative overflow-hidden" aria-labelledby="home-hero-h">
@@ -135,12 +185,13 @@ export default async function HomePage() {
               {hero.text}
             </p>
             <div className="uc-cta-row mt-8">
-              <Link href="/contact" aria-label="Book a free assessment" className="uc-btn-primary">
-                Book a free assessment <ArrowRight className="h-4 w-4" aria-hidden />
-              </Link>
-              <a href={site.phonePrimaryTel} aria-label="Call us" className="uc-btn-outline">
-                <Phone className="h-4 w-4" aria-hidden /> Call us
-              </a>
+              <CtaLink href={hero.primaryCta.href} ariaLabel={hero.primaryCta.label} className="uc-btn-primary">
+                {hero.primaryCta.label} <ArrowRight className="h-4 w-4" aria-hidden />
+              </CtaLink>
+              <CtaLink href={hero.secondaryCta.href} ariaLabel={hero.secondaryCta.label} className="uc-btn-outline">
+                {hero.secondaryCta.href.startsWith("tel:") && <Phone className="h-4 w-4" aria-hidden />}{" "}
+                {hero.secondaryCta.label}
+              </CtaLink>
             </div>
             <div className="mt-8 inline-flex items-center gap-3 rounded-card bg-white/95 p-4 text-ink shadow-card">
               <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-cqc-good text-white">
@@ -164,13 +215,9 @@ export default async function HomePage() {
 
       {/* Stats strip */}
       <section aria-label="Key facts" className="uc-stats-bar">
-        <div className="mx-auto grid max-w-content grid-cols-1 gap-6 px-4 py-8 sm:grid-cols-3">
-          {[
-            { icon: Award, figure: "ISO 9001", label: "Quality certified" },
-            { icon: Clock3, figure: "24/7", label: "Support available" },
-            { icon: Users, figure: `${yearsOfCare}+ years`, label: "Of trusted care" },
-          ].map((s, i) => (
-            <div key={s.label} className="fade-up flex items-center gap-4" data-stagger={i}>
+        <div className={`mx-auto grid max-w-content grid-cols-1 gap-6 px-4 py-8 ${statsGrid}`}>
+          {stats.map((s, i) => (
+            <div key={`${s.figure}-${s.label}`} className="fade-up flex items-center gap-4" data-stagger={i}>
               <span className="uc-icon-3d h-12 w-12 shrink-0">
                 <s.icon className="h-6 w-6" aria-hidden />
               </span>
@@ -186,11 +233,13 @@ export default async function HomePage() {
       {/* 2. Services */}
       <section aria-labelledby="home-services-h" className="mx-auto max-w-content px-4 py-16 lg:py-24">
         <div className="fade-up">
-          <p className="eyebrow">Services</p>
+          <p className="eyebrow">{asString(servicesIntro, "eyebrow", "Services")}</p>
           <h2 id="home-services-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
-            What we offer
+            {asString(servicesIntro, "title", "What we offer")}
           </h2>
-          <p className="mt-3 max-w-2xl text-ink-muted">Eight specialist care services, all independently certified.</p>
+          <p className="mt-3 max-w-2xl text-ink-muted">
+            {asString(servicesIntro, "subtitle", "Eight specialist care services, all independently certified.")}
+          </p>
         </div>
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {services.slice(0, 4).map((s) => (
@@ -212,15 +261,18 @@ export default async function HomePage() {
         <div className="mx-auto grid max-w-content items-center gap-10 px-4 py-16 lg:py-24 lg:grid-cols-2">
           <div className="fade-up relative">
             <Image
-              src="/images/why-choose-us.jpg"
-              alt="Carer discussing care plan with elderly client at home"
+              src={whySideImage}
+              alt={asString(whySide, "imageAlt", "Carer discussing care plan with elderly client at home")}
               width={1200}
               height={800}
+              unoptimized={remote(whySideImage)}
               className="w-full rounded-card object-cover shadow-card"
             />
             <div className="absolute -bottom-5 left-5 rounded-card bg-white px-5 py-4 shadow-card-hover">
-              <p className="font-heading text-lg font-semibold text-brand-primary">Dual ISO certified</p>
-              <p className="text-sm text-ink-muted">Quality you can verify</p>
+              <p className="font-heading text-lg font-semibold text-brand-primary">
+                {asString(whySide, "overlayTitle", "Dual ISO certified")}
+              </p>
+              <p className="text-sm text-ink-muted">{asString(whySide, "overlayText", "Quality you can verify")}</p>
             </div>
           </div>
           <div>
@@ -260,17 +312,20 @@ export default async function HomePage() {
       <section aria-labelledby="home-certs-h" className="bg-brand-soft">
         <div className="mx-auto max-w-content px-4 py-16 lg:py-24">
           <div className="fade-up">
-            <p className="eyebrow">Certified Quality</p>
+            <p className="eyebrow">{asString(certsIntro, "eyebrow", "Certified Quality")}</p>
             <h2 id="home-certs-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
-              Our certifications
+              {asString(certsIntro, "title", "Our certifications")}
             </h2>
             <p className="mt-3 max-w-2xl text-ink-muted">
-              Independently verified standards you can trust. We go beyond CQC registration with international
-              certifications.
+              {asString(
+                certsIntro,
+                "subtitle",
+                "Independently verified standards you can trust. We go beyond CQC registration with international certifications.",
+              )}
             </p>
           </div>
           <div className="mt-8">
-            <CertificationGrid />
+            <CertificationGrid certs={certs} />
           </div>
         </div>
       </section>
@@ -278,11 +333,14 @@ export default async function HomePage() {
       {/* 5. Testimonials */}
       <section aria-labelledby="home-testimonials-h" className="mx-auto max-w-content px-4 py-16 lg:py-24">
         <div className="fade-up text-center">
+          {testimonialsIntro && asString(testimonialsIntro, "eyebrow", "") && (
+            <p className="eyebrow">{asString(testimonialsIntro, "eyebrow", "")}</p>
+          )}
           <h2 id="home-testimonials-h" className="font-heading text-3xl font-semibold text-ink md:text-4xl">
-            Trusted by families
+            {asString(testimonialsIntro, "title", "Trusted by families")}
           </h2>
           <p className="mt-3 text-ink-muted">
-            Don&apos;t take our word for it. Hear from the people we care for.
+            {asString(testimonialsIntro, "subtitle", "Don't take our word for it. Hear from the people we care for.")}
           </p>
         </div>
         <div className="mt-10">
@@ -340,11 +398,14 @@ export default async function HomePage() {
       {/* 7. Areas we serve */}
       <section aria-labelledby="home-areas-h" className="mx-auto max-w-content px-4 py-16 lg:py-24">
         <div className="fade-up text-center">
+          {areasIntro && asString(areasIntro, "eyebrow", "") && (
+            <p className="eyebrow">{asString(areasIntro, "eyebrow", "")}</p>
+          )}
           <h2 id="home-areas-h" className="font-heading text-3xl font-semibold text-ink md:text-4xl">
-            Areas we serve
+            {asString(areasIntro, "title", "Areas we serve")}
           </h2>
           <p className="mt-3 text-ink-muted">
-            Professional home care across London, Essex, and Hertfordshire.
+            {asString(areasIntro, "subtitle", "Professional home care across London, Essex, and Hertfordshire.")}
           </p>
         </div>
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
@@ -365,28 +426,29 @@ export default async function HomePage() {
         <div className="mx-auto grid max-w-content items-center gap-10 px-4 py-16 lg:py-24 lg:grid-cols-2">
           <div className="fade-up">
             <h2 id="home-closing-h" className="font-heading text-3xl font-semibold text-ink md:text-4xl">
-              Ready to talk about care?
+              {asString(closing, "title", "Ready to talk about care?")}
             </h2>
             <p className="mt-3 text-ink-muted">
-              Book a free, no-obligation assessment. We&apos;ll come to you at a time that suits.
+              {asString(closing, "text", "Book a free, no-obligation assessment. We'll come to you at a time that suits.")}
             </p>
             <div className="uc-cta-row mt-7">
-              <Link href="/contact" aria-label="Book a free assessment" className="uc-btn-primary">
-                Book a free assessment <ArrowRight className="h-4 w-4" aria-hidden />
-              </Link>
-              <Link
-                href="/careers"
+              <CtaLink href={closingPrimary.href} ariaLabel={closingPrimary.label} className="uc-btn-primary">
+                {closingPrimary.label} <ArrowRight className="h-4 w-4" aria-hidden />
+              </CtaLink>
+              <CtaLink
+                href={closingSecondary.href}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3.5 font-semibold text-brand-primary transition hover:bg-brand-soft"
               >
-                View careers
-              </Link>
+                {closingSecondary.label}
+              </CtaLink>
             </div>
           </div>
           <Image
-            src="/images/live-in-care.jpg"
-            alt="Home care environment"
+            src={closingImage}
+            alt={asString(closing, "imageAlt", "Home care environment")}
             width={1200}
             height={800}
+            unoptimized={remote(closingImage)}
             className="fade-up w-full rounded-card object-cover shadow-card"
           />
         </div>

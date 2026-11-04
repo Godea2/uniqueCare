@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import type { RouterOutputs } from "@/lib/router-types";
 import { ConfirmDelete, FilterBar, Pager, rowStyle, thClass, useListParams } from "./shared";
+import { MediaField } from "./MediaPicker";
 
 type Service = RouterOutputs["website"]["services"]["list"]["items"][number];
 const STATUSES = ["draft", "published", "archived"] as const;
@@ -189,10 +190,11 @@ function ServiceEditor({ service, onClose, onSaved }: { service: Service | null;
               <Label htmlFor="svc-short">Short description</Label>
               <Textarea id="svc-short" value={short} onChange={(e) => setShort(e.target.value)} rows={2} maxLength={800} />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="svc-image">Image URL</Label>
-              <Input id="svc-image" value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://… or /images/service.jpg" maxLength={500} />
-            </div>
+            <MediaField
+              id="svc-image" label="Image" kindFilter="image" value={image} onChange={setImage}
+              onAltChange={(a) => { if (!imageAlt) setImageAlt(a); }}
+              placeholder="https://… or /images/service.jpg"
+            />
             <div className="space-y-1.5">
               <Label htmlFor="svc-alt">Image alt text</Label>
               <Input id="svc-alt" value={imageAlt} onChange={(e) => setImageAlt(e.target.value)} maxLength={200} />

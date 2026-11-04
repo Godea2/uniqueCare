@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Phone } from "lucide-react";
 import { getAllPosts } from "@/lib/posts-source";
-import { site } from "@/content/site";
+import { getSiteSettings } from "@/lib/site-source";
+import { asString, getSection } from "@/lib/sections-source";
 import BlogFilter from "@/components/BlogFilter";
 
 export const revalidate = 300;
@@ -15,14 +16,24 @@ export const metadata: Metadata = {
 };
 
 export default async function BlogPage() {
-  const posts = await getAllPosts();
+  const [posts, site, heroS] = await Promise.all([
+    getAllPosts(),
+    getSiteSettings(),
+    getSection("blog", "hero"),
+  ]);
   return (
     <div className="mx-auto max-w-content px-4 pb-16 pt-12 md:pb-20">
       <div className="fade-up">
-        <p className="eyebrow">Blog</p>
-        <h1 className="mt-2 font-heading text-4xl font-semibold text-ink md:text-5xl">Blog &amp; News</h1>
+        <p className="eyebrow">{asString(heroS, "eyebrow", "Blog")}</p>
+        <h1 className="mt-2 font-heading text-4xl font-semibold text-ink md:text-5xl">
+          {asString(heroS, "title", "Blog & News")}
+        </h1>
         <p className="mt-4 max-w-2xl text-lg text-ink-muted">
-          Care advice, company updates, and insights from the Unique Care UK team.
+          {asString(
+            heroS,
+            "subtitle",
+            "Care advice, company updates, and insights from the Unique Care UK team.",
+          )}
         </p>
       </div>
 

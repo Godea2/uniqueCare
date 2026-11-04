@@ -5,26 +5,50 @@ import { adminPortalUrl } from "@/content/site";
 import { getAreas } from "@/lib/areas-source";
 import { getServices } from "@/lib/services-source";
 import { getSiteSettings } from "@/lib/site-source";
+import { getBranches } from "@/lib/branches-source";
+import { getNavItems } from "@/lib/nav-source";
+import { resolveNavHref } from "@/lib/nav-defaults";
+import CtaLink from "@/components/CtaLink";
 import SubscribeForm from "@/components/forms/SubscribeForm";
 
 export default async function Footer() {
-  const [site, services, areas] = await Promise.all([getSiteSettings(), getServices(), getAreas()]);
+  const [site, services, areas, branches, companyNav, legalNav] = await Promise.all([
+    getSiteSettings(),
+    getServices(),
+    getAreas(),
+    getBranches(),
+    getNavItems("footer_company"),
+    getNavItems("footer_legal"),
+  ]);
   const year = new Date().getFullYear();
+  const logo = site.brand.logoUrl;
+  const linkClass = "inline-block py-1.5 hover:text-white hover:underline";
   return (
     <footer className="bg-brand-ink text-white/85">
       <div className="mx-auto grid max-w-content gap-10 px-4 py-14 md:grid-cols-2 lg:grid-cols-4">
         <div>
           <Image
-            src="/images/logo-horizontal.png"
-            alt="Unique Care UK"
+            src={logo}
+            alt={site.name}
             width={896}
             height={161}
+            unoptimized={/^https?:\/\//i.test(logo)}
             className="h-11 w-auto md:h-12"
           />
           <p className="mt-4 text-sm leading-relaxed">{site.footerBlurb}</p>
           <p className="mt-4 flex items-center gap-2 text-sm">
             <span className="uc-icon-3d h-7 w-7 shrink-0"><MapPin className="h-3.5 w-3.5" aria-hidden /></span> {site.footerLocation}
           </p>
+          {branches.length > 0 && (
+            <ul className="mt-2 space-y-0.5 pl-9 text-xs text-white/70">
+              {branches.map((b) => (
+                <li key={b.id}>
+                  {b.name}
+                  {b.city ? ` — ${b.city}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
           <p className="mt-2 flex items-center gap-2 text-sm">
             <span className="uc-icon-3d h-7 w-7 shrink-0"><Phone className="h-3.5 w-3.5" aria-hidden /></span>
             <a href={site.phonePrimaryTel} className="hover:underline">{site.phonePrimary}</a>
@@ -78,11 +102,13 @@ export default async function Footer() {
         <nav aria-label="Company">
           <h2 className="font-heading text-lg font-semibold text-white">Company</h2>
           <ul className="mt-4 space-y-1 text-sm">
-            <li><Link href="/about" className="inline-block py-1.5 hover:text-white hover:underline">About us</Link></li>
-            <li><Link href="/reviews" className="inline-block py-1.5 hover:text-white hover:underline">Reviews</Link></li>
-            <li><Link href="/careers" className="inline-block py-1.5 hover:text-white hover:underline">Careers</Link></li>
-            <li><Link href="/blog" className="inline-block py-1.5 hover:text-white hover:underline">Blog &amp; news</Link></li>
-            <li><Link href="/contact" className="inline-block py-1.5 hover:text-white hover:underline">Contact</Link></li>
+            {companyNav.map((n) => (
+              <li key={n.id}>
+                <CtaLink href={resolveNavHref(n.href, site.phonePrimaryTel)} className={linkClass}>
+                  {n.label}
+                </CtaLink>
+              </li>
+            ))}
           </ul>
         </nav>
       </div>
@@ -100,10 +126,11 @@ export default async function Footer() {
       <div className="border-t border-white/15">
         <div className="mx-auto flex max-w-content flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-5 text-xs text-white/70 md:py-5">
           <span>© {year} {site.legalName}. All rights reserved.</span>
-          <Link href="/privacy" className="inline-block py-1.5 hover:text-white hover:underline">Privacy Policy</Link>
-          <Link href="/terms" className="inline-block py-1.5 hover:text-white hover:underline">Terms of Service</Link>
-          <Link href="/modern-slavery" className="inline-block py-1.5 hover:text-white hover:underline">Modern Slavery Statement</Link>
-          <Link href="/carbon-reduction-plan" className="inline-block py-1.5 hover:text-white hover:underline">Carbon Reduction Plan</Link>
+          {legalNav.map((n) => (
+            <CtaLink key={n.id} href={resolveNavHref(n.href, site.phonePrimaryTel)} className={linkClass}>
+              {n.label}
+            </CtaLink>
+          ))}
           <a href={adminPortalUrl || "#"} rel="nofollow" className="inline-block py-1.5 hover:text-white hover:underline">
             Admin portal
           </a>
