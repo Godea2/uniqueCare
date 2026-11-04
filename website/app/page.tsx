@@ -218,8 +218,8 @@ export default async function HomePage() {
         <div className={`mx-auto grid max-w-content grid-cols-1 gap-6 px-4 py-8 ${statsGrid}`}>
           {stats.map((s, i) => (
             <div key={`${s.figure}-${s.label}`} className="fade-up flex items-center gap-4" data-stagger={i}>
-              <span className="uc-icon-3d h-12 w-12 shrink-0">
-                <s.icon className="h-6 w-6" aria-hidden />
+              <span className="uc-icon h-14 w-14 shrink-0">
+                <s.icon aria-hidden />
               </span>
               <div>
                 <p className="font-heading text-2xl font-semibold text-ink">{s.figure}</p>
@@ -294,8 +294,8 @@ export default async function HomePage() {
                     loading="lazy"
                     className="h-24 w-24 shrink-0 rounded-2xl object-cover"
                   />
-                  <span className="uc-icon-3d h-11 w-11 shrink-0">
-                    <f.icon className="h-5 w-5" aria-hidden />
+                  <span className="uc-icon h-12 w-12 shrink-0">
+                    <f.icon aria-hidden />
                   </span>
                   <div>
                     <h3 className="font-heading text-lg font-semibold text-ink">{f.title}</h3>

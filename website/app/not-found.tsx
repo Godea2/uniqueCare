@@ -5,8 +5,8 @@ import { site } from "@/content/site";
 export default function NotFound() {
   return (
     <div className="mx-auto max-w-content px-4 py-24 text-center">
-      <span className="uc-icon-3d h-16 w-16">
-        <Search className="h-8 w-8" aria-hidden />
+      <span className="uc-icon h-20 w-20">
+        <Search aria-hidden />
       </span>
       <h1 className="mt-6 font-heading text-4xl font-semibold text-ink">We couldn&apos;t find that page</h1>
       <p className="mx-auto mt-3 max-w-md text-ink-muted">

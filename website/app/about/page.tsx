@@ -158,8 +158,8 @@ export default async function AboutPage() {
                       className="h-24 w-24 shrink-0 rounded-2xl object-cover"
                     />
                   )}
-                  <span className="uc-icon-3d h-11 w-11 shrink-0">
-                    <Icon className="h-5 w-5" aria-hidden />
+                  <span className="uc-icon h-12 w-12 shrink-0">
+                    <Icon aria-hidden />
                   </span>
                   <p className="font-medium text-ink">{w.label}</p>
                 </div>
@@ -182,8 +182,8 @@ export default async function AboutPage() {
             <div key={d.title} className="fade-up uc-card overflow-hidden" data-stagger={i}>
               {d.thumb && <img src={d.thumb} alt="" loading="lazy" className="h-44 w-full object-cover" />}
               <div className="p-6">
-                <span className="uc-icon-3d h-12 w-12">
-                  <d.icon className="h-6 w-6" aria-hidden />
+                <span className="uc-icon h-14 w-14">
+                  <d.icon aria-hidden />
                 </span>
                 <h3 className="mt-4 font-heading text-xl font-semibold text-ink">{d.title}</h3>
                 <p className="mt-2 text-[15px] leading-relaxed text-ink-muted">{d.text}</p>

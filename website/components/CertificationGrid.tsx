@@ -56,7 +56,7 @@ export default function CertificationGrid({ certs }: { certs?: Certification[] }
           role="dialog"
           aria-modal="true"
           aria-label={CERTS[open].imageAlt}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-4"
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-ink/70 p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setOpen(null);
           }}

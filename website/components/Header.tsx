@@ -57,13 +57,12 @@ export default function Header({
   const menuTimeout = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
+    const onScroll = () => setScrolled(window.scrollY > 8);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Escape closes an open dropdown
   useEffect(() => {
     if (!openMenu) return;
     const onKey = (e: KeyboardEvent) => {
@@ -73,11 +72,11 @@ export default function Header({
     return () => document.removeEventListener("keydown", onKey);
   }, [openMenu]);
 
-  // close drawer on route change + lock body scroll
   useEffect(() => {
     setDrawer(false);
     setOpenMenu(null);
   }, [pathname]);
+
   useEffect(() => {
     document.body.style.overflow = drawer ? "hidden" : "";
     return () => {
@@ -85,7 +84,6 @@ export default function Header({
     };
   }, [drawer]);
 
-  // close on Esc + simple focus containment
   useEffect(() => {
     if (!drawer) return;
     const onKey = (e: KeyboardEvent) => {
@@ -111,18 +109,9 @@ export default function Header({
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
 
-  // Transparent over the dark video heroes until the user scrolls.
-  const overHero = ["/", "/about", "/careers"].includes(pathname) && !scrolled;
-
   const navLinkClass = (active: boolean) =>
     `block rounded-full px-3.5 py-2 text-[15px] font-medium transition-colors ${
-      overHero
-        ? active
-          ? "bg-white/15 text-white"
-          : "text-white hover:bg-white/10"
-        : active
-          ? "text-brand-primary hover:bg-brand-soft"
-          : "text-ink hover:bg-brand-soft"
+      active ? "bg-brand-soft text-brand-primary" : "text-ink hover:bg-brand-soft hover:text-brand-primary"
     }`;
 
   const openDropdown = (key: string) => {
@@ -134,19 +123,17 @@ export default function Header({
     menuTimeout.current = setTimeout(() => setOpenMenu(null), 150);
   };
 
+  /** Area dropdown lists regions only — parent "Areas We Serve" already opens /areas. */
   const dropdownItems = (kind: "services" | "areas") =>
     kind === "services"
       ? [
           ...services.map((s) => ({ href: `/services/${s.slug}`, label: s.name })),
           { href: "/services", label: "View all services" },
         ]
-      : [
-          ...areas.map((a) => ({ href: `/areas/${a.slug}`, label: a.name })),
-          { href: "/areas", label: "All areas" },
-        ];
+      : areas.map((a) => ({ href: `/areas/${a.slug}`, label: a.name }));
 
   return (
-    <>
+    <div className="sticky top-0 z-[100]">
       {/* Top utility bar */}
       <div className="bg-brand-primary-dark text-white">
         <div className="mx-auto flex max-w-content items-center justify-between gap-4 px-4 py-1.5 text-[13px]">
@@ -166,20 +153,17 @@ export default function Header({
         </div>
       </div>
 
-      {/* Main header */}
+      {/* Main header — always solid white for reliable contrast while scrolling */}
       <header
-        className={`sticky top-0 z-50 transition-[background-color,box-shadow,border-color] ${
-          overHero ? "border-b border-transparent bg-transparent" : "border-b border-line bg-white"
-        } ${scrolled ? "shadow-card" : ""}`}
+        className={`border-b border-line bg-white/95 text-ink backdrop-blur-md transition-shadow ${
+          scrolled ? "shadow-card" : ""
+        }`}
       >
         <div className="mx-auto flex max-w-content items-center justify-between gap-4 px-4 py-3">
-          <Link
-            href="/"
-            aria-label="Unique Care UK ? home"
-            className={`shrink-0 ${overHero ? "rounded-xl bg-white/95 px-2.5 py-1.5 shadow-card" : ""}`}
-          >
+          <Link href="/" aria-label="Unique Care UK home" className="shrink-0">
             <Image
-              src={logo} unoptimized={isRemote(logo)}
+              src={logo}
+              unoptimized={isRemote(logo)}
               alt="Unique Care UK"
               width={896}
               height={161}
@@ -216,18 +200,18 @@ export default function Header({
                       </button>
                       {openMenu === item.dropdown && (
                         <div
-                          className="absolute left-0 top-full w-64 rounded-card border border-line bg-white p-2 shadow-card-hover"
+                          className="absolute left-0 top-full z-[110] w-64 rounded-card border border-line bg-white p-2 shadow-card-hover"
                           onMouseEnter={() => openDropdown(item.dropdown!)}
                           onMouseLeave={closeDropdown}
                         >
                           <ul>
-                            {dropdownItems(item.dropdown).map((d, i) => (
+                            {dropdownItems(item.dropdown).map((d, i, list) => (
                               <li key={d.href}>
                                 <Link
                                   href={d.href}
-                                  onBlur={i === dropdownItems(item.dropdown!).length - 1 ? closeDropdown : undefined}
+                                  onBlur={i === list.length - 1 ? closeDropdown : undefined}
                                   className={`block rounded-lg px-3 py-2 text-sm hover:bg-brand-soft ${
-                                    i === dropdownItems(item.dropdown!).length - 1
+                                    d.href === "/services" && item.dropdown === "services"
                                       ? "font-semibold text-brand-primary"
                                       : "text-ink"
                                   }`}
@@ -257,9 +241,7 @@ export default function Header({
           <div className="flex items-center gap-2">
             <a
               href={site.phonePrimaryTel}
-              className={`inline-flex h-11 w-11 items-center justify-center rounded-full border lg:hidden ${
-                overHero ? "border-white/60 text-white" : "border-line text-brand-primary"
-              }`}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line text-brand-primary lg:hidden"
               aria-label={`Call us on ${site.phonePrimaryDisplay}`}
             >
               <Phone className="h-5 w-5" aria-hidden />
@@ -273,9 +255,7 @@ export default function Header({
             </Link>
             <button
               type="button"
-              className={`inline-flex h-11 w-11 items-center justify-center rounded-full border lg:hidden ${
-                overHero ? "border-white/60 text-white" : "border-line text-ink"
-              }`}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line text-ink lg:hidden"
               aria-expanded={drawer}
               aria-label={drawer ? "Close menu" : "Open menu"}
               onClick={() => setDrawer((v) => !v)}
@@ -288,11 +268,11 @@ export default function Header({
 
       {/* Mobile drawer */}
       {drawer && (
-        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
+        <div className="fixed inset-0 z-[120] lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
           <div className="absolute inset-0 bg-ink/40" onClick={() => setDrawer(false)} aria-hidden />
           <div
             ref={drawerRef}
-            className="absolute right-0 top-0 flex h-full w-[85%] max-w-sm flex-col overflow-y-auto bg-white shadow-card-hover"
+            className="absolute right-0 top-0 flex h-full w-[85%] max-w-sm flex-col overflow-y-auto bg-white text-ink shadow-card-hover"
           >
             <div className="flex items-center justify-between border-b border-line px-5 py-4">
               <Image src={logo} unoptimized={isRemote(logo)} alt="Unique Care UK" width={896} height={161} className="h-9 w-auto" />
@@ -312,7 +292,7 @@ export default function Header({
                     <li key={`${item.label}-${item.href}`}>
                       <button
                         type="button"
-                        className="flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-[15px] font-medium"
+                        className="flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-[15px] font-medium text-ink"
                         aria-expanded={Boolean(accordions[item.dropdown!])}
                         onClick={() =>
                           setAccordions((a) => ({ ...a, [item.dropdown!]: !a[item.dropdown!] }))
@@ -348,16 +328,12 @@ export default function Header({
                         {item.label}
                       </Link>
                     </li>
-                  )
+                  ),
                 )}
               </ul>
             </nav>
             <div className="space-y-2.5 border-t border-line px-5 py-4">
-              <Link
-                href="/contact"
-                aria-label="Get in Touch"
-                className="uc-btn-primary w-full px-5 py-3 text-[15px]"
-              >
+              <Link href="/contact" aria-label="Get in Touch" className="uc-btn-primary w-full px-5 py-3 text-[15px]">
                 Get in Touch
               </Link>
               <a
@@ -370,6 +346,6 @@ export default function Header({
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

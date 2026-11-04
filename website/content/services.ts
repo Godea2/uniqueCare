@@ -17,7 +17,7 @@ export const services: Service[] = [
       "Your home is your castle. There is no better place to be cared for than the comfortable surroundings of your own home. Our comprehensive range of Home Care services ensures that you are well looked after.",
     image: "/images/domiciliary-care.jpg",
     imageAlt: "Domiciliary Care",
-    icon: "home",
+    icon: "hand-heart",
     badge: "Most popular",
     body: [
       "Our domiciliary care programme assists individuals of any age experiencing illness or injury that complicates daily routine management, whether you have recently been discharged from hospital, are living alone and need help with basic routines, or are caring for a sick or vulnerable family member.",
@@ -44,7 +44,7 @@ export const services: Service[] = [
       "Our supported living service provides support to people of all ages with physical or mental health needs, enabling them to live as independently as possible.",
     image: "/images/supported-living.jpg",
     imageAlt: "Supported Living",
-    icon: "building",
+    icon: "users",
     body: [
       "Unique Care UK provides a range of care packages to help service users move from hospitals or residential care homes to living independently in their own homes. We deliver individualised care designed around each person's requirements, emphasising autonomy through the provision of qualified personnel and residential support.",
       "Our services include person-centred care addressing specific client needs, housing provision, trained staff support, independence maintenance assistance, community service access facilitation, and tailored, flexible options that enable you to participate fully in community activities.",
@@ -109,7 +109,7 @@ export const services: Service[] = [
       "Short-term support designed to help you regain independence and confidence after illness, injury, or a stay in hospital. We focus on what you can do, not what you can't.",
     image: "/images/reablement-care.jpg",
     imageAlt: "Reablement Care",
-    icon: "trending-up",
+    icon: "activity",
     body: [
       "Reablement promotes individual independence by helping you regain or retain your confidence and skills so that you can manage on your own again after a period of illness, in the comfort of your own home. The service is short-term, lasting a maximum of six weeks, with the length depending on how quickly you can manage independently.",
       "Our carers support you with personal care including washing, showering and bathing; getting dressed and undressed; toileting and promoting continence; meal preparation and serving; taking medication including prompting, assisting and administering; mobility support; and getting into and out of bed or a chair.",

@@ -156,7 +156,7 @@ export default async function CareersPage() {
             <div key={b.title} className="fade-up uc-card overflow-hidden">
               {b.thumb && <img src={b.thumb} alt="" loading="lazy" className="h-44 w-full object-cover" />}
               <div className="p-6">
-                <span className="uc-icon-3d h-12 w-12">
+                <span className="uc-icon h-14 w-14">
                   <b.icon className="h-6 w-6" aria-hidden />
                 </span>
                 <h3 className="mt-4 font-heading text-lg font-semibold text-ink">{b.title}</h3>
@@ -188,12 +188,12 @@ export default async function CareersPage() {
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-muted">
                       {j.location && (
                         <span className="flex items-center gap-1.5">
-                          <span className="uc-icon-3d h-6 w-6 shrink-0"><MapPin className="h-3 w-3" aria-hidden /></span> {j.location}
+                          <span className="uc-icon-inline"><MapPin className="h-4 w-4" aria-hidden /></span> {j.location}
                         </span>
                       )}
                       {j.type && (
                         <span className="flex items-center gap-1.5">
-                          <span className="uc-icon-3d h-6 w-6 shrink-0"><Clock3 className="h-3 w-3" aria-hidden /></span> {employmentLabel(j.type)}
+                          <span className="uc-icon-inline"><Clock3 className="h-4 w-4" aria-hidden /></span> {employmentLabel(j.type)}
                         </span>
                       )}
                     </p>

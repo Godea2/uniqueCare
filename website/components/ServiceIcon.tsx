@@ -1,15 +1,21 @@
 import {
   Accessibility,
+  Activity,
   BedDouble,
   Brain,
   Building2,
   Coffee,
+  HandHeart,
   HeartHandshake,
+  HeartPulse,
   Home,
+  Stethoscope,
   TrendingUp,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 
+/** Healthcare-oriented icon map for service cards. */
 const MAP: Record<string, LucideIcon> = {
   home: Home,
   bed: BedDouble,
@@ -19,9 +25,14 @@ const MAP: Record<string, LucideIcon> = {
   coffee: Coffee,
   "heart-handshake": HeartHandshake,
   "trending-up": TrendingUp,
+  stethoscope: Stethoscope,
+  "heart-pulse": HeartPulse,
+  activity: Activity,
+  users: Users,
+  "hand-heart": HandHeart,
 };
 
 export default function ServiceIcon({ name, className }: { name: string; className?: string }) {
-  const Icon = MAP[name] ?? Home;
-  return <Icon className={className ?? "h-6 w-6"} aria-hidden />;
+  const Icon = MAP[name] ?? HeartHandshake;
+  return <Icon className={className ?? "h-7 w-7"} aria-hidden strokeWidth={1.75} />;
 }

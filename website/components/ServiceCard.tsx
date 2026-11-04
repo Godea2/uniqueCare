@@ -21,7 +21,7 @@ export default function ServiceCard({ service, full, thumb }: { service: Service
         )}
       </div>
       <div className="flex flex-1 flex-col p-6">
-        <span className="uc-icon-3d h-12 w-12">
+        <span className="uc-icon h-14 w-14">
           <ServiceIcon name={service.icon} />
         </span>
         <h3 className="mt-4 font-heading text-xl font-semibold text-ink">{service.name}</h3>

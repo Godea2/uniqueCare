@@ -15,12 +15,12 @@ export default function JobCard({ job }: { job: WebsiteJob }) {
           <p className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-muted">
             {job.location && (
               <span className="flex items-center gap-1.5">
-                <span className="uc-icon-3d h-6 w-6 shrink-0"><MapPin className="h-3 w-3" aria-hidden /></span> {job.location}
+                <span className="uc-icon-inline"><MapPin className="h-4 w-4" aria-hidden /></span> {job.location}
               </span>
             )}
             {job.type && (
               <span className="flex items-center gap-1.5">
-                <span className="uc-icon-3d h-6 w-6 shrink-0"><Clock3 className="h-3 w-3" aria-hidden /></span> {employmentLabel(job.type)}
+                <span className="uc-icon-inline"><Clock3 className="h-4 w-4" aria-hidden /></span> {employmentLabel(job.type)}
               </span>
             )}
           </p>

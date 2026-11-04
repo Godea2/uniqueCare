@@ -37,24 +37,31 @@ export default async function Footer() {
           />
           <p className="mt-4 text-sm leading-relaxed">{site.footerBlurb}</p>
           <p className="mt-4 flex items-center gap-2 text-sm">
-            <span className="uc-icon-3d h-7 w-7 shrink-0"><MapPin className="h-3.5 w-3.5" aria-hidden /></span> {site.footerLocation}
+            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white">
+              <MapPin className="h-4 w-4" aria-hidden strokeWidth={1.75} />
+            </span>
+            {site.footerLocation}
           </p>
           {branches.length > 0 && (
             <ul className="mt-2 space-y-0.5 pl-9 text-xs text-white/70">
               {branches.map((b) => (
                 <li key={b.id}>
                   {b.name}
-                  {b.city ? ` — ${b.city}` : ""}
+                  {b.city ? ` – ${b.city}` : ""}
                 </li>
               ))}
             </ul>
           )}
           <p className="mt-2 flex items-center gap-2 text-sm">
-            <span className="uc-icon-3d h-7 w-7 shrink-0"><Phone className="h-3.5 w-3.5" aria-hidden /></span>
+            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white">
+              <Phone className="h-4 w-4" aria-hidden strokeWidth={1.75} />
+            </span>
             <a href={site.phonePrimaryTel} className="hover:underline">{site.phonePrimary}</a>
           </p>
           <p className="mt-2 flex items-center gap-2 text-sm">
-            <span className="uc-icon-3d h-7 w-7 shrink-0"><Mail className="h-3.5 w-3.5" aria-hidden /></span>
+            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white">
+              <Mail className="h-4 w-4" aria-hidden strokeWidth={1.75} />
+            </span>
             <a href={`mailto:${site.email}`} className="hover:underline">{site.email}</a>
           </p>
           <div className="mt-4 flex gap-3">
@@ -125,7 +132,7 @@ export default async function Footer() {
 
       <div className="border-t border-white/15">
         <div className="mx-auto flex max-w-content flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-5 text-xs text-white/70 md:py-5">
-          <span>© {year} {site.legalName}. All rights reserved.</span>
+          <span>- {year} {site.legalName}. All rights reserved.</span>
           {legalNav.map((n) => (
             <CtaLink key={n.id} href={resolveNavHref(n.href, site.phonePrimaryTel)} className={linkClass}>
               {n.label}

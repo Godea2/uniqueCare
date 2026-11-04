@@ -43,8 +43,8 @@ export default async function ContactPage() {
 
           <ul className="mt-6 space-y-5">
             <li className="flex gap-3">
-              <span className="uc-icon-3d h-11 w-11 shrink-0">
-                <Phone className="h-5 w-5" aria-hidden />
+              <span className="uc-icon h-12 w-12 shrink-0">
+                <Phone aria-hidden />
               </span>
               <div>
                 <h3 className="font-semibold text-ink">Phone</h3>
@@ -60,8 +60,8 @@ export default async function ContactPage() {
               </div>
             </li>
             <li className="flex gap-3">
-              <span className="uc-icon-3d h-11 w-11 shrink-0">
-                <Mail className="h-5 w-5" aria-hidden />
+              <span className="uc-icon h-12 w-12 shrink-0">
+                <Mail aria-hidden />
               </span>
               <div>
                 <h3 className="font-semibold text-ink">Email</h3>
@@ -73,8 +73,8 @@ export default async function ContactPage() {
               </div>
             </li>
             <li className="flex gap-3">
-              <span className="uc-icon-3d h-11 w-11 shrink-0">
-                <Clock3 className="h-5 w-5" aria-hidden />
+              <span className="uc-icon h-12 w-12 shrink-0">
+                <Clock3 aria-hidden />
               </span>
               <div>
                 <h3 className="font-semibold text-ink">Business Hours</h3>
@@ -82,8 +82,8 @@ export default async function ContactPage() {
               </div>
             </li>
             <li className="flex gap-3">
-              <span className="uc-icon-3d h-11 w-11 shrink-0">
-                <MapPin className="h-5 w-5" aria-hidden />
+              <span className="uc-icon h-12 w-12 shrink-0">
+                <MapPin aria-hidden />
               </span>
               <div>
                 <h3 className="font-semibold text-ink">Our Offices</h3>

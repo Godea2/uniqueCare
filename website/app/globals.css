@@ -235,28 +235,38 @@ textarea:focus-visible,
     font-variant-numeric: tabular-nums;
   }
 
-  /* 3D icon chip — raised blue gradient tile with top highlight, bottom
-     depth, and floor shadow. Pair with size utilities (e.g. h-12 w-12). */
-  .uc-icon-3d {
+  /* Soft brand icon — calm healthcare look (no 3D tile). Pair with size
+     utilities (e.g. h-14 w-14) and a lucide icon at ~55% of the chip. */
+  .uc-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 16px;
-    background: linear-gradient(145deg, #3f9fe0 0%, #1a5fb4 55%, #0c3875 100%);
-    box-shadow:
-      inset 0 2px 2px rgb(255 255 255 / 0.35),
-      inset 0 -3px 6px rgb(0 0 0 / 0.25),
-      0 6px 14px rgb(12 56 117 / 0.35);
-    color: #fff;
-    text-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    background-color: var(--brand-soft);
+    color: var(--brand-primary);
+    border: 1px solid rgb(18 75 153 / 0.12);
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
   }
-  .uc-icon-3d:hover {
-    transform: translateY(-2px);
-    box-shadow:
-      inset 0 2px 2px rgb(255 255 255 / 0.4),
-      inset 0 -3px 6px rgb(0 0 0 / 0.25),
-      0 10px 20px rgb(12 56 117 / 0.4);
+  .uc-icon svg {
+    width: 52%;
+    height: 52%;
+    stroke-width: 1.75;
+  }
+  .uc-icon:hover {
+    background-color: #dceaf7;
+    color: var(--brand-primary-dark);
+  }
+  /* Tiny inline meta icons (job cards, footer) — no chip, just brand stroke. */
+  .uc-icon-inline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--brand-primary);
+  }
+  .uc-icon-inline svg {
+    stroke-width: 1.75;
   }
 }
 
@@ -267,8 +277,8 @@ textarea:focus-visible,
   .uc-btn-primary:hover,
   .uc-btn-outline,
   .uc-btn-outline:hover,
-  .uc-icon-3d,
-  .uc-icon-3d:hover {
+  .uc-icon,
+  .uc-icon:hover {
     transform: none;
     transition: none;
   }
