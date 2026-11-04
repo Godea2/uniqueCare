@@ -99,13 +99,13 @@ export default async function ContactPage() {
                             {o.phoneDisplay || o.phone}
                           </a>
                         )}
-                        {o.phone && (o.email || o.hours) && " · "}
+                        {o.phone && (o.email || o.hours) && " Â· "}
                         {o.email && (
                           <a href={`mailto:${o.email}`} className="hover:text-brand-primary hover:underline">
                             {o.email}
                           </a>
                         )}
-                        {o.email && o.hours && " · "}
+                        {o.email && o.hours && " Â· "}
                         {o.hours}
                       </p>
                     )}

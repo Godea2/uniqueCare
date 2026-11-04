@@ -74,7 +74,7 @@ export default function CertificationGrid({ certs }: { certs?: Certification[] }
               <Image src={CERTS[open].image} alt={CERTS[open].imageAlt} unoptimized={isRemote(CERTS[open].image)} fill sizes="(min-width:768px) 42rem, 90vw" className="object-contain" />
             </div>
             <p className="mt-3 text-center text-sm text-ink-muted">
-              <strong className="text-ink">{CERTS[open].code}</strong> — {CERTS[open].label}
+              <strong className="text-ink">{CERTS[open].code}</strong> â€“ {CERTS[open].label}
             </p>
           </div>
         </div>
