@@ -1,7 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Facebook, Instagram, Linkedin, Mail, MapPin, Phone } from "lucide-react";
-import { adminPortalUrl } from "@/content/site";
 import { getAreas } from "@/lib/areas-source";
 import { getServices } from "@/lib/services-source";
 import { getSiteSettings } from "@/lib/site-source";
@@ -138,9 +137,6 @@ export default async function Footer() {
               {n.label}
             </CtaLink>
           ))}
-          <a href={adminPortalUrl || "#"} rel="nofollow" className="inline-block py-1.5 hover:text-white hover:underline">
-            Admin portal
-          </a>
           <span className="ml-auto">VAT: {site.vat}</span>
         </div>
       </div>
