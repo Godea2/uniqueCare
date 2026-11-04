@@ -13,9 +13,9 @@ type Payload = Record<string, unknown>;
 const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
 const rec = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
-/** Keep digits and a leading + only, e.g. "020 3917 0260" ? "02039170260". */
+/** Keep digits and a leading + only, e.g. "020 3917 0260" -> "02039170260". */
 const digits = (v: string) => v.replace(/[^\d+]/g, "");
-/** UK local number ? tel: link (07958 367038 ? tel:+447958367038). */
+/** UK local number -> tel: link (07958 367038 -> tel:+447958367038). */
 const toTel = (v: string) => {
   const d = digits(v);
   if (!d) return "";
@@ -23,7 +23,7 @@ const toTel = (v: string) => {
   if (d.startsWith("0")) return `tel:+44${d.slice(1)}`;
   return `tel:+${d}`;
 };
-/** UK local number ? WhatsApp link. */
+/** UK local number -> WhatsApp link. */
 const toWhatsapp = (v: string) => {
   const d = digits(v).replace(/^\+/, "");
   if (!d) return "";
@@ -133,7 +133,7 @@ function SettingsForm({ payload, updatedAt }: { payload: Payload; updatedAt: str
         </div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="ss-hours">Opening hours</Label>
-          <Input id="ss-hours" value={hours} onChange={(e) => setHours(e.target.value)} placeholder="Mon–Fri: 9am–5pm | Sat–Sun: 24-hour services" maxLength={300} />
+          <Input id="ss-hours" value={hours} onChange={(e) => setHours(e.target.value)} placeholder="Mon-Fri: 9am-5pm | Sat-Sun: 24-hour services" maxLength={300} />
         </div>
       </Section>
 
@@ -153,18 +153,18 @@ function SettingsForm({ payload, updatedAt }: { payload: Payload; updatedAt: str
 
       <Section title="CQC">
         <Field id="ss-cqc" label="CQC rating" value={cqcRating} onChange={setCqcRating} placeholder="Good" maxLength={40} />
-        <Field id="ss-cqcurl" label="CQC report URL" value={cqcReportUrl} onChange={setCqcReportUrl} placeholder="https://www.cqc.org.uk/location/…" maxLength={500} />
+        <Field id="ss-cqcurl" label="CQC report URL" value={cqcReportUrl} onChange={setCqcReportUrl} placeholder="https://www.cqc.org.uk/location/..." maxLength={500} />
       </Section>
 
       <Section title="Social links">
-        <Field id="ss-fb" label="Facebook" value={facebook} onChange={setFacebook} placeholder="https://facebook.com/…" maxLength={500} />
-        <Field id="ss-ig" label="Instagram" value={instagram} onChange={setInstagram} placeholder="https://instagram.com/…" maxLength={500} />
-        <Field id="ss-li" label="LinkedIn" value={linkedin} onChange={setLinkedin} placeholder="https://linkedin.com/company/…" maxLength={500} />
+        <Field id="ss-fb" label="Facebook" value={facebook} onChange={setFacebook} placeholder="https://facebook.com/..." maxLength={500} />
+        <Field id="ss-ig" label="Instagram" value={instagram} onChange={setInstagram} placeholder="https://instagram.com/..." maxLength={500} />
+        <Field id="ss-li" label="LinkedIn" value={linkedin} onChange={setLinkedin} placeholder="https://linkedin.com/company/..." maxLength={500} />
       </Section>
 
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">{updatedAt ? `Last saved ${fmtDateTime(updatedAt)}` : "Not saved yet — the website is using its built-in defaults."}</p>
-        <Button type="submit" disabled={save.isPending || name.trim().length < 2}>{save.isPending ? "Saving…" : "Save settings"}</Button>
+        <p className="text-xs text-muted-foreground">{updatedAt ? `Last saved ${fmtDateTime(updatedAt)}` : "Not saved yet - the website is using its built-in defaults."}</p>
+        <Button type="submit" disabled={save.isPending || name.trim().length < 2}>{save.isPending ? "Saving..." : "Save settings"}</Button>
       </div>
     </form>
   );

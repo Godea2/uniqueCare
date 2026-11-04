@@ -6,10 +6,16 @@ import { trpc } from "@/providers/trpc";
 import { PageHeader, Loading, ErrorState, EmptyState, Chip, fmtDateTime } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import type { RouterOutputs } from "@/lib/router-types";
-import { ConfirmDelete, ExportButton, FilterBar, Pager, downloadCsv, useListParams } from "./shared";
+import { ConfirmDelete, ExportButton, FilterBar, Pager, downloadCsv, rowStyle, useListParams } from "./shared";
 
 type Review = RouterOutputs["website"]["reviews"]["list"]["items"][number];
 const STATUSES = ["pending", "approved", "rejected"] as const;
+
+const STATUS_LABELS: Record<(typeof STATUSES)[number], string> = {
+  pending: "Pending",
+  approved: "Published",
+  rejected: "Rejected",
+};
 
 function Stars({ rating }: { rating: number }) {
   return (
@@ -30,7 +36,16 @@ export default function Reviews() {
 
   const refresh = () => { void utils.website.reviews.list.invalidate(); void utils.website.dashboard.invalidate(); };
   const patch = trpc.website.reviews.patch.useMutation({
-    onSuccess: (r) => { refresh(); toast.success(r.status === "approved" ? "Review approved and published" : r.status === "rejected" ? "Review rejected" : "Review returned to pending"); },
+    onSuccess: (r) => {
+      refresh();
+      toast.success(
+        r.status === "approved"
+          ? "Review published on the website"
+          : r.status === "rejected"
+            ? "Review rejected"
+            : "Review returned to pending",
+      );
+    },
     onError: (e) => toast.error(e.message),
   });
   const del = trpc.website.reviews.delete.useMutation({
@@ -57,10 +72,10 @@ export default function Reviews() {
     <div>
       <PageHeader
         title="Website reviews"
-        subtitle="Approve reviews before they appear on the public website."
+        subtitle="Moderate public reviews before they appear on the website. Approve to publish immediately."
         actions={<ExportButton busy={exporting} onClick={exportCsv} />}
       />
-      <FilterBar params={params} statuses={STATUSES} counts={q.data?.counts} placeholder="Search name, title, review…" />
+      <FilterBar params={params} statuses={STATUSES} counts={q.data?.counts} labels={STATUS_LABELS} placeholder="Search name, title, review..." />
 
       {q.isLoading ? <Loading rows={5} />
         : q.error ? <ErrorState message={q.error.message} onRetry={() => q.refetch()} />
@@ -69,16 +84,16 @@ export default function Reviews() {
           <>
             <div className="space-y-3">
               {items.map((r) => (
-                <div key={r.id} className="uc-card p-4">
+                <article key={r.id} className="uc-card p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <Stars rating={r.rating} />
-                        <Chip value={r.status} />
+                        <Chip value={r.status} label={STATUS_LABELS[r.status as (typeof STATUSES)[number]] ?? r.status} />
                         <span className="text-xs text-muted-foreground">{fmtDateTime(r.createdAt)}</span>
                       </div>
-                      <p className="mt-1.5 font-medium">{r.title}</p>
-                      <p className="text-xs text-muted-foreground">{r.name} · {r.relationship}</p>
+                      <h3 className="mt-1.5 font-medium text-[--ink-900]">{r.title}</h3>
+                      <p className="text-xs text-muted-foreground">{r.name}  /  {r.relationship}</p>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {r.status !== "approved" && (
@@ -101,8 +116,13 @@ export default function Reviews() {
                       </Button>
                     </div>
                   </div>
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-[--ink-900]">{r.body}</p>
-                </div>
+                  <p className="mt-3 whitespace-pre-wrap rounded-xl border bg-white/70 p-3 text-sm leading-relaxed text-[--ink-900]" style={rowStyle}>
+                    {r.body}
+                  </p>
+                  {r.approvedAt && (
+                    <p className="mt-2 text-[11px] text-muted-foreground">Published {fmtDateTime(r.approvedAt)}</p>
+                  )}
+                </article>
               ))}
             </div>
             <Pager offset={params.offset} limit={params.limit} total={q.data?.total ?? 0} onChange={params.setOffset} />
@@ -113,7 +133,7 @@ export default function Reviews() {
         open={!!deleting}
         onOpenChange={(v) => { if (!v) setDeleting(null); }}
         title="Delete this review?"
-        description={<>The review “{deleting?.title}” by {deleting?.name} will be permanently removed{deleting?.status === "approved" ? " and disappear from the public website" : ""}.</>}
+        description={<>The review "{deleting?.title}" by {deleting?.name} will be permanently removed{deleting?.status === "approved" ? " and disappear from the public website" : ""}.</>}
         busy={del.isPending}
         onConfirm={() => deleting && del.mutate({ id: deleting.id })}
       />

@@ -37,7 +37,7 @@ import type { StaffRole } from "@db/schema";
 
 type EnquiryRow = {
   id: string; full_name: string; email: string; phone: string | null; enquiry_type: string;
-  care_type: string | null; message: string; status: string; created_at: string;
+  care_type: string | null; message: string; source_page: string | null; status: string; created_at: string;
 };
 type ReviewRow = {
   id: string; name: string; relationship: string; rating: number; title: string; body: string;
@@ -243,7 +243,7 @@ const slugify = (s: string): string =>
 
 const mapEnquiry = (e: EnquiryRow) => ({
   id: e.id, name: e.full_name, email: e.email, phone: e.phone, enquiryType: e.enquiry_type,
-  careType: e.care_type, message: e.message, status: e.status, createdAt: e.created_at,
+  careType: e.care_type, message: e.message, sourcePage: e.source_page, status: e.status, createdAt: e.created_at,
 });
 const mapReview = (r: ReviewRow) => ({
   id: r.id, name: r.name, relationship: r.relationship, rating: r.rating, title: r.title, body: r.body,
@@ -732,8 +732,8 @@ export const websiteRouter = createRouter({
         table: "website_enquiries", statuses: ENQUIRY_STATUSES, input, searchColumns: ["full_name", "email", "message", "phone"],
       });
       return csvResult("website-enquiries", [
-        ["ID", "Name", "Email", "Phone", "Enquiry type", "Care type", "Message", "Status", "Received"],
-        ...rows.map((e) => [e.id, e.full_name, e.email, e.phone, e.enquiry_type, e.care_type, e.message, e.status, e.created_at]),
+        ["ID", "Name", "Email", "Phone", "Enquiry type", "Care type", "Message", "Source page", "Status", "Received"],
+        ...rows.map((e) => [e.id, e.full_name, e.email, e.phone, e.enquiry_type, e.care_type, e.message, e.source_page, e.status, e.created_at]),
       ]);
     })),
   }),

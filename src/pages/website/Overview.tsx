@@ -27,6 +27,7 @@ export default function WebsiteOverview() {
   if (q.isLoading) return <Loading rows={6} />;
   if (q.error) return <ErrorState message={q.error.message} onRetry={() => q.refetch()} />;
   const d = q.data!;
+  const ops = d.ops;
 
   return (
     <div>
@@ -35,12 +36,12 @@ export default function WebsiteOverview() {
         subtitle="Enquiries, reviews, applications and content from the public Unique Care UK website. Registered Manager only."
       />
 
-      {d.ops.mailProvider === "none" && (
+      {ops?.mailProvider === "none" && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
-          Outbound email is not configured on the portal. Newsletter sends and enquiry replies need SMTP (or Microsoft Graph) under System ? Settings. Website contact/review notices also fall back here when Resend is unavailable.
+          Outbound email is not configured on the portal. Newsletter sends and enquiry replies need SMTP (or Microsoft Graph) under System Settings. Website contact/review notices also fall back here when Resend is unavailable.
         </div>
       )}
-      {d.ops.mailProvider !== "none" && (!d.ops.websiteUrlConfigured || !d.ops.revalidateSecretConfigured) && (
+      {ops && ops.mailProvider !== "none" && (!ops.websiteUrlConfigured || !ops.revalidateSecretConfigured) && (
         <div className="mb-6 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950" role="status">
           Set <code className="text-xs">WEBSITE_URL</code> and <code className="text-xs">WEBSITE_REVALIDATE_SECRET</code> on the portal (matching the website <code className="text-xs">REVALIDATE_SECRET</code>) so blog, reviews and CMS edits refresh the live site immediately.
         </div>
@@ -50,19 +51,19 @@ export default function WebsiteOverview() {
         <StatCard
           label="New enquiries" value={d.enquiryCounts.new} icon={MessageSquare}
           tone={d.enquiryCounts.new > 0 ? "warn" : "default"}
-          hint={`${d.enquiryCounts.total} total · ${d.lastSevenDays.enquiries} in the last 7 days`}
+          hint={`${d.enquiryCounts.total} total / ${d.lastSevenDays.enquiries} in the last 7 days`}
           onClick={() => navigate("/website/enquiries")}
         />
         <StatCard
           label="Reviews awaiting approval" value={d.reviewCounts.pending} icon={Star}
           tone={d.reviewCounts.pending > 0 ? "warn" : "default"}
-          hint={`${d.reviewCounts.approved} published · ${d.reviewCounts.rejected} rejected`}
+          hint={`${d.reviewCounts.approved} published / ${d.reviewCounts.rejected} rejected`}
           onClick={() => navigate("/website/reviews")}
         />
         <StatCard
           label="New applications" value={d.applicationCounts.new} icon={Briefcase}
           tone={d.applicationCounts.new > 0 ? "warn" : "default"}
-          hint={`${d.applicationCounts.shortlisted} shortlisted · ${d.applicationCounts.total} total`}
+          hint={`${d.applicationCounts.shortlisted} shortlisted / ${d.applicationCounts.total} total`}
           onClick={() => navigate("/website/applications")}
         />
         <StatCard
@@ -153,7 +154,12 @@ export default function WebsiteOverview() {
               {d.recentReviews.map((r) => (
                 <li key={r.id} className="flex items-start justify-between gap-3 px-4 py-3" style={{ borderColor: "var(--line)" }}>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">{r.title} <span className="text-xs font-normal text-muted-foreground">· {r.rating}/5 · {r.name}</span></p>
+                    <p className="text-sm font-medium">
+                      {r.title}{" "}
+                      <span className="text-xs font-normal text-muted-foreground">
+                        ({r.rating}/5) - {r.name}
+                      </span>
+                    </p>
                     <p className="truncate text-xs text-muted-foreground">{r.body}</p>
                   </div>
                   <Chip value={r.status} />
