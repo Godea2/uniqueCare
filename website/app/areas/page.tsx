@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, MapPin } from "lucide-react";
-import { areas } from "@/content/areas";
+import { getAreas } from "@/lib/areas-source";
 
 export const metadata: Metadata = {
   title: "Areas We Serve | Home Care London & Hertfordshire | Unique Care UK",
@@ -10,7 +10,10 @@ export const metadata: Metadata = {
   alternates: { canonical: "/areas" },
 };
 
-export default function AreasPage() {
+export const revalidate = 60;
+
+export default async function AreasPage() {
+  const areas = await getAreas();
   return (
     <div className="mx-auto max-w-content px-4 pb-16 pt-12 md:pb-20">
       <div className="fade-up">
@@ -22,10 +25,7 @@ export default function AreasPage() {
       </div>
       <div className="mt-10 grid gap-6 md:grid-cols-3">
         {areas.map((a) => (
-          <article
-            key={a.slug}
-            className="fade-up uc-card flex flex-col overflow-hidden"
-          >
+          <article key={a.slug} className="fade-up uc-card flex flex-col overflow-hidden">
             <img src="/images/cards/why-local.jpg" alt="" loading="lazy" className="h-40 w-full object-cover" />
             <div className="flex flex-1 flex-col p-6">
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-brand-secondary">

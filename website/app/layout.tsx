@@ -23,7 +23,7 @@ const body = localFont({
   variable: "--font-body",
   display: "swap",
 });
-import { site } from "@/content/site";
+import { site as staticSite } from "@/content/site";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import CtaBand from "@/components/CtaBand";
@@ -33,9 +33,12 @@ import MobileCtaBar from "@/components/MobileCtaBar";
 import PublicChrome from "@/components/PublicChrome";
 import JsonLd from "@/components/JsonLd";
 import { organizationJsonLd } from "@/lib/jsonld";
+import { getAreas } from "@/lib/areas-source";
+import { getServices } from "@/lib/services-source";
+import { getSiteSettings } from "@/lib/site-source";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(site.url),
+  metadataBase: new URL(staticSite.url),
   title: { default: "Unique Care UK | Home Care in London & Hertfordshire", template: "%s" },
   description:
     "Professional domiciliary, live-in care, and supported living across London and Hertfordshire. Compassionate, personalised home care.",
@@ -63,13 +66,27 @@ export const metadata: Metadata = {
   icons: { icon: "/favicon.ico", apple: "/apple-touch-icon.png" },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const [site, services, areas] = await Promise.all([getSiteSettings(), getServices(), getAreas()]);
   return (
     <html lang="en-GB" className={`${heading.variable} ${body.variable}`}>
       <body>
         <JsonLd data={organizationJsonLd()} />
         <PublicChrome
-          header={<Header />}
+          header={
+            <Header
+              services={services}
+              areas={areas}
+              site={{
+                phonePrimary: site.phonePrimary,
+                phonePrimaryTel: site.phonePrimaryTel,
+                phonePrimaryDisplay: site.phonePrimaryDisplay,
+                phoneMobile: site.phoneMobile,
+                phoneMobileTel: site.phoneMobileTel,
+                email: site.email,
+              }}
+            />
+          }
           footer={<Footer />}
           cta={<CtaBand />}
           floating={

@@ -16,6 +16,10 @@ export const WEBSITE_TABLES = [
   "website_posts",
   "website_audit_log",
   "website_backlinks",
+  "website_site_settings",
+  "website_services",
+  "website_areas",
+  "website_page_sections",
 ] as const;
 
 export type WebsiteTable = (typeof WEBSITE_TABLES)[number];

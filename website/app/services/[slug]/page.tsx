@@ -3,17 +3,21 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight, Phone } from "lucide-react";
-import { getService, otherServices, services } from "@/content/services";
-import { site } from "@/content/site";
+import { getOtherServices, getServiceBySlug, getServices } from "@/lib/services-source";
+import { getSiteSettings } from "@/lib/site-source";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import { JsonLd, serviceJsonLd } from "@/lib/jsonld";
 
-export function generateStaticParams() {
+export const revalidate = 60;
+export const dynamicParams = true;
+
+export async function generateStaticParams() {
+  const services = await getServices();
   return services.map((s) => ({ slug: s.slug }));
 }
 
-export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
-  const s = getService(params.slug);
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const s = await getServiceBySlug(params.slug);
   if (!s) return {};
   return {
     title: `${s.name} Services | Unique Care UK`,
@@ -22,8 +26,12 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   };
 }
 
-export default function ServicePage({ params }: { params: { slug: string } }) {
-  const s = getService(params.slug);
+export default async function ServicePage({ params }: { params: { slug: string } }) {
+  const [s, site, others] = await Promise.all([
+    getServiceBySlug(params.slug),
+    getSiteSettings(),
+    getOtherServices(params.slug),
+  ]);
   if (!s) notFound();
 
   return (
@@ -32,7 +40,6 @@ export default function ServicePage({ params }: { params: { slug: string } }) {
       <Breadcrumbs items={[{ name: "Services", url: "/services" }, { name: s.name, url: `/services/${s.slug}` }]} />
 
       <div className="mx-auto max-w-content px-4 pb-16 pt-6 md:pb-20">
-        {/* Hero */}
         <div className="fade-up max-w-3xl">
           <h1 className="font-heading text-4xl font-semibold text-ink md:text-5xl">{s.name}</h1>
           <p className="mt-4 text-lg leading-relaxed text-ink-muted">{s.short}</p>
@@ -85,7 +92,7 @@ export default function ServicePage({ params }: { params: { slug: string } }) {
             <nav aria-label="Other services" className="rounded-card border border-line bg-white p-6 shadow-card">
               <h2 className="font-heading text-xl font-semibold text-ink">Other Services</h2>
               <ul className="mt-3 space-y-2">
-                {otherServices(s.slug).map((o) => (
+                {others.map((o) => (
                   <li key={o.slug}>
                     <Link
                       href={`/services/${o.slug}`}

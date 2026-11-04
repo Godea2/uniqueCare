@@ -2,19 +2,23 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight, Award, Leaf, MapPin, Phone, ShieldCheck } from "lucide-react";
-import { areas, getArea, otherAreas } from "@/content/areas";
-import { services } from "@/content/services";
-import { site } from "@/content/site";
+import { getAreaBySlug, getAreas, getOtherAreas } from "@/lib/areas-source";
+import { getServices } from "@/lib/services-source";
+import { getSiteSettings } from "@/lib/site-source";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import ServiceCard, { excerpt } from "@/components/ServiceCard";
 import { JsonLd, localBusinessJsonLd } from "@/lib/jsonld";
 
-export function generateStaticParams() {
+export const revalidate = 60;
+export const dynamicParams = true;
+
+export async function generateStaticParams() {
+  const areas = await getAreas();
   return areas.map((a) => ({ slug: a.slug }));
 }
 
-export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
-  const a = getArea(params.slug);
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const a = await getAreaBySlug(params.slug);
   if (!a) return {};
   return {
     title: `Home Care in ${a.name} | Unique Care UK`,
@@ -23,8 +27,13 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   };
 }
 
-export default function AreaPage({ params }: { params: { slug: string } }) {
-  const a = getArea(params.slug);
+export default async function AreaPage({ params }: { params: { slug: string } }) {
+  const [a, site, services, also] = await Promise.all([
+    getAreaBySlug(params.slug),
+    getSiteSettings(),
+    getServices(),
+    getOtherAreas(params.slug),
+  ]);
   if (!a) notFound();
 
   const whyItems = [
@@ -160,7 +169,7 @@ export default function AreaPage({ params }: { params: { slug: string } }) {
             We also serve these areas
           </h2>
           <div className="mt-4 flex flex-wrap gap-3">
-            {otherAreas(a.slug).map((o) => (
+            {also.map((o) => (
               <Link
                 key={o.slug}
                 href={`/areas/${o.slug}`}

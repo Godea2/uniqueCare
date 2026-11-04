@@ -58,6 +58,10 @@ import WebsiteApplications from "./pages/website/Applications";
 import WebsiteSubscribers from "./pages/website/Subscribers";
 import WebsiteNewsletters from "./pages/website/Newsletters";
 import WebsitePosts from "./pages/website/Posts";
+import WebsiteSiteSettings from "./pages/website/SiteSettings";
+import WebsiteCmsServices from "./pages/website/CmsServices";
+import WebsiteCmsAreas from "./pages/website/CmsAreas";
+import WebsitePageSections from "./pages/website/PageSections";
 import WebsiteAudit from "./pages/website/Audit";
 
 import Careers from "./pages/public/Careers";
@@ -181,6 +185,10 @@ export default function App() {
       <Route path="/website/subscribers" element={<Guard roles={["super_admin"]}><WebsiteSubscribers /></Guard>} />
       <Route path="/website/newsletters" element={<Guard roles={["super_admin"]}><WebsiteNewsletters /></Guard>} />
       <Route path="/website/posts" element={<Guard roles={["super_admin"]}><WebsitePosts /></Guard>} />
+      <Route path="/website/settings" element={<Guard roles={["super_admin"]}><WebsiteSiteSettings /></Guard>} />
+      <Route path="/website/services" element={<Guard roles={["super_admin"]}><WebsiteCmsServices /></Guard>} />
+      <Route path="/website/areas" element={<Guard roles={["super_admin"]}><WebsiteCmsAreas /></Guard>} />
+      <Route path="/website/sections" element={<Guard roles={["super_admin"]}><WebsitePageSections /></Guard>} />
       <Route path="/website/audit" element={<Guard roles={["super_admin"]}><WebsiteAudit /></Guard>} />
 
       <Route path="/home" element={<Navigate to="/" replace />} />

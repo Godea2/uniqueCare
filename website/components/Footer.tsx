@@ -1,12 +1,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Facebook, Instagram, Linkedin, Mail, MapPin, Phone } from "lucide-react";
-import { services } from "@/content/services";
-import { areas } from "@/content/areas";
-import { adminPortalUrl, site } from "@/content/site";
+import { adminPortalUrl } from "@/content/site";
+import { getAreas } from "@/lib/areas-source";
+import { getServices } from "@/lib/services-source";
+import { getSiteSettings } from "@/lib/site-source";
 import SubscribeForm from "@/components/forms/SubscribeForm";
 
-export default function Footer() {
+export default async function Footer() {
+  const [site, services, areas] = await Promise.all([getSiteSettings(), getServices(), getAreas()]);
   const year = new Date().getFullYear();
   return (
     <footer className="bg-brand-ink text-white/85">
@@ -19,10 +21,7 @@ export default function Footer() {
             height={161}
             className="h-11 w-auto md:h-12"
           />
-          <p className="mt-4 text-sm leading-relaxed">
-            ISO 9001 &amp; ISO 45001 certified home care provider. Compassionate, personalised care across
-            London, Essex, and Hertfordshire since 2017.
-          </p>
+          <p className="mt-4 text-sm leading-relaxed">{site.footerBlurb}</p>
           <p className="mt-4 flex items-center gap-2 text-sm">
             <span className="uc-icon-3d h-7 w-7 shrink-0"><MapPin className="h-3.5 w-3.5" aria-hidden /></span> {site.footerLocation}
           </p>

@@ -1,7 +1,14 @@
 import { Link, useNavigate } from "react-router";
-import { MessageSquare, Star, Briefcase, Mail, Newspaper, FileText } from "lucide-react";
+import { MessageSquare, Star, Briefcase, Mail, Newspaper, FileText, Settings, HeartHandshake, MapPin, LayoutTemplate } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { PageHeader, StatCard, Loading, ErrorState, EmptyState, Chip, fmtDateTime } from "@/components/common";
+
+const CONTENT_LINKS = [
+  { to: "/website/settings", label: "Site settings", hint: "Contact details, footer, CQC and social links", icon: Settings },
+  { to: "/website/services", label: "Services", hint: "Care services shown on the website", icon: HeartHandshake },
+  { to: "/website/areas", label: "Areas", hint: "Locations we cover", icon: MapPin },
+  { to: "/website/sections", label: "Page sections", hint: "Text blocks on Home, About, Careers, Contact", icon: LayoutTemplate },
+] as const;
 
 export default function WebsiteOverview() {
   const navigate = useNavigate();
@@ -53,6 +60,24 @@ export default function WebsiteOverview() {
           onClick={() => navigate("/website/posts")}
         />
       </div>
+
+      <section className="mb-8">
+        <h2 className="mb-2 text-sm font-semibold text-[--brand-900]">Website content</h2>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {CONTENT_LINKS.map(({ to, label, hint, icon: Icon }) => (
+            <Link
+              key={to} to={to}
+              className="uc-card uc-focus flex items-start gap-3 p-4 transition-colors hover:border-[--brand-500]"
+            >
+              <span className="mt-0.5 rounded-lg bg-[--brand-50] p-2 text-[--brand-900]"><Icon className="h-4 w-4" aria-hidden /></span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">{label}</span>
+                <span className="block text-xs text-muted-foreground">{hint}</span>
+              </span>
+            </Link>
+          ))}
+        </div>
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section>

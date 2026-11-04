@@ -25,5 +25,10 @@ export async function GET(req: Request) {
     revalidatePath(path);
   }
   revalidateTag("website-jobs");
+  revalidateTag("website-posts");
+  revalidateTag("website-cms");
+  revalidateTag("website-site");
+  revalidateTag("website-services");
+  revalidateTag("website-areas");
   return NextResponse.json({ revalidated: true, at: new Date().toISOString() });
 }

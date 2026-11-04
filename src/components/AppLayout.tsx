@@ -10,6 +10,7 @@ import {
   CalendarRange, Stethoscope, FileCheck2, GraduationCap, Network,
   ClipboardCheck, Star, AlertTriangle, FileText, FileOutput, ChevronDown, PhoneCall,
   HelpCircle, Map, Compass, Menu, X, Globe, MessageSquare, Mail, Newspaper,
+  HeartHandshake, MapPin, LayoutTemplate,
 } from "lucide-react";
 import { AvatarDot } from "./common";
 import { startFullTour, startPageTour } from "@/tours/tours";
@@ -106,6 +107,10 @@ const NAV: NavGroup[] = [
       { label: "Subscribers", path: "/website/subscribers", icon: Mail, roles: ["super_admin"] },
       { label: "Newsletters", path: "/website/newsletters", icon: Newspaper, roles: ["super_admin"] },
       { label: "Blog posts", path: "/website/posts", icon: FileText, roles: ["super_admin"] },
+      { label: "Settings", path: "/website/settings", icon: Settings, roles: ["super_admin"] },
+      { label: "Services", path: "/website/services", icon: HeartHandshake, roles: ["super_admin"] },
+      { label: "Areas", path: "/website/areas", icon: MapPin, roles: ["super_admin"] },
+      { label: "Page sections", path: "/website/sections", icon: LayoutTemplate, roles: ["super_admin"] },
       { label: "Audit log", path: "/website/audit", icon: ScrollText, roles: ["super_admin"] },
     ],
   },

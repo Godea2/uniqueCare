@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Award, Clock3, Heart, MapPin, Phone, ShieldCheck, Sparkles, Users } from "lucide-react";
-import { services } from "@/content/services";
-import { areas } from "@/content/areas";
 import { getAllPosts, isRemoteImage } from "@/lib/posts-source";
-import { site, yearsOfCare } from "@/content/site";
+import { getServices } from "@/lib/services-source";
+import { getAreas } from "@/lib/areas-source";
+import { getSiteSettings, getYearsOfCare } from "@/lib/site-source";
+import { getSection } from "@/lib/sections-source";
 import { getApprovedReviews } from "@/lib/supabase";
 import { organizationJsonLd, JsonLd } from "@/lib/jsonld";
 import ServiceCard from "@/components/ServiceCard";
@@ -63,11 +64,50 @@ const WHY_US = [
 ];
 
 export default async function HomePage() {
-  const [dbReviews, posts] = await Promise.all([getApprovedReviews(), getAllPosts()]);
+  const [dbReviews, posts, services, areas, site, yearsOfCare, heroSection, whySection] = await Promise.all([
+    getApprovedReviews(),
+    getAllPosts(),
+    getServices(),
+    getAreas(),
+    getSiteSettings(),
+    getYearsOfCare(),
+    getSection("home", "hero"),
+    getSection("home", "why_us"),
+  ]);
   const reviews: CarouselReview[] =
     dbReviews.length > 0
       ? dbReviews.map((r) => ({ id: r.id, name: r.name, relationship: r.relationship, rating: r.rating, title: r.title, body: r.body }))
       : [SEED_REVIEW];
+
+  const hero = {
+    eyebrow: String(heroSection?.eyebrow ?? "ISO certified care provider"),
+    title: String(heroSection?.title ?? "Exceptional care in the comfort of your home"),
+    subtitle: String(heroSection?.subtitle ?? "Care that meets the standard. Compassion that exceeds it."),
+    text: String(
+      heroSection?.text ?? "Trusted CQC-rated home care provider, ISO 9001 & 45001 certified for quality and safety.",
+    ),
+    videos: Array.isArray(heroSection?.videos)
+      ? (heroSection!.videos as string[])
+      : [
+          "/videos/hero-home-care.mp4",
+          "/videos/personal-care.mp4",
+          "/videos/companionship.mp4",
+          "/videos/complex-care.mp4",
+          "/videos/home-support.mp4",
+        ],
+    poster: String(heroSection?.poster ?? "/images/hero-caregiver.jpg"),
+  };
+
+  const whyItems =
+    whySection && Array.isArray(whySection.items) && whySection.items.length > 0
+      ? (whySection.items as { title: string; text: string; icon?: string; thumb?: string }[]).map((item) => ({
+          ...item,
+          icon:
+            WHY_US.find((w) => w.title === item.title)?.icon ??
+            WHY_US[0]!.icon,
+          thumb: item.thumb ?? "/images/cards/why-certified.jpg",
+        }))
+      : WHY_US;
 
   return (
     <>
@@ -76,29 +116,23 @@ export default async function HomePage() {
       {/* 1. Hero */}
       <section className="relative overflow-hidden" aria-labelledby="home-hero-h">
         <HeroVideo
-          src="/videos/hero-home-care.mp4"
-          poster="/images/hero-caregiver.jpg"
-          sources={[
-            "/videos/hero-home-care.mp4",
-            "/videos/personal-care.mp4",
-            "/videos/companionship.mp4",
-            "/videos/complex-care.mp4",
-            "/videos/home-support.mp4",
-          ]}
+          src={hero.videos[0] ?? "/videos/hero-home-care.mp4"}
+          poster={hero.poster}
+          sources={hero.videos}
         />
         <div className="relative mx-auto max-w-content px-4 py-24 md:py-32">
           <div className="fade-up max-w-2xl text-white">
             <span className="inline-block rounded-full bg-brand-secondary px-4 py-1.5 text-xs font-semibold uppercase tracking-wide">
-              ISO certified care provider
+              {hero.eyebrow}
             </span>
             <h1 id="home-hero-h" className="mt-5 font-heading font-semibold">
-              Exceptional care in the comfort of your home
+              {hero.title}
             </h1>
             <p className="mt-4 font-heading text-xl text-white/90 md:text-2xl">
-              Care that meets the standard. Compassion that exceeds it.
+              {hero.subtitle}
             </p>
             <p className="mt-3 text-white/85 md:text-lg">
-              Trusted CQC-rated home care provider, ISO 9001 &amp; 45001 certified for quality and safety.
+              {hero.text}
             </p>
             <div className="uc-cta-row mt-8">
               <Link href="/contact" aria-label="Book a free assessment" className="uc-btn-primary">
@@ -168,7 +202,7 @@ export default async function HomePage() {
             href="/services"
             className="inline-flex items-center gap-2 rounded-full border-2 border-brand-primary px-6 py-3 font-semibold text-brand-primary transition hover:bg-brand-soft"
           >
-            View all 8 services <ArrowRight className="h-4 w-4" aria-hidden />
+            View all {services.length} services <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>
         </div>
       </section>
@@ -191,16 +225,16 @@ export default async function HomePage() {
           </div>
           <div>
             <div className="fade-up">
-              <p className="eyebrow">Why us</p>
+              <p className="eyebrow">{String(whySection?.eyebrow ?? "Why us")}</p>
               <h2 id="home-why-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
-                What makes us different
+                {String(whySection?.title ?? "What makes us different")}
               </h2>
               <p className="mt-3 text-ink-muted">
-                In a market with 45+ providers, here&apos;s why families choose us.
+                {String(whySection?.subtitle ?? "In a market with 45+ providers, here's why families choose us.")}
               </p>
             </div>
             <div className="mt-8 space-y-6">
-              {WHY_US.map((f, i) => (
+              {whyItems.map((f, i) => (
                 <div key={f.title} className="fade-up flex gap-4" data-stagger={i}>
                   <img
                     src={f.thumb}

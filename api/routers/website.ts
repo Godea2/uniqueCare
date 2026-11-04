@@ -48,6 +48,21 @@ type AuditRow = {
 type BacklinkRow = {
   id: number; domain: string; url: string | null; notes: string | null; status: string; created_at: string;
 };
+type SiteSettingsRow = { id: string; payload: Record<string, unknown>; updated_at: string };
+type ServiceRow = {
+  id: number; slug: string; name: string; short: string; image: string; image_alt: string; icon: string;
+  badge: string | null; body: unknown; sort_order: number; status: string;
+  seo_title: string | null; seo_description: string | null; created_at: string; updated_at: string;
+};
+type AreaRow = {
+  id: number; slug: string; name: string; region: string; intro: string; surrounding: string;
+  sort_order: number; status: string; seo_title: string | null; seo_description: string | null;
+  created_at: string; updated_at: string;
+};
+type SectionRow = {
+  id: number; page_key: string; section_key: string; label: string; content: unknown;
+  sort_order: number; status: string; updated_at: string;
+};
 
 /* ── Constants ─────────────────────────────────────────────────────────────── */
 
@@ -59,6 +74,7 @@ export const NEWSLETTER_STATUSES = ["draft", "sent"] as const;
 export const POST_STATUSES = ["draft", "published", "archived"] as const;
 export const POST_CATEGORIES = ["Care Advice", "Company News", "Health Tips", "Industry Updates"] as const;
 export const BACKLINK_STATUSES = ["pending", "acquired"] as const;
+export const CMS_STATUSES = ["draft", "published", "archived"] as const;
 
 const EXPORT_CAP = 5000;
 
@@ -215,6 +231,32 @@ const mapPost = (p: PostRow) => ({
 const mapBacklink = (b: BacklinkRow) => ({
   id: b.id, domain: b.domain, url: b.url, notes: b.notes, status: b.status, createdAt: b.created_at,
 });
+const mapService = (s: ServiceRow | undefined) => {
+  if (!s) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Service row missing" });
+  const body = Array.isArray(s.body) ? s.body.map(String) : [];
+  return {
+    id: s.id, slug: s.slug, name: s.name, short: s.short, image: s.image, imageAlt: s.image_alt,
+    icon: s.icon, badge: s.badge, body, sortOrder: s.sort_order, status: s.status,
+    seoTitle: s.seo_title, seoDescription: s.seo_description,
+    createdAt: s.created_at, updatedAt: s.updated_at,
+  };
+};
+const mapArea = (a: AreaRow | undefined) => {
+  if (!a) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Area row missing" });
+  return {
+    id: a.id, slug: a.slug, name: a.name, region: a.region, intro: a.intro, surrounding: a.surrounding,
+    sortOrder: a.sort_order, status: a.status, seoTitle: a.seo_title, seoDescription: a.seo_description,
+    createdAt: a.created_at, updatedAt: a.updated_at,
+  };
+};
+const mapSection = (s: SectionRow | undefined) => {
+  if (!s) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Section row missing" });
+  return {
+    id: s.id, pageKey: s.page_key, sectionKey: s.section_key, label: s.label,
+    content: (s.content && typeof s.content === "object" ? s.content : {}) as Record<string, unknown>,
+    sortOrder: s.sort_order, status: s.status, updatedAt: s.updated_at,
+  };
+};
 
 /* ── Newsletter email ──────────────────────────────────────────────────────── */
 
@@ -371,6 +413,68 @@ async function uniqueSlug(wanted: string, excludeId?: number): Promise<string> {
   if (clash) throw new TRPCError({ code: "CONFLICT", message: `A post with the slug “${slug}” already exists.` });
   return slug;
 }
+
+async function uniqueServiceSlug(wanted: string, excludeId?: number): Promise<string> {
+  const slug = wanted || "service";
+  const clash = await websiteSelectOne<{ id: number }>("website_services", {
+    columns: "id", eq: { slug }, ...(excludeId ? { neq: { id: excludeId } } : {}),
+  });
+  if (clash) throw new TRPCError({ code: "CONFLICT", message: `A service with the slug “${slug}” already exists.` });
+  return slug;
+}
+
+async function uniqueAreaSlug(wanted: string, excludeId?: number): Promise<string> {
+  const slug = wanted || "area";
+  const clash = await websiteSelectOne<{ id: number }>("website_areas", {
+    columns: "id", eq: { slug }, ...(excludeId ? { neq: { id: excludeId } } : {}),
+  });
+  if (clash) throw new TRPCError({ code: "CONFLICT", message: `An area with the slug “${slug}” already exists.` });
+  return slug;
+}
+
+function sectionRevalidatePaths(pageKey: string): string[] {
+  if (pageKey === "home") return ["/", "/careers", "/about"];
+  if (pageKey === "about") return ["/about"];
+  if (pageKey === "careers") return ["/careers", "/careers/jobs"];
+  if (pageKey === "contact") return ["/contact"];
+  return ["/", `/${pageKey}`];
+}
+
+const serviceInput = z.object({
+  name: z.string().trim().min(2).max(120),
+  slug: z.string().trim().max(80).optional(),
+  short: z.string().trim().max(800).default(""),
+  image: z.string().trim().max(500).default(""),
+  imageAlt: z.string().trim().max(200).default(""),
+  icon: z.string().trim().max(40).default("home"),
+  badge: z.string().trim().max(80).optional(),
+  body: z.array(z.string().max(5000)).max(12).default([]),
+  sortOrder: z.number().int().min(0).max(9999).default(0),
+  status: z.enum(CMS_STATUSES).default("draft"),
+  seoTitle: z.string().trim().max(200).optional(),
+  seoDescription: z.string().trim().max(400).optional(),
+});
+
+const areaInput = z.object({
+  name: z.string().trim().min(2).max(120),
+  slug: z.string().trim().max(80).optional(),
+  region: z.string().trim().max(120).default(""),
+  intro: z.string().trim().max(2000).default(""),
+  surrounding: z.string().trim().max(500).default(""),
+  sortOrder: z.number().int().min(0).max(9999).default(0),
+  status: z.enum(CMS_STATUSES).default("draft"),
+  seoTitle: z.string().trim().max(200).optional(),
+  seoDescription: z.string().trim().max(400).optional(),
+});
+
+const sectionInput = z.object({
+  pageKey: z.string().trim().min(1).max(60),
+  sectionKey: z.string().trim().min(1).max(60),
+  label: z.string().trim().max(120).default(""),
+  content: z.record(z.string(), z.unknown()).default({}),
+  sortOrder: z.number().int().min(0).max(9999).default(0),
+  status: z.enum(CMS_STATUSES).default("published"),
+});
 
 /* ── Router ────────────────────────────────────────────────────────────────── */
 
@@ -882,6 +986,219 @@ export const websiteRouter = createRouter({
         action: "backlink.deleted", entityType: "backlink", entityId: input.id,
         actorName: ctx.staffCtx.staff.fullName, details: { domain: row.domain },
       });
+      return { ok: true as const };
+    })),
+  }),
+
+  /* ── CMS: site settings, services, areas, page sections ─────────────────── */
+  siteSettings: createRouter({
+    get: websiteProcedure.query(() => guard(async () => {
+      const row = await websiteSelectOne<SiteSettingsRow>("website_site_settings", { eq: { id: "default" } });
+      return {
+        id: "default" as const,
+        payload: (row?.payload && typeof row.payload === "object" ? row.payload : {}) as Record<string, unknown>,
+        updatedAt: row?.updated_at ?? null,
+      };
+    })),
+    update: websiteProcedure.input(z.object({ payload: z.record(z.string(), z.unknown()) })).mutation(({ ctx, input }) => guard(async () => {
+      const existing = await websiteSelectOne<SiteSettingsRow>("website_site_settings", { eq: { id: "default" } });
+      const now = new Date().toISOString();
+      if (existing) {
+        await websiteUpdate<SiteSettingsRow>("website_site_settings", { eq: { id: "default" } }, {
+          payload: input.payload as never, updated_at: now,
+        });
+      } else {
+        await websiteInsert<SiteSettingsRow>("website_site_settings", {
+          id: "default", payload: input.payload as never, updated_at: now,
+        });
+      }
+      await writeWebsiteAudit({
+        action: "cms.site_settings.updated", entityType: "site_settings", entityId: "default",
+        actorName: ctx.staffCtx.staff.fullName,
+      });
+      bumpWebsiteJobsCache(["/", "/contact", "/about", "/careers"]);
+      return { ok: true as const, updatedAt: now };
+    })),
+  }),
+
+  services: createRouter({
+    list: websiteProcedure.input(listInput).query(({ input }) => guard(async () => {
+      const limit = input?.limit ?? 50;
+      const offset = input?.offset ?? 0;
+      const filter = baseFilter(CMS_STATUSES, ["name", "slug", "short"], input, true);
+      const countBase = baseFilter(CMS_STATUSES, ["name", "slug", "short"], input, false);
+      const [rows, total, all, ...perStatus] = await Promise.all([
+        websiteSelect<ServiceRow>("website_services", {
+          ...filter, order: { column: "sort_order", ascending: true }, limit, offset,
+        }),
+        websiteCount("website_services", filter),
+        websiteCount("website_services", countBase),
+        ...CMS_STATUSES.map((s) => websiteCount("website_services", { ...countBase, eq: { status: s } })),
+      ]);
+      const counts: Record<string, number> = { all };
+      CMS_STATUSES.forEach((s, i) => { counts[s] = perStatus[i] ?? 0; });
+      return { items: rows.map(mapService), total, hasMore: offset + rows.length < total, counts, limit, offset };
+    })),
+    create: websiteProcedure.input(serviceInput).mutation(({ ctx, input }) => guard(async () => {
+      const slug = await uniqueServiceSlug(slugify(input.slug || input.name));
+      const [row] = await websiteInsert<ServiceRow>("website_services", {
+        slug, name: input.name, short: input.short, image: input.image, image_alt: input.imageAlt,
+        icon: input.icon, badge: input.badge || null, body: input.body as never,
+        sort_order: input.sortOrder, status: input.status,
+        seo_title: input.seoTitle || null, seo_description: input.seoDescription || null,
+      });
+      await writeWebsiteAudit({
+        action: "cms.service.created", entityType: "service", entityId: row?.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { slug, status: input.status },
+      });
+      bumpWebsiteJobsCache(["/", "/services", `/services/${slug}`]);
+      return mapService(row);
+    })),
+    update: websiteProcedure.input(serviceInput.extend({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const before = await websiteSelectOne<ServiceRow>("website_services", { eq: { id: input.id } });
+      if (!before) notFound("Service");
+      const slug = await uniqueServiceSlug(slugify(input.slug || input.name), input.id);
+      const rows = await websiteUpdate<ServiceRow>("website_services", { eq: { id: input.id } }, {
+        slug, name: input.name, short: input.short, image: input.image, image_alt: input.imageAlt,
+        icon: input.icon, badge: input.badge || null, body: input.body as never,
+        sort_order: input.sortOrder, status: input.status,
+        seo_title: input.seoTitle || null, seo_description: input.seoDescription || null,
+        updated_at: new Date().toISOString(),
+      });
+      if (!rows[0]) notFound("Service");
+      await writeWebsiteAudit({
+        action: "cms.service.updated", entityType: "service", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { slug },
+      });
+      bumpWebsiteJobsCache(["/", "/services", `/services/${slug}`, `/services/${before.slug}`]);
+      return mapService(rows[0]);
+    })),
+    delete: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const row = await websiteSelectOne<ServiceRow>("website_services", { eq: { id: input.id } });
+      if (!row) notFound("Service");
+      await websiteDelete("website_services", { eq: { id: input.id } });
+      await writeWebsiteAudit({
+        action: "cms.service.deleted", entityType: "service", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { slug: row.slug },
+      });
+      bumpWebsiteJobsCache(["/", "/services", `/services/${row.slug}`]);
+      return { ok: true as const };
+    })),
+  }),
+
+  areasCms: createRouter({
+    list: websiteProcedure.input(listInput).query(({ input }) => guard(async () => {
+      const limit = input?.limit ?? 50;
+      const offset = input?.offset ?? 0;
+      const filter = baseFilter(CMS_STATUSES, ["name", "slug", "region", "intro"], input, true);
+      const countBase = baseFilter(CMS_STATUSES, ["name", "slug", "region", "intro"], input, false);
+      const [rows, total, all, ...perStatus] = await Promise.all([
+        websiteSelect<AreaRow>("website_areas", {
+          ...filter, order: { column: "sort_order", ascending: true }, limit, offset,
+        }),
+        websiteCount("website_areas", filter),
+        websiteCount("website_areas", countBase),
+        ...CMS_STATUSES.map((s) => websiteCount("website_areas", { ...countBase, eq: { status: s } })),
+      ]);
+      const counts: Record<string, number> = { all };
+      CMS_STATUSES.forEach((s, i) => { counts[s] = perStatus[i] ?? 0; });
+      return { items: rows.map(mapArea), total, hasMore: offset + rows.length < total, counts, limit, offset };
+    })),
+    create: websiteProcedure.input(areaInput).mutation(({ ctx, input }) => guard(async () => {
+      const slug = await uniqueAreaSlug(slugify(input.slug || input.name));
+      const [row] = await websiteInsert<AreaRow>("website_areas", {
+        slug, name: input.name, region: input.region, intro: input.intro, surrounding: input.surrounding,
+        sort_order: input.sortOrder, status: input.status,
+        seo_title: input.seoTitle || null, seo_description: input.seoDescription || null,
+      });
+      await writeWebsiteAudit({
+        action: "cms.area.created", entityType: "area", entityId: row?.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { slug },
+      });
+      bumpWebsiteJobsCache(["/", "/areas", `/areas/${slug}`]);
+      return mapArea(row);
+    })),
+    update: websiteProcedure.input(areaInput.extend({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const before = await websiteSelectOne<AreaRow>("website_areas", { eq: { id: input.id } });
+      if (!before) notFound("Area");
+      const slug = await uniqueAreaSlug(slugify(input.slug || input.name), input.id);
+      const rows = await websiteUpdate<AreaRow>("website_areas", { eq: { id: input.id } }, {
+        slug, name: input.name, region: input.region, intro: input.intro, surrounding: input.surrounding,
+        sort_order: input.sortOrder, status: input.status,
+        seo_title: input.seoTitle || null, seo_description: input.seoDescription || null,
+        updated_at: new Date().toISOString(),
+      });
+      if (!rows[0]) notFound("Area");
+      await writeWebsiteAudit({
+        action: "cms.area.updated", entityType: "area", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { slug },
+      });
+      bumpWebsiteJobsCache(["/", "/areas", `/areas/${slug}`, `/areas/${before.slug}`]);
+      return mapArea(rows[0]);
+    })),
+    delete: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const row = await websiteSelectOne<AreaRow>("website_areas", { eq: { id: input.id } });
+      if (!row) notFound("Area");
+      await websiteDelete("website_areas", { eq: { id: input.id } });
+      await writeWebsiteAudit({
+        action: "cms.area.deleted", entityType: "area", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName, details: { slug: row.slug },
+      });
+      bumpWebsiteJobsCache(["/", "/areas", `/areas/${row.slug}`]);
+      return { ok: true as const };
+    })),
+  }),
+
+  sections: createRouter({
+    list: websiteProcedure
+      .input(z.object({ pageKey: z.string().max(60).optional() }).optional())
+      .query(({ input }) => guard(async () => {
+        const filter: WebsiteFilter = {};
+        if (input?.pageKey) filter.eq = { page_key: input.pageKey };
+        const rows = await websiteSelect<SectionRow>("website_page_sections", {
+          ...filter, order: { column: "sort_order", ascending: true }, limit: 200,
+        });
+        return { items: rows.map(mapSection) };
+      })),
+    upsert: websiteProcedure.input(sectionInput).mutation(({ ctx, input }) => guard(async () => {
+      const existing = await websiteSelectOne<SectionRow>("website_page_sections", {
+        eq: { page_key: input.pageKey, section_key: input.sectionKey },
+      });
+      const now = new Date().toISOString();
+      let row: SectionRow | undefined;
+      if (existing) {
+        const rows = await websiteUpdate<SectionRow>("website_page_sections", { eq: { id: existing.id } }, {
+          label: input.label, content: input.content as never, sort_order: input.sortOrder,
+          status: input.status, updated_at: now,
+        });
+        row = rows[0];
+      } else {
+        const inserted = await websiteInsert<SectionRow>("website_page_sections", {
+          page_key: input.pageKey, section_key: input.sectionKey, label: input.label,
+          content: input.content as never, sort_order: input.sortOrder, status: input.status, updated_at: now,
+        });
+        row = inserted[0];
+      }
+      await writeWebsiteAudit({
+        action: existing ? "cms.section.updated" : "cms.section.created",
+        entityType: "page_section", entityId: row?.id,
+        actorName: ctx.staffCtx.staff.fullName,
+        details: { pageKey: input.pageKey, sectionKey: input.sectionKey },
+      });
+      const paths = sectionRevalidatePaths(input.pageKey);
+      bumpWebsiteJobsCache(paths);
+      return mapSection(row);
+    })),
+    delete: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const row = await websiteSelectOne<SectionRow>("website_page_sections", { eq: { id: input.id } });
+      if (!row) notFound("Section");
+      await websiteDelete("website_page_sections", { eq: { id: input.id } });
+      await writeWebsiteAudit({
+        action: "cms.section.deleted", entityType: "page_section", entityId: input.id,
+        actorName: ctx.staffCtx.staff.fullName,
+        details: { pageKey: row.page_key, sectionKey: row.section_key },
+      });
+      bumpWebsiteJobsCache(sectionRevalidatePaths(row.page_key));
       return { ok: true as const };
     })),
   }),

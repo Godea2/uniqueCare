@@ -5,9 +5,20 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Mail, Menu, Phone, X } from "lucide-react";
-import { services } from "@/content/services";
-import { areas } from "@/content/areas";
-import { site } from "@/content/site";
+import { services as staticServices, type Service } from "@/content/services";
+import { areas as staticAreas, type Area } from "@/content/areas";
+import { site as staticSite } from "@/content/site";
+
+type NavService = Pick<Service, "slug" | "name">;
+type NavArea = Pick<Area, "slug" | "name">;
+type HeaderSite = {
+  phonePrimary: string;
+  phonePrimaryTel: string;
+  phonePrimaryDisplay: string;
+  phoneMobile: string;
+  phoneMobileTel: string;
+  email: string;
+};
 
 const NAV = [
   { href: "/", label: "Home" },
@@ -19,7 +30,15 @@ const NAV = [
   { href: "/reviews", label: "Reviews" },
 ];
 
-export default function Header() {
+export default function Header({
+  services = staticServices,
+  areas = staticAreas,
+  site = staticSite,
+}: {
+  services?: NavService[];
+  areas?: NavArea[];
+  site?: HeaderSite;
+}) {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
