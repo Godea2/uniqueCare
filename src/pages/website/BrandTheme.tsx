@@ -34,11 +34,11 @@ const THEME_FIELDS = [
 ] as const;
 
 const BRAND_FIELDS = [
-  { key: "logoUrl", label: "Logo (horizontal)" },
-  { key: "logoMarkUrl", label: "Logo mark" },
-  { key: "faviconUrl", label: "Favicon" },
-  { key: "ogImageUrl", label: "Social share image (Open Graph)" },
-  { key: "appleTouchIconUrl", label: "Apple touch icon" },
+  { key: "logoUrl", label: "Logo (horizontal)", fallback: "/images/logo-horizontal.png" },
+  { key: "logoMarkUrl", label: "Logo mark", fallback: "/images/logo-mark.png" },
+  { key: "faviconUrl", label: "Favicon", fallback: "/favicon.ico" },
+  { key: "ogImageUrl", label: "Social share image (Open Graph)", fallback: "/images/og-image.png" },
+  { key: "appleTouchIconUrl", label: "Apple touch icon", fallback: "/apple-touch-icon.png" },
 ] as const;
 
 export default function BrandTheme() {
@@ -69,7 +69,7 @@ function BrandForm({ payload, updatedAt }: { payload: Payload; updatedAt: string
     () => Object.fromEntries(THEME_FIELDS.map((f) => [f.key, str(theme[f.key]) || f.fallback])),
   );
   const [assets, setAssets] = useState<Record<string, string>>(
-    () => Object.fromEntries(BRAND_FIELDS.map((f) => [f.key, str(brand[f.key])])),
+    () => Object.fromEntries(BRAND_FIELDS.map((f) => [f.key, str(brand[f.key]) || f.fallback])),
   );
 
   const [defaultTitle, setDefaultTitle] = useState(str(seo.defaultTitle));

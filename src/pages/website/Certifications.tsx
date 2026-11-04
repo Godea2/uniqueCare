@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import type { RouterOutputs } from "@/lib/router-types";
 import { ConfirmDelete, FilterBar, Pager, rowStyle, thClass, useListParams } from "./shared";
-import { MediaField } from "./MediaPicker";
+import { MediaField, resolvePublicAssetUrl } from "./MediaPicker";
 
 type Cert = RouterOutputs["website"]["certifications"]["list"]["items"][number];
 const STATUSES = ["draft", "published", "archived"] as const;
@@ -62,7 +62,7 @@ export default function Certifications() {
                       <td className="max-w-96 px-4 py-2">
                         <div className="flex items-center gap-3">
                           {c.image ? (
-                            <img src={c.image} alt={c.imageAlt || c.code} className="h-10 w-10 shrink-0 rounded-md border object-contain" style={rowStyle} />
+                            <img src={resolvePublicAssetUrl(c.image)} alt={c.imageAlt || c.code} className="h-10 w-10 shrink-0 rounded-md border object-contain" style={rowStyle} />
                           ) : (
                             <span className="h-10 w-10 shrink-0 rounded-md border bg-slate-50" style={rowStyle} aria-hidden />
                           )}

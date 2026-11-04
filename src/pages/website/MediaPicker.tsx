@@ -20,6 +20,23 @@ export type MediaKind = "image" | "video";
 /** Suggested folders. The API accepts any short folder name. */
 export const MEDIA_FOLDERS = ["general", "brand", "hero", "services", "areas", "branches", "certifications", "team", "blog"] as const;
 
+/** Public marketing site origin — relative CMS paths like `/images/x.png` live there, not on the portal. */
+export const WEBSITE_URL =
+  (import.meta.env.VITE_WEBSITE_URL as string | undefined)?.replace(/\/$/, "") || "https://uniquecareuk.com";
+
+/**
+ * Resolve a CMS asset URL for preview in the portal.
+ * Absolute http(s) and data: URLs pass through; site-relative `/…` paths are prefixed with the public site.
+ */
+export function resolvePublicAssetUrl(url: string): string {
+  const v = url.trim();
+  if (!v) return "";
+  if (/^(https?:|data:|blob:)/i.test(v)) return v;
+  if (v.startsWith("//")) return `https:${v}`;
+  if (v.startsWith("/")) return `${WEBSITE_URL}${v}`;
+  return v;
+}
+
 const PAGE_SIZE = 24;
 
 export function formatBytes(bytes: number | null | undefined): string {
@@ -63,12 +80,13 @@ export function useMediaUpload() {
 
 /** Square preview of an asset (image, video frame or file icon). */
 export function MediaThumb({ asset, className }: { asset: Pick<MediaAsset, "kind" | "url" | "alt" | "fileName">; className?: string }) {
+  const src = resolvePublicAssetUrl(asset.url);
   return (
     <div className={cn("flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-slate-100", className)}>
       {asset.kind === "image" ? (
-        <img src={asset.url} alt={asset.alt || asset.fileName} loading="lazy" className="h-full w-full object-cover" />
+        <img src={src} alt={asset.alt || asset.fileName} loading="lazy" className="h-full w-full object-cover" />
       ) : asset.kind === "video" ? (
-        <video src={asset.url} muted preload="metadata" className="h-full w-full object-cover" aria-label={asset.fileName} />
+        <video src={src} muted preload="metadata" className="h-full w-full object-cover" aria-label={asset.fileName} />
       ) : (
         <FileText className="h-8 w-8 text-muted-foreground" aria-hidden />
       )}
@@ -301,6 +319,39 @@ export function MediaPicker({
  * URL text input with a "Browse" button that opens the MediaPicker.
  * The text input stays editable as a fallback for relative paths such as /images/x.jpg.
  */
+function looksLikeImageUrl(url: string, kindFilter?: MediaKind): boolean {
+  if (kindFilter === "video") return false;
+  if (kindFilter === "image") return !!url.trim();
+  return /\.(png|jpe?g|gif|webp|avif|svg|ico)(\?|$)/i.test(url.trim());
+}
+
+/** Tiny preview that hides itself if the asset fails to load. */
+function FieldPreview({ url }: { url: string }) {
+  const [broken, setBroken] = useState(false);
+  const src = resolvePublicAssetUrl(url);
+  useEffect(() => { setBroken(false); }, [src]);
+  if (!src || broken) {
+    return (
+      <span
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-slate-50 text-muted-foreground"
+        style={{ borderColor: "var(--line)" }}
+        aria-hidden
+      >
+        <ImageIcon className="h-4 w-4" />
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      className="h-9 w-9 shrink-0 rounded-md border bg-white object-contain p-0.5"
+      style={{ borderColor: "var(--line)" }}
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
 export function MediaField({
   id, label, value, onChange, onAltChange, kindFilter, placeholder, hint, maxLength = 500,
 }: {
@@ -316,14 +367,12 @@ export function MediaField({
   maxLength?: number;
 }) {
   const [open, setOpen] = useState(false);
-  const isImage = kindFilter !== "video" && /\.(png|jpe?g|gif|webp|avif|svg|ico)(\?|$)/i.test(value);
+  const showPreview = looksLikeImageUrl(value, kindFilter);
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id}>{label}</Label>
       <div className="flex gap-2">
-        {isImage && (
-          <img src={value} alt="" className="h-9 w-9 shrink-0 rounded-md border object-cover" style={{ borderColor: "var(--line)" }} />
-        )}
+        {showPreview && <FieldPreview url={value} />}
         <Input id={id} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder ?? "https://… or /images/file.jpg"} maxLength={maxLength} />
         <Button type="button" variant="outline" size="sm" className="h-9 shrink-0" onClick={() => setOpen(true)}>
           <ImageIcon className="mr-1.5 h-3.5 w-3.5" />Browse
