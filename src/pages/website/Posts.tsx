@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import type { RouterOutputs } from "@/lib/router-types";
 import { ConfirmDelete, FilterBar, Pager, rowStyle, thClass, useListParams } from "./shared";
+import { MediaField } from "./MediaPicker";
 
 type Post = RouterOutputs["website"]["posts"]["list"]["items"][number];
 const STATUSES = ["draft", "published", "archived"] as const;
@@ -153,9 +154,17 @@ function PostEditor({ post, onClose, onSaved }: { post: Post | null; onClose: ()
               <Label htmlFor="post-slug">URL slug</Label>
               <Input id="post-slug" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="auto from title" maxLength={80} />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="post-image">Image URL</Label>
-              <Input id="post-image" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://… or /images/blog-1.jpg" maxLength={2000} />
+            <div className="space-y-1.5 sm:col-span-2">
+              <MediaField
+                id="post-image"
+                label="Cover image"
+                value={imageUrl}
+                onChange={setImageUrl}
+                kindFilter="image"
+                maxLength={2000}
+                placeholder="Browse media library or paste https://… /images/…"
+                hint="Published posts show this image on the public blog."
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Category</Label>

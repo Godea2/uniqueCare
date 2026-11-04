@@ -72,6 +72,60 @@ app.get("/api/public/jobs", async (c) => {
   }
 });
 
+/**
+ * Website → portal email bridge. The marketing site prefers Resend; when that
+ * fails (or is unset), it POSTs here so SMTP/Graph on the portal still delivers
+ * enquiry/review/subscribe notifications.
+ *
+ * Auth: Bearer token = WEBSITE_NOTIFY_SECRET || WEBSITE_REVALIDATE_SECRET || REVALIDATE_SECRET
+ * (must match the website's notify/revalidate secret).
+ */
+app.post("/api/public/website-notify", async (c) => {
+  const auth = c.req.header("authorization") ?? "";
+  const secret =
+    process.env.WEBSITE_NOTIFY_SECRET
+    || process.env.WEBSITE_REVALIDATE_SECRET
+    || process.env.REVALIDATE_SECRET
+    || "";
+  if (!secret || auth !== `Bearer ${secret}`) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  let body: { to?: string; subject?: string; html?: string; text?: string; replyTo?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+  const to = typeof body.to === "string" ? body.to.trim() : "";
+  const subject = typeof body.subject === "string" ? body.subject.trim() : "";
+  const html = typeof body.html === "string" ? body.html : "";
+  if (!to || !subject || !html) {
+    return c.json({ error: "to, subject and html are required" }, 400);
+  }
+  try {
+    const { sendEmail } = await import("./lib/mailer");
+    const text = typeof body.text === "string" && body.text.trim()
+      ? body.text
+      : html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 5000);
+    const result = await sendEmail({
+      to,
+      subject,
+      body: text,
+      html,
+      kind: "website_notify",
+      relatedType: "website",
+      // Do not queue private content indefinitely; website already logged the failure.
+      privateLink: false,
+    });
+    if (!result.delivered) {
+      return c.json({ error: result.error || "Delivery failed" }, 502);
+    }
+    return c.json({ ok: true });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Send failed" }, 500);
+  }
+});
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

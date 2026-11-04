@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Mail, Phone, Trash2 } from "lucide-react";
@@ -29,10 +29,23 @@ export default function Enquiries() {
     onSuccess: (row) => { refresh(); setOpen((o) => (o && o.id === row.id ? row : o)); toast.success("Enquiry updated"); },
     onError: (e) => toast.error(e.message),
   });
+  const markRead = trpc.website.enquiries.patch.useMutation({
+    onSuccess: (row) => {
+      void utils.website.enquiries.list.invalidate();
+      void utils.website.dashboard.invalidate();
+      setOpen((o) => (o && o.id === row.id ? row : o));
+    },
+  });
   const del = trpc.website.enquiries.delete.useMutation({
     onSuccess: () => { refresh(); setDeleting(null); setOpen(null); toast.success("Enquiry deleted"); },
     onError: (e) => toast.error(e.message),
   });
+
+  useEffect(() => {
+    if (open?.status === "new") markRead.mutate({ id: open.id, status: "read" });
+    // Intentionally only when the opened enquiry id flips to a new row.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open?.id]);
 
   async function exportCsv() {
     setExporting(true);

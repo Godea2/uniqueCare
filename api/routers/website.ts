@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { createRouter, authedQuery } from "../middleware";
 import { getStaff, type StaffCtx } from "../util";
-import { sendEmail } from "../lib/mailer";
+import { mailProvider, sendEmail } from "../lib/mailer";
 import { bumpWebsiteJobsCache } from "../lib/website-revalidate";
 import { writeWebsiteAudit, humaniseAuditAction } from "../lib/website-audit";
 import {
@@ -353,12 +353,12 @@ async function syncOfficesFromBranches() {
  * Set WEBSITE_UNSUBSCRIBE_SECRET on BOTH apps (same value); the fallbacks mirror the
  * website's legacy chain.
  */
+/** Must match website/lib/newsletter.ts exactly (same fallback order). */
 function unsubscribeSecret(): string {
   return (
     process.env.WEBSITE_UNSUBSCRIBE_SECRET
     || process.env.WEBSITE_ADMIN_SESSION_SECRET
     || process.env.REVIEW_MODERATION_SECRET
-    || process.env.WEBSITE_REVALIDATE_SECRET
     || process.env.REVALIDATE_SECRET
     || "dev-only-change-me"
   );
@@ -644,6 +644,7 @@ export const websiteRouter = createRouter({
       websiteSelect<ApplicationRow>("website_applications", { order: { column: "created_at" }, limit: 5 }),
       websiteSelect<ReviewRow>("website_reviews", { order: { column: "created_at" }, limit: 5 }),
     ]);
+    const mail = mailProvider();
     return {
       enquiryCounts: { new: enquiryNew, read: enquiryRead, replied: enquiryReplied, total: enquiryTotal },
       reviewCounts: { pending: reviewPending, approved: reviewApproved, rejected: reviewRejected },
@@ -655,6 +656,13 @@ export const websiteRouter = createRouter({
       recentEnquiries: recentEnquiries.map(mapEnquiry),
       recentApplications: recentApplications.map(mapApplication),
       recentReviews: recentReviews.map(mapReview),
+      ops: {
+        mailProvider: mail.provider,
+        mailFrom: mail.from,
+        websiteUrlConfigured: Boolean((process.env.WEBSITE_URL ?? "").trim()),
+        revalidateSecretConfigured: Boolean((process.env.WEBSITE_REVALIDATE_SECRET ?? "").trim()),
+        unsubscribeSecretConfigured: Boolean((process.env.WEBSITE_UNSUBSCRIBE_SECRET ?? "").trim()),
+      },
     };
   })),
 
@@ -904,51 +912,73 @@ export const websiteRouter = createRouter({
 
     /** Emails every active subscriber through the portal mailer. */
     send: websiteProcedure.input(z.object({ id: intId })).mutation(({ ctx, input }) => guard(async () => {
+      const draft = await websiteSelectOne<NewsletterRow>("website_newsletters", { eq: { id: input.id, status: "draft" } });
+      if (!draft) throw new TRPCError({ code: "CONFLICT", message: "Newsletter not found or already sent." });
+
       const subscribers = await websiteSelect<{ id: number; email: string }>("website_subscribers", {
         columns: "id,email", eq: { status: "active" }, order: { column: "id", ascending: true }, limit: 10000,
       });
       if (subscribers.length === 0) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "There are no active subscribers to send to." });
       }
-      // Claim the draft atomically so a double-click cannot send twice.
+
+      // Soft lock: mark sent immediately so a double-click cannot start a second blast.
+      // If nothing delivers, we roll back to draft below.
       const claimed = await websiteUpdate<NewsletterRow>(
         "website_newsletters", { eq: { id: input.id, status: "draft" } },
-        { status: "sent", sent_at: new Date().toISOString() },
+        { status: "sent", sent_at: new Date().toISOString(), recipients_count: 0 },
       );
       const nl = claimed[0];
       if (!nl) throw new TRPCError({ code: "CONFLICT", message: "Newsletter not found or already sent." });
 
       let delivered = 0;
       let failed = 0;
+      const failedEmails: string[] = [];
       const CONCURRENCY = 5;
       for (let i = 0; i < subscribers.length; i += CONCURRENCY) {
         const batch = subscribers.slice(i, i + CONCURRENCY);
-        const results = await Promise.all(batch.map((s) =>
-          sendEmail({
-            to: s.email,
-            subject: nl.subject,
-            body: `${nl.content}\n\nUnsubscribe: ${unsubscribeUrl(s.email)}`,
-            html: newsletterEmailHtml({ subject: nl.subject, content: nl.content, email: s.email }),
-            kind: "website_newsletter",
-            relatedType: "website_newsletter",
-            relatedId: nl.id,
-            // Unsubscribe links are per-recipient; never leave them queued for a resend.
-            privateLink: true,
-          }).then((r) => r.delivered).catch(() => false)));
-        for (const ok of results) { if (ok) delivered++; else failed++; }
+        const results = await Promise.all(batch.map(async (s) => {
+          try {
+            const r = await sendEmail({
+              to: s.email,
+              subject: nl.subject,
+              body: `${nl.content}\n\nUnsubscribe: ${unsubscribeUrl(s.email)}`,
+              html: newsletterEmailHtml({ subject: nl.subject, content: nl.content, email: s.email }),
+              kind: "website_newsletter",
+              relatedType: "website_newsletter",
+              relatedId: nl.id,
+              // Per-recipient unsubscribe tokens must not be stored for blind resend.
+              privateLink: true,
+            });
+            return { email: s.email, ok: r.delivered };
+          } catch {
+            return { email: s.email, ok: false };
+          }
+        }));
+        for (const r of results) {
+          if (r.ok) delivered++;
+          else { failed++; failedEmails.push(r.email); }
+        }
       }
 
       if (delivered === 0) {
-        await websiteUpdate("website_newsletters", { eq: { id: input.id } }, { status: "draft", sent_at: null });
+        await websiteUpdate("website_newsletters", { eq: { id: input.id } }, {
+          status: "draft", sent_at: null, recipients_count: null,
+        });
         throw new TRPCError({
           code: "BAD_GATEWAY",
-          message: "No emails could be sent. Check the SMTP settings (SMTP_HOST, SMTP_USER, SMTP_PASSWORD).",
+          message: "No emails could be sent. Check SMTP settings under System → Settings (SMTP_HOST, SMTP_USER, SMTP_PASSWORD), then try again.",
         });
       }
-      const rows = await websiteUpdate<NewsletterRow>("website_newsletters", { eq: { id: input.id } }, { recipients_count: delivered });
+      const rows = await websiteUpdate<NewsletterRow>("website_newsletters", { eq: { id: input.id } }, {
+        recipients_count: delivered,
+      });
       await writeWebsiteAudit({
         action: "newsletter.sent", entityType: "newsletter", entityId: input.id, actorName: ctx.staffCtx.staff.fullName,
-        details: { subject: nl.subject, delivered, failed, subscribers: subscribers.length },
+        details: {
+          subject: nl.subject, delivered, failed, subscribers: subscribers.length,
+          failedEmails: failedEmails.slice(0, 50),
+        },
       });
       return { ok: true as const, delivered, failed, newsletter: mapNewsletter(rows[0] ?? nl) };
     })),

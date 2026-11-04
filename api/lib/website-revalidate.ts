@@ -9,11 +9,20 @@
 export function bumpWebsiteJobsCache(paths: string[] = []): void {
   const base = (process.env.WEBSITE_URL ?? "").replace(/\/$/, "");
   const secret = process.env.WEBSITE_REVALIDATE_SECRET ?? "";
-  if (!base || !secret) return;
+  if (!base || !secret) {
+    console.warn(
+      "[website-revalidate] skipped — set WEBSITE_URL and WEBSITE_REVALIDATE_SECRET on the portal (same secret as the website REVALIDATE_SECRET).",
+    );
+    return;
+  }
   const extra = paths
     .filter((p) => p.startsWith("/") && !p.startsWith("//"))
     .map((p) => `&path=${encodeURIComponent(p)}`)
     .join("");
   const url = `${base}/api/revalidate?secret=${encodeURIComponent(secret)}${extra}`;
-  void fetch(url, { method: "GET", cache: "no-store" }).catch(() => undefined);
+  void fetch(url, { method: "GET", cache: "no-store" })
+    .then((res) => {
+      if (!res.ok) console.warn(`[website-revalidate] ${res.status} for ${paths.join(",") || "/"}`);
+    })
+    .catch((e) => console.warn("[website-revalidate] failed:", e instanceof Error ? e.message : e));
 }

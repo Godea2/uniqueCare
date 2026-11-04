@@ -35,6 +35,17 @@ export default function WebsiteOverview() {
         subtitle="Enquiries, reviews, applications and content from the public Unique Care UK website. Registered Manager only."
       />
 
+      {d.ops.mailProvider === "none" && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
+          Outbound email is not configured on the portal. Newsletter sends and enquiry replies need SMTP (or Microsoft Graph) under System ? Settings. Website contact/review notices also fall back here when Resend is unavailable.
+        </div>
+      )}
+      {d.ops.mailProvider !== "none" && (!d.ops.websiteUrlConfigured || !d.ops.revalidateSecretConfigured) && (
+        <div className="mb-6 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950" role="status">
+          Set <code className="text-xs">WEBSITE_URL</code> and <code className="text-xs">WEBSITE_REVALIDATE_SECRET</code> on the portal (matching the website <code className="text-xs">REVALIDATE_SECRET</code>) so blog, reviews and CMS edits refresh the live site immediately.
+        </div>
+      )}
+
       <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard
           label="New enquiries" value={d.enquiryCounts.new} icon={MessageSquare}

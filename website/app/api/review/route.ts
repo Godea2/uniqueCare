@@ -52,7 +52,7 @@ export async function POST(req: Request) {
   const approve = `${baseUrl}/api/review-moderation?token=${signModerationToken(id, "approve", exp)}`;
   const reject = `${baseUrl}/api/review-moderation?token=${signModerationToken(id, "reject", exp)}`;
 
-  await sendEmail({
+  const notifyOk = await sendEmail({
     to: notifyInbox(),
     subject: `New review pending approval: "${data.title}" (${data.rating}/5)`,
     html: `
@@ -67,8 +67,12 @@ export async function POST(req: Request) {
         &nbsp;
         <a href="${reject}" style="background:#C62828;color:#fff;padding:10px 18px;border-radius:999px;text-decoration:none">Reject</a>
       </p>
-      <p style="color:#5B6670;font-size:12px">These links expire in 7 days.</p>`,
+      <p style="color:#5B6670;font-size:12px">These links expire in 7 days. You can also moderate from the staff portal → Website → Reviews.</p>`,
   });
 
-  return NextResponse.json({ ok: true });
+  if (!notifyOk) {
+    console.error(`[review] saved pending but moderation email to ${notifyInbox()} failed for review ${id}`);
+  }
+
+  return NextResponse.json({ ok: true, emailDelivered: notifyOk });
 }

@@ -34,7 +34,7 @@ export async function GET(req: Request) {
   return page(
     parsed.action === "approve" ? "Review approved" : "Review rejected",
     parsed.action === "approve"
-      ? "The review is now published on the website (within about 5 minutes, after the cache refreshes)."
+      ? "The review is now published on the website."
       : "The review has been rejected and will not appear on the website.",
     true
   );

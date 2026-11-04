@@ -144,7 +144,9 @@ export async function moderateReview(id: string, action: "approve" | "reject"): 
         method: "PATCH",
         headers: { Prefer: "return=minimal" },
         body: JSON.stringify(
-          action === "approve" ? { status, approved_at: new Date().toISOString() } : { status }
+          action === "approve"
+            ? { status, reviewed_at: new Date().toISOString(), approved_at: new Date().toISOString() }
+            : { status, reviewed_at: new Date().toISOString(), approved_at: null }
         ),
       });
       return res.ok;
