@@ -165,8 +165,8 @@ export default function Header({
               src={logo}
               unoptimized={isRemote(logo)}
               alt="Unique Care UK"
-              width={896}
-              height={161}
+              width={948}
+              height={194}
               priority
               className="h-10 w-auto sm:h-11 md:h-12"
             />
@@ -275,7 +275,7 @@ export default function Header({
             className="absolute right-0 top-0 flex h-full w-[85%] max-w-sm flex-col overflow-y-auto bg-white text-ink shadow-card-hover"
           >
             <div className="flex items-center justify-between border-b border-line px-5 py-4">
-              <Image src={logo} unoptimized={isRemote(logo)} alt="Unique Care UK" width={896} height={161} className="h-9 w-auto" />
+              <Image src={logo} unoptimized={isRemote(logo)} alt="Unique Care UK" width={948} height={194} className="h-9 w-auto" />
               <button
                 type="button"
                 className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line"

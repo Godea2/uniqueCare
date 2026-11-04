@@ -30,8 +30,8 @@ export default async function Footer() {
           <Image
             src={logo}
             alt={site.name}
-            width={896}
-            height={161}
+            width={948}
+            height={194}
             unoptimized={/^https?:\/\//i.test(logo)}
             className="h-11 w-auto md:h-12"
           />
