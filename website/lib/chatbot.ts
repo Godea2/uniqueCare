@@ -33,7 +33,8 @@ function portalBase(): string {
   return (
     process.env.JOBS_PORTAL_URL
     || process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
-    || ""
+    // Production Unique Care portal — used when env is missing so chat still works.
+    || "https://portal.uniquecareuk.online"
   ).replace(/\/$/, "");
 }
 
@@ -44,6 +45,16 @@ function bridgeSecret(): string {
     || process.env.REVALIDATE_SECRET
     || ""
   );
+}
+
+/** Try several portal hosts in case the env URL is stale or wrong. */
+function portalCandidates(): string[] {
+  const primary = portalBase();
+  const extras = [
+    "https://portal.uniquecareuk.online",
+    "https://unique-care-six.vercel.app",
+  ];
+  return [...new Set([primary, ...extras].map((u) => u.replace(/\/$/, "")).filter(Boolean))];
 }
 
 function supabaseBase() {
@@ -110,31 +121,36 @@ export async function getChatPublicConfig() {
 
 /** Ask the portal (shared Gemini key + RAG) to answer. */
 async function answerViaPortal(messages: ChatMessage[]): Promise<{ answer: string } | null> {
-  const base = portalBase();
   const secret = bridgeSecret();
-  if (!base || !secret) return null;
-  try {
-    const res = await fetch(`${base}/api/public/website-chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${secret}`,
-      },
-      body: JSON.stringify({ messages }),
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      console.warn(`[chat] portal bridge HTTP ${res.status}: ${detail.slice(0, 200)}`);
-      return null;
-    }
-    const data = (await res.json()) as { answer?: string };
-    if (!data.answer?.trim()) return null;
-    return { answer: data.answer.trim() };
-  } catch (e) {
-    console.warn("[chat] portal bridge failed:", e instanceof Error ? e.message : e);
+  if (!secret) {
+    console.warn("[chat] portal bridge skipped — REVALIDATE_SECRET / WEBSITE_NOTIFY_SECRET not set on the website");
     return null;
   }
+  const payload = JSON.stringify({ messages });
+  for (const base of portalCandidates()) {
+    try {
+      const res = await fetch(`${base}/api/public/website-chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${secret}`,
+        },
+        body: payload,
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        console.warn(`[chat] portal bridge ${base} HTTP ${res.status}: ${detail.slice(0, 200)}`);
+        continue;
+      }
+      const data = (await res.json()) as { answer?: string };
+      if (!data.answer?.trim()) continue;
+      return { answer: data.answer.trim() };
+    } catch (e) {
+      console.warn(`[chat] portal bridge ${base} failed:`, e instanceof Error ? e.message : e);
+    }
+  }
+  return null;
 }
 
 /** Local Gemini fallback when the portal bridge is unavailable. */
