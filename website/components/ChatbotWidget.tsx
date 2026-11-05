@@ -116,14 +116,15 @@ export default function ChatbotWidget() {
 
   return (
     <>
-      {/* Launcher — sits above mobile CTA bar */}
+      {/* Launcher — stacked above WhatsApp so it is easy to spot (green = WhatsApp, teal = AI chat) */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls="ucuk-chat-panel"
         aria-label={open ? "Close chat assistant" : "Open chat assistant"}
-        className="fixed bottom-[5.75rem] right-[4.75rem] z-40 inline-flex h-12 w-12 items-center justify-center rounded-full bg-brand-primary text-white shadow-card-hover transition hover:bg-brand-primary-dark sm:h-14 sm:w-14 md:bottom-5 md:right-[5.25rem]"
+        title="Chat with Unique Care UK"
+        className="fixed bottom-[9.5rem] right-4 z-40 inline-flex h-12 w-12 items-center justify-center rounded-full bg-brand-primary text-white shadow-card-hover transition hover:bg-brand-primary-dark sm:h-14 sm:w-14 md:bottom-[5.5rem] md:right-5"
       >
         {open ? <X className="h-6 w-6" aria-hidden /> : <MessageCircle className="h-6 w-6" aria-hidden />}
       </button>
@@ -134,7 +135,7 @@ export default function ChatbotWidget() {
           role="dialog"
           aria-modal="false"
           aria-label="Unique Care UK chat assistant"
-          className="fixed bottom-[9.5rem] right-4 z-40 flex w-[min(100vw-2rem,22rem)] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-lift sm:bottom-24 md:bottom-24 md:right-[5.25rem]"
+          className="fixed bottom-[13.5rem] right-4 z-40 flex w-[min(100vw-2rem,22rem)] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-lift sm:bottom-36 md:bottom-[10rem] md:right-5"
         >
           <div className="flex items-center gap-3 bg-brand-primary px-4 py-3 text-white">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/15">
