@@ -1,11 +1,8 @@
-import { posts as staticPosts, type Post, type PostCategory } from "@/content/posts";
+import type { Post, PostCategory } from "@/content/posts";
 
 /**
- * Blog posts = published rows in `website_posts` (staff portal → Website → Blog posts).
- *
- * When the CMS is reachable and has at least one published post, CMS is the sole
- * source of truth (no silent merge with static seed content). Static posts in
- * content/posts.ts are used only when Supabase is unreachable or still empty.
+ * Blog posts = published rows in `website_posts` only
+ * (staff portal → Website → Blog posts). No static seed content.
  */
 
 const base = () => process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.NEXT_PUBLIC_JOBS_SUPABASE_URL ?? "";
@@ -24,8 +21,6 @@ type DbPost = {
   status: string;
   created_at: string;
 };
-
-const FALLBACK_IMAGE = "/images/blog-1.jpg";
 
 function fmt(date: Date, month: "short" | "long"): string {
   return date.toLocaleDateString("en-GB", { day: "numeric", month, year: "numeric", timeZone: "UTC" });
@@ -46,14 +41,14 @@ function fromDb(r: DbPost): Post {
     dateLong: fmt(d, "long"),
     title: r.title,
     excerpt: r.excerpt || (body[0] ?? "").slice(0, 200),
-    image: r.image_url || FALLBACK_IMAGE,
+    image: r.image_url || "",
     imageAlt: r.title,
     body: body.length ? body : [r.excerpt],
   };
 }
 
-async function fetchPublished(): Promise<{ ok: boolean; posts: Post[] }> {
-  if (!base() || !anonKey()) return { ok: false, posts: [] };
+export async function getAllPosts(): Promise<Post[]> {
+  if (!base() || !anonKey()) return [];
   try {
     const res = await fetch(
       `${base()}/rest/v1/website_posts?status=eq.published&select=id,title,slug,category,image_url,excerpt,content,status,created_at&order=created_at.desc&limit=200`,
@@ -64,19 +59,13 @@ async function fetchPublished(): Promise<{ ok: boolean; posts: Post[] }> {
     );
     if (!res.ok) {
       console.warn(`[posts] website_posts HTTP ${res.status}`);
-      return { ok: false, posts: [] };
+      return [];
     }
-    return { ok: true, posts: ((await res.json()) as DbPost[]).map(fromDb) };
+    return ((await res.json()) as DbPost[]).map(fromDb);
   } catch (e) {
     console.warn("[posts] failed to load website_posts:", e instanceof Error ? e.message : e);
-    return { ok: false, posts: [] };
+    return [];
   }
-}
-
-export async function getAllPosts(): Promise<Post[]> {
-  const { ok, posts } = await fetchPublished();
-  if (!ok || posts.length === 0) return staticPosts;
-  return posts;
 }
 
 export async function getPostBySlug(slug: string): Promise<Post | undefined> {

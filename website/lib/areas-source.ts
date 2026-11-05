@@ -1,4 +1,4 @@
-import { areas as staticAreas, type Area } from "@/content/areas";
+import type { Area } from "@/content/areas";
 
 const base = () => process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.NEXT_PUBLIC_JOBS_SUPABASE_URL ?? "";
 const anonKey = () => process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_JOBS_SUPABASE_ANON_KEY ?? "";
@@ -13,8 +13,6 @@ type DbArea = {
   image_alt?: string | null;
   sort_order: number;
 };
-
-const staticWithImages: Area[] = staticAreas.map((a) => ({ image: "", imageAlt: "", ...a }));
 
 function mapDb(r: DbArea): Area {
   return {
@@ -40,18 +38,18 @@ async function fetchRows(select: string): Promise<DbArea[] | null> {
   return (await res.json()) as DbArea[];
 }
 
+/** Published areas from CMS only (portal → Website → Areas). */
 export async function getAreas(): Promise<Area[]> {
-  if (!base() || !anonKey()) return staticWithImages;
+  if (!base() || !anonKey()) return [];
   try {
-    // Prefer image columns (migration 0005); retry without them if the column set isn't there yet.
     const rows =
       (await fetchRows("slug,name,region,intro,surrounding,image,image_alt,sort_order")) ??
       (await fetchRows("slug,name,region,intro,surrounding,sort_order"));
-    if (!rows || !rows.length) return staticWithImages;
+    if (!rows) return [];
     return rows.map(mapDb);
   } catch (e) {
     console.warn("[areas] CMS fetch failed:", e instanceof Error ? e.message : e);
-    return staticWithImages;
+    return [];
   }
 }
 

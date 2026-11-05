@@ -3,13 +3,12 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, Phone } from "lucide-react";
-import { FALLBACK_NAV, resolveNavHref, type NavItem } from "@/lib/nav-defaults";
+import { resolveNavHref, type NavItem } from "@/lib/nav-defaults";
 
 /**
  * Fixed bottom CTA bar on small screens. Hides while the enquiry form
  * section (#contact-form) is in view so the two never compete.
- * Items come from the CMS `mobile_cta` menu (first two are shown, matching the
- * original Call / Book layout); `tel:` items render as the outline "call" button.
+ * Items come from the CMS `mobile_cta` menu only.
  */
 export default function MobileCtaBar({
   items,
@@ -31,9 +30,11 @@ export default function MobileCtaBar({
     return () => io.disconnect();
   }, []);
 
-  const list = (items && items.length > 0 ? items : FALLBACK_NAV.mobile_cta)
+  const list = (items ?? [])
     .slice(0, 3)
     .map((i) => ({ label: i.label, href: resolveNavHref(i.href, phoneTel) }));
+
+  if (list.length === 0) return null;
 
   return (
     <div

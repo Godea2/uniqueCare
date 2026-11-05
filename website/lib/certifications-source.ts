@@ -1,5 +1,5 @@
 import { cmsRows, str } from "@/lib/cms-rest";
-import { FALLBACK_CERTS, type Certification } from "@/lib/certifications-defaults";
+import type { Certification } from "@/lib/certifications-defaults";
 
 export type { Certification } from "@/lib/certifications-defaults";
 
@@ -13,7 +13,7 @@ type DbCert = {
   sort_order: number | null;
 };
 
-/** Published certifications; falls back to the original ISO set if DB empty/unreachable. */
+/** Published certifications from CMS only (portal → Website → Certifications). */
 export async function getCertifications(): Promise<Certification[]> {
   const rows = await cmsRows<DbCert>(
     "website_certifications",
@@ -21,7 +21,7 @@ export async function getCertifications(): Promise<Certification[]> {
     ["website-certs"],
     "certifications",
   );
-  const mapped = (rows ?? [])
+  return (rows ?? [])
     .filter((r) => str(r.code) && str(r.image))
     .map((r) => ({
       id: String(r.id),
@@ -32,5 +32,4 @@ export async function getCertifications(): Promise<Certification[]> {
       url: str(r.url),
       sortOrder: r.sort_order ?? 0,
     }));
-  return mapped.length ? mapped : FALLBACK_CERTS;
 }

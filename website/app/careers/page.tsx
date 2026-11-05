@@ -1,16 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  ArrowRight,
-  Banknote,
-  Bike,
-  Clock3,
-  GraduationCap,
-  HeartHandshake,
-  MapPin,
-  PhoneCall,
-  Zap,
-} from "lucide-react";
+import { ArrowRight, Clock3, HeartHandshake, MapPin } from "lucide-react";
 import { getJobs, employmentLabel } from "@/lib/jobs-source";
 import HeroVideo from "@/components/HeroVideo";
 import CtaLink from "@/components/CtaLink";
@@ -28,57 +18,6 @@ export const metadata: Metadata = {
 
 export const revalidate = 60;
 
-const BENEFITS = [
-  {
-    icon: GraduationCap,
-    title: "Mandatory Training for Staff",
-    text: "Comprehensive induction course and ongoing mandatory training provided to all staff members at no cost.",
-    thumb: "/images/cards/benefits-training.jpg",
-  },
-  {
-    icon: Banknote,
-    title: "Good Rates of Pay",
-    text: "Competitive pay rates that reflect your skills and dedication. We value the work our carers do every day.",
-    thumb: "/images/cards/benefits-pay.jpg",
-  },
-  {
-    icon: HeartHandshake,
-    title: "Various Work Environments",
-    text: "Opportunities across both public and private healthcare sectors. Gain diverse experience and grow your career.",
-    thumb: "/images/cards/benefits-environments.jpg",
-  },
-  {
-    icon: MapPin,
-    title: "A Variety of Work Locations",
-    text: "Placements across London, Essex, and Hertfordshire. Work close to home or explore new areas. The choice is yours.",
-    thumb: "/images/cards/benefits-locations.jpg",
-  },
-  {
-    icon: Zap,
-    title: "Fast Track Applications",
-    text: "Our streamlined application process gets you into work quickly. Apply today and start making a difference sooner.",
-    thumb: "/images/cards/benefits-fasttrack.jpg",
-  },
-  {
-    icon: PhoneCall,
-    title: "Contact Available Around the Clock",
-    text: "24/7 on-call management support. Whether it's day or night, our team is always there when you need us.",
-    thumb: "/images/cards/benefits-247.jpg",
-  },
-  {
-    icon: Clock3,
-    title: "Flexible Working",
-    text: "Days, evenings, nights, weekends, and bank holidays. Choose a schedule that works around your life.",
-    thumb: "/images/cards/benefits-flexible.jpg",
-  },
-  {
-    icon: Bike,
-    title: "Paid Mileage & Motorbike Scheme",
-    text: "Mileage paid on every client visit, or ride one of our company motorbikes on your daily rounds. Your travel to clients is always covered.",
-    thumb: "/images/cards/benefits-mileage.jpg",
-  },
-];
-
 export default async function CareersPage() {
   const [allJobs, sections] = await Promise.all([getJobs(), getSectionMap("careers")]);
   const jobs = allJobs.filter((j) => j.listedInGrid);
@@ -86,19 +25,14 @@ export default async function CareersPage() {
   const benefitsS = sections.benefits ?? null;
 
   const heroCta = asCta(heroS, "primaryCta", { label: "View Open Positions", href: "/careers/jobs" });
-  const benefitsRaw = asItems(benefitsS);
-  const benefits =
-    benefitsRaw.length > 0
-      ? benefitsRaw.map((b, i) => {
-          const fb = BENEFITS.find((x) => x.title === asString(b, "title", "")) ?? BENEFITS[i % BENEFITS.length]!;
-          return {
-            title: asString(b, "title", fb.title),
-            text: asString(b, "text", fb.text),
-            icon: iconByName(b.icon, fb.icon),
-            thumb: asString(b, "thumb", fb.thumb),
-          };
-        })
-      : BENEFITS;
+  const benefits = asItems(benefitsS)
+    .map((b) => ({
+      title: asString(b, "title", ""),
+      text: asString(b, "text", ""),
+      icon: iconByName(b.icon, HeartHandshake),
+      thumb: asString(b, "thumb", ""),
+    }))
+    .filter((b) => b.title);
 
   return (
     <>
@@ -137,35 +71,37 @@ export default async function CareersPage() {
       </section>
 
       {/* Benefits */}
-      <section aria-labelledby="benefits-h" className="mx-auto max-w-content px-4 py-16 lg:py-24">
-        <div className="fade-up">
-          <p className="eyebrow">{asString(benefitsS, "eyebrow", "Benefits")}</p>
-          <h2 id="benefits-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
-            {asString(benefitsS, "title", "Why work with us?")}
-          </h2>
-          <p className="mt-3 max-w-2xl text-ink-muted">
-            {asString(
-              benefitsS,
-              "subtitle",
-              "We strive to create a supportive and nurturing environment for both our service users and our staff.",
-            )}
-          </p>
-        </div>
-        <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {benefits.map((b) => (
-            <div key={b.title} className="fade-up uc-card overflow-hidden">
-              {b.thumb && <img src={b.thumb} alt="" loading="lazy" className="h-44 w-full object-cover" />}
-              <div className="p-6">
-                <span className="uc-icon h-14 w-14">
-                  <b.icon className="h-6 w-6" aria-hidden />
-                </span>
-                <h3 className="mt-4 font-heading text-lg font-semibold text-ink">{b.title}</h3>
-                <p className="mt-2 text-[15px] leading-relaxed text-ink-muted">{b.text}</p>
+      {benefits.length > 0 && (
+        <section aria-labelledby="benefits-h" className="mx-auto max-w-content px-4 py-16 lg:py-24">
+          <div className="fade-up">
+            <p className="eyebrow">{asString(benefitsS, "eyebrow", "Benefits")}</p>
+            <h2 id="benefits-h" className="mt-2 font-heading text-3xl font-semibold text-ink md:text-4xl">
+              {asString(benefitsS, "title", "Why work with us?")}
+            </h2>
+            <p className="mt-3 max-w-2xl text-ink-muted">
+              {asString(
+                benefitsS,
+                "subtitle",
+                "We strive to create a supportive and nurturing environment for both our service users and our staff.",
+              )}
+            </p>
+          </div>
+          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {benefits.map((b) => (
+              <div key={b.title} className="fade-up uc-card overflow-hidden">
+                {b.thumb && <img src={b.thumb} alt="" loading="lazy" className="h-44 w-full object-cover" />}
+                <div className="p-6">
+                  <span className="uc-icon h-14 w-14">
+                    <b.icon className="h-6 w-6" aria-hidden />
+                  </span>
+                  <h3 className="mt-4 font-heading text-lg font-semibold text-ink">{b.title}</h3>
+                  <p className="mt-2 text-[15px] leading-relaxed text-ink-muted">{b.text}</p>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Current openings */}
       <section aria-labelledby="openings-h" className="bg-surface-alt">

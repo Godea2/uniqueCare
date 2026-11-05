@@ -1,5 +1,4 @@
 import { cmsRows, str } from "@/lib/cms-rest";
-import { getSiteSettings } from "@/lib/site-source";
 
 export type Branch = {
   id: string;
@@ -51,7 +50,7 @@ function mapDb(r: DbBranch): Branch {
   };
 }
 
-/** Published branches ordered by sort_order; falls back to site settings offices. */
+/** Published branches from CMS only (portal → Website → Branches). */
 export async function getBranches(): Promise<Branch[]> {
   const rows = await cmsRows<DbBranch>(
     "website_branches",
@@ -59,23 +58,7 @@ export async function getBranches(): Promise<Branch[]> {
     ["website-branches"],
     "branches",
   );
-  if (rows && rows.length) return rows.map(mapDb);
-  const site = await getSiteSettings();
-  return site.offices.map((o, i) => ({
-    id: `office-${i}`,
-    name: o.name,
-    address: o.address,
-    city: "",
-    postcode: "",
-    phone: "",
-    phoneDisplay: "",
-    email: "",
-    hours: "",
-    mapsUrl: "",
-    image: "",
-    imageAlt: "",
-    sortOrder: (i + 1) * 10,
-  }));
+  return (rows ?? []).map(mapDb);
 }
 
 /** Google Maps link for a branch (CMS `maps_url` wins, else derived from address). */

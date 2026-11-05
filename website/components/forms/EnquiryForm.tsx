@@ -6,7 +6,6 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { enquirySchema, type EnquiryInput } from "@/lib/validation";
-import { services } from "@/content/services";
 import { site as staticSite } from "@/content/site";
 
 const inputCls =
@@ -14,12 +13,17 @@ const inputCls =
 const labelCls = "mb-1.5 block text-sm font-semibold text-ink";
 const errCls = "mt-1 text-sm text-error";
 
+type ServiceOption = { slug: string; name: string };
+
 export default function EnquiryForm({
   phoneDisplay = staticSite.phonePrimaryDisplay,
   phoneTel = staticSite.phonePrimaryTel,
+  services = [],
 }: {
   phoneDisplay?: string;
   phoneTel?: string;
+  /** CMS services for the care-type dropdown (portal → Website → Services). */
+  services?: ServiceOption[];
 } = {}) {
   const params = useSearchParams();
   const preselectSlug = params.get("service") ?? "";

@@ -5,10 +5,10 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Mail, Menu, Phone, X } from "lucide-react";
-import { services as staticServices, type Service } from "@/content/services";
-import { areas as staticAreas, type Area } from "@/content/areas";
+import type { Service } from "@/content/services";
+import type { Area } from "@/content/areas";
 import { site as staticSite } from "@/content/site";
-import { FALLBACK_NAV, type NavItem } from "@/lib/nav-defaults";
+import type { NavItem } from "@/lib/nav-defaults";
 
 const DEFAULT_LOGO = "/images/logo-horizontal.png";
 const isRemote = (src: string) => /^https?:\/\//i.test(src);
@@ -29,11 +29,9 @@ type HeaderNavItem = { href: string; label: string; dropdown?: "services" | "are
 const toHeaderNav = (items: Pick<NavItem, "href" | "label" | "dropdown">[]): HeaderNavItem[] =>
   items.map((i) => ({ href: i.href, label: i.label, dropdown: i.dropdown || undefined }));
 
-const NAV: HeaderNavItem[] = toHeaderNav(FALLBACK_NAV.header);
-
 export default function Header({
-  services = staticServices,
-  areas = staticAreas,
+  services = [],
+  areas = [],
   site = staticSite,
   nav,
   logoUrl,
@@ -41,12 +39,12 @@ export default function Header({
   services?: NavService[];
   areas?: NavArea[];
   site?: HeaderSite;
-  /** CMS header menu; falls back to the built-in NAV when omitted/empty. */
+  /** CMS header menu (portal → Website → Navigation). */
   nav?: Pick<NavItem, "href" | "label" | "dropdown">[];
   /** CMS brand logo; falls back to /images/logo-horizontal.png. */
   logoUrl?: string;
 }) {
-  const navItems = nav && nav.length > 0 ? toHeaderNav(nav) : NAV;
+  const navItems = toHeaderNav(nav ?? []);
   const logo = logoUrl || DEFAULT_LOGO;
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);

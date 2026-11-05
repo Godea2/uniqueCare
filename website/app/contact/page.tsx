@@ -4,6 +4,7 @@ import { Clock3, ExternalLink, Mail, MapPin, Phone } from "lucide-react";
 import EnquiryForm from "@/components/forms/EnquiryForm";
 import { getSiteSettings } from "@/lib/site-source";
 import { getBranches, branchMapsUrl } from "@/lib/branches-source";
+import { getServices } from "@/lib/services-source";
 import { asString, getSectionMap } from "@/lib/sections-source";
 
 export const metadata: Metadata = {
@@ -16,7 +17,12 @@ export const metadata: Metadata = {
 export const revalidate = 60;
 
 export default async function ContactPage() {
-  const [site, branches, sections] = await Promise.all([getSiteSettings(), getBranches(), getSectionMap("contact")]);
+  const [site, branches, sections, services] = await Promise.all([
+    getSiteSettings(),
+    getBranches(),
+    getSectionMap("contact"),
+    getServices(),
+  ]);
   const heroS = sections.hero ?? null;
   const formS = sections.form_intro ?? null;
   const heroEyebrow = asString(heroS, "eyebrow", "");
@@ -134,7 +140,11 @@ export default async function ContactPage() {
           </p>
           <div className="mt-6 rounded-card border border-line bg-white p-6 shadow-card md:p-8">
             <Suspense>
-              <EnquiryForm phoneDisplay={site.phonePrimaryDisplay} phoneTel={site.phonePrimaryTel} />
+              <EnquiryForm
+                phoneDisplay={site.phonePrimaryDisplay}
+                phoneTel={site.phonePrimaryTel}
+                services={services.map((s) => ({ slug: s.slug, name: s.name }))}
+              />
             </Suspense>
           </div>
         </section>

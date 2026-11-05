@@ -1,6 +1,5 @@
 import { cmsRows, str } from "@/lib/cms-rest";
 import {
-  FALLBACK_NAV,
   NAV_MENUS,
   type NavDropdown,
   type NavItem,
@@ -47,13 +46,13 @@ async function fetchAll(): Promise<Partial<Record<NavMenu, NavItem[]>> | null> {
 }
 
 /**
- * Visible navigation items. Pass a menu (`header`, `footer_company`, `footer_legal`,
- * `mobile_cta`) for one menu, or omit for all menus. Any menu the CMS has no rows for
- * falls back to the hardcoded defaults matching the original Header / Footer / MobileCtaBar.
+ * Visible navigation items from CMS only (portal → Website → Navigation).
+ * Pass a menu (`header`, `footer_company`, `footer_legal`, `mobile_cta`) for one menu,
+ * or omit for all menus. Empty menus stay empty — no hardcoded marketing fallbacks.
  */
 export async function getNavItems(menu?: NavMenu | string): Promise<NavItem[]> {
   const db = await fetchAll();
-  const pick = (m: NavMenu): NavItem[] => (db?.[m]?.length ? db[m]! : FALLBACK_NAV[m]);
+  const pick = (m: NavMenu): NavItem[] => db?.[m] ?? [];
   if (menu) return isMenu(menu) ? pick(menu) : [];
   return NAV_MENUS.flatMap(pick);
 }

@@ -3,14 +3,15 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { FALLBACK_CERTS, type Certification } from "@/lib/certifications-defaults";
+import type { Certification } from "@/lib/certifications-defaults";
 
 const isRemote = (src: string) => /^https?:\/\//i.test(src);
 
 
 export default function CertificationGrid({ certs }: { certs?: Certification[] }) {
-  const CERTS = certs && certs.length > 0 ? certs : FALLBACK_CERTS;
+  const CERTS = certs ?? [];
   const [open, setOpen] = useState<number | null>(null);
+  if (CERTS.length === 0) return null;
   const dialogRef = useRef<HTMLDivElement>(null);
   const lastTrigger = useRef<HTMLButtonElement | null>(null);
 
