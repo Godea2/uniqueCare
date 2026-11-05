@@ -1,5 +1,6 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText } from "ai";
+import { portalBaseUrl } from "@/lib/portal-url";
 
 /**
  * Public website chat.
@@ -30,12 +31,7 @@ CRITICAL RULES:
 `;
 
 function portalBase(): string {
-  return (
-    process.env.JOBS_PORTAL_URL
-    || process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
-    // Production Unique Care portal — used when env is missing so chat still works.
-    || "https://portal.uniquecareuk.online"
-  ).replace(/\/$/, "");
+  return portalBaseUrl();
 }
 
 function bridgeSecret(): string {

@@ -30,4 +30,7 @@ export const site = {
 
 export const yearsOfCare = new Date().getFullYear() - site.founded;
 
-export const adminPortalUrl = process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL ?? "";
+export const adminPortalUrl =
+  process.env.NEXT_PUBLIC_PORTAL_URL
+  || process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
+  || "";

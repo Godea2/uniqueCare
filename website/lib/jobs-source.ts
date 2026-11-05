@@ -70,7 +70,12 @@ function statusLabel(closesAt: string | null): string {
 function mapPortalJob(row: PortalJob): WebsiteJob {
   const slug = row.publicSlug || `job-${row.id}`;
   const applySlug = row.applyLinkEnabled ? (row.applySlug || row.publicSlug) : null;
-  const portal = (adminPortalUrl || process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL || "").replace(/\/$/, "");
+  const portal = (
+    adminPortalUrl
+    || process.env.NEXT_PUBLIC_PORTAL_URL
+    || process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
+    || ""
+  ).replace(/\/$/, "");
   return {
     slug,
     title: row.title,
@@ -91,6 +96,7 @@ function mapPortalJob(row: PortalJob): WebsiteJob {
 function portalBase(): string {
   return (
     process.env.JOBS_PORTAL_URL
+    || process.env.NEXT_PUBLIC_PORTAL_URL
     || process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
     || adminPortalUrl
     || ""
@@ -100,7 +106,7 @@ function portalBase(): string {
 async function fetchLiveJobs(): Promise<WebsiteJob[]> {
   const base = portalBase();
   if (!base) {
-    console.warn("[jobs] NEXT_PUBLIC_ADMIN_PORTAL_URL is not set — careers list will be empty");
+    console.warn("[jobs] NEXT_PUBLIC_PORTAL_URL is not set — careers list will be empty");
     return [];
   }
   const res = await fetch(`${base}/api/public/jobs`, {

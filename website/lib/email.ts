@@ -14,6 +14,7 @@ type EmailPayload = { to: string; subject: string; html: string; replyTo?: strin
 function portalNotifyUrl(): string | null {
   const base = (
     process.env.JOBS_PORTAL_URL
+    || process.env.NEXT_PUBLIC_PORTAL_URL
     || process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
     || ""
   ).replace(/\/$/, "");

@@ -8,7 +8,11 @@ import type { NextRequest } from "next/server";
  * /api/unsubscribe, /api/application) are untouched.
  */
 export function middleware(req: NextRequest) {
-  const portal = (process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL ?? "").trim().replace(/\/+$/, "");
+  const portal = (
+    process.env.NEXT_PUBLIC_PORTAL_URL
+    || process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
+    || ""
+  ).trim().replace(/\/+$/, "");
   if (!/^https?:\/\//i.test(portal)) {
     // Portal URL not configured — send visitors to the public home page instead.
     return NextResponse.redirect(new URL("/", req.url));
