@@ -113,8 +113,10 @@ export function rankChunks(query: string, chunks: { id: number; content: string;
     }
     return { ...c, score };
   });
-  return scored
+  const matched = scored
     .filter((c) => c.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .sort((a, b) => b.score - a.score);
+  if (matched.length > 0) return matched.slice(0, limit);
+  // Soft fallback: return early chunks so the model still has some context.
+  return chunks.slice(0, Math.min(limit, 4));
 }

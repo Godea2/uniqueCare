@@ -80,14 +80,23 @@ app.get("/api/public/jobs", async (c) => {
  * Auth: Bearer token = WEBSITE_NOTIFY_SECRET || WEBSITE_REVALIDATE_SECRET || REVALIDATE_SECRET
  * (must match the website's notify/revalidate secret).
  */
-app.post("/api/public/website-notify", async (c) => {
-  const auth = c.req.header("authorization") ?? "";
-  const secret =
+function websiteBridgeSecret(): string {
+  return (
     process.env.WEBSITE_NOTIFY_SECRET
     || process.env.WEBSITE_REVALIDATE_SECRET
     || process.env.REVALIDATE_SECRET
-    || "";
-  if (!secret || auth !== `Bearer ${secret}`) {
+    || ""
+  );
+}
+
+function assertWebsiteBridgeAuth(c: { req: { header: (n: string) => string | undefined } }): boolean {
+  const secret = websiteBridgeSecret();
+  const auth = c.req.header("authorization") ?? "";
+  return !!secret && auth === `Bearer ${secret}`;
+}
+
+app.post("/api/public/website-notify", async (c) => {
+  if (!assertWebsiteBridgeAuth(c)) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   let body: { to?: string; subject?: string; html?: string; text?: string; replyTo?: string };
@@ -123,6 +132,43 @@ app.post("/api/public/website-notify", async (c) => {
     return c.json({ ok: true });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Send failed" }, 500);
+  }
+});
+
+/**
+ * Website → portal AI bridge. The public Next site calls this so chat uses the
+ * same GEMINI_API_KEY / model chain as recruitment scoring, plus portal-managed
+ * system prompt + knowledge chunks.
+ *
+ * Auth: same Bearer secret as website-notify / revalidate.
+ */
+app.post("/api/public/website-chat", async (c) => {
+  if (!assertWebsiteBridgeAuth(c)) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  let body: { messages?: { role?: string; content?: string }[] };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+  const messages = Array.isArray(body.messages)
+    ? body.messages
+      .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
+      .slice(0, 20)
+      .map((m) => ({ role: m.role as "user" | "assistant", content: String(m.content).trim().slice(0, 4000) }))
+    : [];
+  if (messages.length === 0) {
+    return c.json({ error: "messages required" }, 400);
+  }
+  try {
+    const { answerWebsiteChat } = await import("./ai/website-chat");
+    const result = await answerWebsiteChat({ messages });
+    return c.json({ answer: result.answer, usedChunks: result.usedChunks });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Chat failed";
+    console.error("[website-chat]", message);
+    return c.json({ error: message }, 502);
   }
 });
 
