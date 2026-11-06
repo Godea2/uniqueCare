@@ -7,6 +7,6 @@ export function portalBaseUrl(): string {
     process.env.JOBS_PORTAL_URL
     || process.env.NEXT_PUBLIC_PORTAL_URL
     || process.env.NEXT_PUBLIC_ADMIN_PORTAL_URL
-    || "https://portal.uniquecareuk.online"
+    || "https://portal.uniquecareuk.com"
   ).replace(/\/$/, "");
 }

@@ -47,7 +47,7 @@ function bridgeSecret(): string {
 function portalCandidates(): string[] {
   const primary = portalBase();
   const extras = [
-    "https://portal.uniquecareuk.online",
+    "https://portal.uniquecareuk.com",
     "https://unique-care-six.vercel.app",
   ];
   return [...new Set([primary, ...extras].map((u) => u.replace(/\/$/, "")).filter(Boolean))];

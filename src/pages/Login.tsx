@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react";
 import AuthShell from "@/components/AuthShell";
 import { postAuth, writeSession, type AuthSession } from "@/lib/session";
 
-const PUBLIC_CAREERS_URL = "https://www.uniquecareuk.online/careers";
+const PUBLIC_CAREERS_URL = "https://www.uniquecareuk.com/careers";
 
 export default function Login() {
   const navigate = useNavigate();
