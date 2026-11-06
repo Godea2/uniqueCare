@@ -60,16 +60,20 @@ let transport: { key: string; transporter: Transporter } | null = null;
 function smtpTransport(cfg: NonNullable<ReturnType<typeof smtpSettings>>): Transporter {
   const key = `${cfg.host}:${cfg.port}:${cfg.secure}:${cfg.user}`;
   if (transport?.key !== key) {
+    // Office 365 / Outlook on 587 needs STARTTLS (secure:false + requireTLS).
+    const isOffice365 = /office365\.com|outlook\.com/i.test(cfg.host);
     transport = {
       key,
       transporter: nodemailer.createTransport({
         host: cfg.host,
         port: cfg.port,
         secure: cfg.secure,
+        requireTLS: !cfg.secure && (cfg.port === 587 || isOffice365),
         auth: { user: cfg.user, pass: cfg.pass },
-        connectionTimeout: 10_000,
-        greetingTimeout: 10_000,
-        socketTimeout: 20_000,
+        connectionTimeout: 15_000,
+        greetingTimeout: 15_000,
+        socketTimeout: 30_000,
+        tls: isOffice365 ? { minVersion: "TLSv1.2" } : undefined,
       }),
     };
   }
