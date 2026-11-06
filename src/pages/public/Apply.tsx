@@ -911,13 +911,23 @@ function friendlyUploadError(message: string): string {
   return message;
 }
 
+const PUBLIC_SITE_URL =
+  (import.meta.env.VITE_WEBSITE_URL as string | undefined)?.replace(/\/$/, "") || "https://www.uniquecareuk.com";
+
 function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-[--app-bg]">
       <header className="border-b bg-white" style={{ borderColor: "var(--line)" }}>
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-4">
-          <Link to="/careers"><img src="/logo.png" alt="Unique Care UK" className="h-9 w-auto" /></Link>
-          <Link to="/careers" className="text-sm font-medium text-[--brand-700] hover:underline">Vacancies</Link>
+          <a href={PUBLIC_SITE_URL} aria-label="Unique Care UK home">
+            <img src="/logo.png" alt="Unique Care UK" className="h-9 w-auto" />
+          </a>
+          <a
+            href={`${PUBLIC_SITE_URL}/careers`}
+            className="text-sm font-medium text-[--brand-700] hover:underline"
+          >
+            Vacancies
+          </a>
         </div>
       </header>
       <main className="mx-auto max-w-2xl px-4 py-6 sm:py-8">{children}</main>

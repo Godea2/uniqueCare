@@ -4,6 +4,9 @@ import { Loading, ErrorState, fmtDate, Markdown } from "@/components/common";
 import { MapPin, Clock3, ArrowRight, Banknote } from "lucide-react";
 import { employmentLabel, formatSalary } from "@contracts/job-display";
 
+const PUBLIC_SITE_URL =
+  (import.meta.env.VITE_WEBSITE_URL as string | undefined)?.replace(/\/$/, "") || "https://www.uniquecareuk.com";
+
 export default function Careers() {
   const q = trpc.hr.publicJobs.useQuery();
 
@@ -11,7 +14,9 @@ export default function Careers() {
     <div className="min-h-screen bg-[--app-bg]">
       <header className="bg-white border-b" style={{ borderColor: "var(--line)" }}>
         <div className="mx-auto max-w-3xl px-4 py-4 flex items-center justify-between">
-          <img src="/logo.png" alt="Unique Care UK" className="h-9 w-auto" />
+          <a href={PUBLIC_SITE_URL} aria-label="Unique Care UK home">
+            <img src="/logo.png" alt="Unique Care UK" className="h-9 w-auto" />
+          </a>
           <span className="text-xs text-muted-foreground">CQC-registered domiciliary care · Birmingham</span>
         </div>
       </header>
