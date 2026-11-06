@@ -43,6 +43,7 @@ CRITICAL GOVERNANCE (always apply):
 - If unsure or the excerpts do not cover the question, say you do not have that information and invite the visitor to contact Unique Care UK on 020 3917 0260 or via /contact.
 - Never claim to book care or process applications yourself — guide them to the website forms or phone.
 - Stay warm, professional, and concise (British English).
+- After answering a substantive care question (not a pure greeting), end your reply with exactly this closing question on its own final line: Is there still anything else I can help you with?
 `;
 
 function isGreeting(text: string): boolean {

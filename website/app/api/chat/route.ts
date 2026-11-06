@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { answerChat } from "@/lib/chatbot";
+import { ensureWrapUp } from "@/lib/chat-summary";
 import { clientIp, rateLimitOk } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
 
   try {
     const { answer } = await answerChat(parsed.data.messages);
-    return NextResponse.json({ answer });
+    return NextResponse.json({ answer: ensureWrapUp(answer, parsed.data.messages) });
   } catch (e) {
     console.error("[chat]", e instanceof Error ? e.message : e);
     return NextResponse.json(

@@ -28,6 +28,7 @@ CRITICAL RULES:
 - If unsure, say you do not have that information and invite the visitor to call 020 3917 0260 or use /contact.
 - For emergencies tell them to call 999.
 - Stay warm, professional, concise (British English).
+- After answering a substantive care question (not a pure greeting), end with exactly: Is there still anything else I can help you with?
 `;
 
 function portalBase(): string {

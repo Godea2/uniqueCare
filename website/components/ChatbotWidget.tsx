@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, Loader2, MessageCircle, Send, X } from "lucide-react";
+import { includesWrapUp, isClosingReply } from "@/lib/chat-close";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
 const STORAGE_KEY = "ucuk-chat-v1";
+const SUMMARY_FLAG_KEY = "ucuk-chat-summary-sent";
+/** Idle after wrap-up before we email a summary without a reply. */
+const IDLE_SUMMARY_MS = 4 * 60_000;
+
+const CLOSING_THANKS =
+  "Thank you for chatting with Unique Care UK. If you need anything else, call 020 3917 0260 or use our contact form — we're here to help.";
 
 function loadSession(): Msg[] {
   try {
@@ -26,6 +33,22 @@ function saveSession(msgs: Msg[]) {
   }
 }
 
+function summaryAlreadySent(): boolean {
+  try {
+    return sessionStorage.getItem(SUMMARY_FLAG_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markSummarySent() {
+  try {
+    sessionStorage.setItem(SUMMARY_FLAG_KEY, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function ChatbotWidget() {
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(true);
@@ -36,8 +59,50 @@ export default function ChatbotWidget() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [booted, setBooted] = useState(false);
+  const [awaitingClose, setAwaitingClose] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const messagesRef = useRef<Msg[]>([]);
+  const awaitingCloseRef = useRef(false);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    awaitingCloseRef.current = awaitingClose;
+  }, [awaitingClose]);
+
+  const sendSummary = useCallback(async (msgs: Msg[], reason: "user_declined" | "idle_timeout" | "closed") => {
+    if (summaryAlreadySent()) return;
+    if (!msgs.some((m) => m.role === "user")) return;
+    markSummarySent();
+    setAwaitingClose(false);
+    awaitingCloseRef.current = false;
+    if (idleTimer.current) {
+      clearTimeout(idleTimer.current);
+      idleTimer.current = null;
+    }
+    try {
+      await fetch("/api/chat/summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: msgs, reason }),
+        keepalive: true,
+      });
+    } catch {
+      /* best-effort */
+    }
+  }, []);
+
+  const armIdleSummary = useCallback(() => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => {
+      if (!awaitingCloseRef.current || summaryAlreadySent()) return;
+      void sendSummary(messagesRef.current, "idle_timeout");
+    }, IDLE_SUMMARY_MS);
+  }, [sendSummary]);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +122,10 @@ export default function ChatbotWidget() {
         if (!cancelled) {
           const prior = loadSession();
           setMessages(prior);
+          const last = [...prior].reverse().find((m) => m.role === "assistant");
+          if (last && includesWrapUp(last.content) && !summaryAlreadySent()) {
+            setAwaitingClose(true);
+          }
           setBooted(true);
         }
       }
@@ -64,6 +133,29 @@ export default function ChatbotWidget() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    if (awaitingClose && !summaryAlreadySent()) armIdleSummary();
+    return () => {
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+    };
+  }, [awaitingClose, armIdleSummary]);
+
+  // If the visitor leaves while a wrap-up is pending, still try to email a summary.
+  useEffect(() => {
+    const onLeave = () => {
+      if (!awaitingCloseRef.current || summaryAlreadySent()) return;
+      const msgs = messagesRef.current;
+      if (!msgs.some((m) => m.role === "user")) return;
+      markSummarySent();
+      const body = JSON.stringify({ messages: msgs, reason: "closed" });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon("/api/chat/summary", new Blob([body], { type: "application/json" }));
+      }
+    };
+    window.addEventListener("pagehide", onLeave);
+    return () => window.removeEventListener("pagehide", onLeave);
   }, []);
 
   useEffect(() => {
@@ -85,6 +177,24 @@ export default function ChatbotWidget() {
     setMessages(next);
     saveSession(next);
     setInput("");
+
+    // Visitor declined further help after the wrap-up question → email summary.
+    if (awaitingClose && isClosingReply(text)) {
+      const withThanks = [...next, { role: "assistant" as const, content: CLOSING_THANKS }];
+      setMessages(withThanks);
+      saveSession(withThanks);
+      setBusy(true);
+      await sendSummary(next, "user_declined");
+      setBusy(false);
+      return;
+    }
+
+    setAwaitingClose(false);
+    if (idleTimer.current) {
+      clearTimeout(idleTimer.current);
+      idleTimer.current = null;
+    }
+
     setBusy(true);
     try {
       const res = await fetch("/api/chat", {
@@ -99,6 +209,9 @@ export default function ChatbotWidget() {
       const withReply = [...next, { role: "assistant" as const, content: answer }];
       setMessages(withReply);
       saveSession(withReply);
+      if (includesWrapUp(answer) && !summaryAlreadySent()) {
+        setAwaitingClose(true);
+      }
     } catch {
       const withReply = [
         ...next,
