@@ -88,7 +88,10 @@ export async function forgotHandler(c: Context) {
   const user = await findAuthUserByEmail(email);
   if (!user) return c.json({ ok: true });
   const result = await authEmailLink("recovery", email, redirectTo);
-  if (result.error || !result.link) return c.json({ error: SEND_FAILED }, 502);
+  if (result.error || !result.link) {
+    console.error("[auth/forgot] generateLink failed:", result.error ?? "no link");
+    return c.json({ error: SEND_FAILED }, 502);
+  }
 
   const org = await orgProfile();
   const sent = await sendEmail({
@@ -105,7 +108,10 @@ export async function forgotHandler(c: Context) {
     kind: "password_reset",
     privateLink: true,
   });
-  if (!sent.delivered) return c.json({ error: SEND_FAILED }, 502);
+  if (!sent.delivered) {
+    console.error("[auth/forgot] sendEmail failed:", sent.error ?? "unknown");
+    return c.json({ error: SEND_FAILED }, 502);
+  }
   return c.json({ ok: true });
 }
 

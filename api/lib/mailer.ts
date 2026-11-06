@@ -148,9 +148,18 @@ async function deliver(
   const org = await orgProfile();
   const html = htmlOverride
     ?? renderEmailHtml({ orgName: org.name, subject, text: bodyText, kind, logoUrl: org.logoUrl });
-  return smtpSettings()
-    ? smtpSend(to, subject, bodyText, html, attachments)
-    : graphSend(to, subject, html, attachments);
+  if (smtpSettings()) {
+    const smtp = await smtpSend(to, subject, bodyText, html, attachments);
+    if (smtp.ok) return smtp;
+    console.error(`[mailer] SMTP failed (${kind} → ${to}): ${smtp.error}`);
+    // Fall through to Graph when present (common for Microsoft 365 tenants that block basic SMTP).
+    if (graphSettings()) {
+      console.warn("[mailer] retrying via Microsoft Graph after SMTP failure");
+      return graphSend(to, subject, html, attachments);
+    }
+    return smtp;
+  }
+  return graphSend(to, subject, html, attachments);
 }
 
 export async function sendEmail(opts: {
