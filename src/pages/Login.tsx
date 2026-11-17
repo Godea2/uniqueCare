@@ -30,9 +30,9 @@ export default function Login() {
       if (!result.session?.accessToken || !result.session?.refreshToken) {
         throw new Error("Sign-in did not return a session. Please try again.");
       }
-      // Drop any cached auth.me UNAUTHORIZED from a previous failed visit to /.
-      await utils.invalidate();
+      // Persist first, then drop any cached auth.me UNAUTHORIZED from a prior visit.
       writeSession(result.session);
+      await utils.invalidate();
       navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
