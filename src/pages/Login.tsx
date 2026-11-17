@@ -6,11 +6,13 @@ import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import AuthShell from "@/components/AuthShell";
 import { postAuth, writeSession, type AuthSession } from "@/lib/session";
+import { trpc } from "@/providers/trpc";
 
 const PUBLIC_CAREERS_URL = "https://www.uniquecareuk.com/careers";
 
 export default function Login() {
   const navigate = useNavigate();
+  const utils = trpc.useUtils();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -21,9 +23,17 @@ export default function Login() {
     setBusy(true);
     setError("");
     try {
-      const result = await postAuth<{ session: AuthSession }>("/api/auth/signin", { email, password });
+      const result = await postAuth<{ session: AuthSession }>("/api/auth/signin", {
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      if (!result.session?.accessToken || !result.session?.refreshToken) {
+        throw new Error("Sign-in did not return a session. Please try again.");
+      }
+      // Drop any cached auth.me UNAUTHORIZED from a previous failed visit to /.
+      await utils.invalidate();
       writeSession(result.session);
-      navigate("/");
+      navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
     } finally {

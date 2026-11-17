@@ -25,21 +25,34 @@ export function useAuth(options?: UseAuthOptions) {
     };
   }, []);
 
+  const accessToken = session?.accessToken ?? "";
+
   const { data: user, isLoading, error, refetch } = trpc.auth.me.useQuery(undefined, {
-    enabled: !!session,
-    staleTime: 1000 * 60 * 5,
+    enabled: !!session?.accessToken,
+    // Never reuse a previous UNAUTHORIZED / user payload across logins.
+    staleTime: 0,
+    gcTime: 0,
     retry: false,
+    refetchOnMount: "always",
+    refetchOnReconnect: "always",
   });
+
+  // When the access token changes (fresh sign-in), drop any cached auth failure.
+  useEffect(() => {
+    if (!accessToken) return;
+    void utils.auth.me.invalidate();
+  }, [accessToken, utils]);
 
   useEffect(() => {
     if (session && error?.data?.code === "UNAUTHORIZED") {
       writeSession(null);
+      void utils.auth.me.reset();
     }
-  }, [session, error]);
+  }, [session, error, utils]);
 
   const logout = useCallback(() => {
     writeSession(null);
-    utils.invalidate();
+    void utils.invalidate();
     navigate(redirectPath);
   }, [navigate, redirectPath, utils]);
 

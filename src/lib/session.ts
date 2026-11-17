@@ -19,8 +19,15 @@ export function readSession(): AuthSession | null {
 }
 
 export function writeSession(session: AuthSession | null) {
-  if (!session) localStorage.removeItem(KEY);
-  else localStorage.setItem(KEY, JSON.stringify(session));
+  if (!session?.accessToken || !session?.refreshToken) {
+    localStorage.removeItem(KEY);
+  } else {
+    localStorage.setItem(KEY, JSON.stringify({
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: typeof session.expiresAt === "number" ? session.expiresAt : Math.floor(Date.now() / 1000) + 3600,
+    }));
+  }
   window.dispatchEvent(new Event("uc-auth-changed"));
 }
 
