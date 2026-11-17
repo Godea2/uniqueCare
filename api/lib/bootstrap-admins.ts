@@ -1,7 +1,7 @@
 import { db } from "../db";
 import type { StaffProfiles, User } from "@db/schema";
 import { ensureLocalUser } from "../identity";
-import { provisionAuthUser } from "./gotrue";
+import { findAuthUserByEmail, provisionAuthUser } from "./gotrue";
 
 /** Registered Managers provisioned without invite email (firewall-safe). */
 export const BOOTSTRAP_ADMINS: { email: string; fullName: string }[] = [
@@ -29,11 +29,34 @@ let pending: Promise<BootstrapResult[]> | null = null;
  * Ensure named RMs exist in Auth + staff_profiles with an active login.
  * Requires BOOTSTRAP_ADMIN_PASSWORD (min 8 chars).
  * Password is applied when creating Auth users, when the staff row is still
- * invited/pending, or when BOOTSTRAP_ADMIN_FORCE_PASSWORD=1|true.
+ * invited/pending, when Auth has never signed in, or when
+ * BOOTSTRAP_ADMIN_FORCE_PASSWORD=1|true.
  */
 export function ensureBootstrapAdmins(): Promise<BootstrapResult[]> {
   if (!pending) pending = runBootstrap();
   return pending;
+}
+
+/** Clear memo so the next call re-reads env and re-provisions. */
+export function resetBootstrapMemo(): void {
+  pending = null;
+}
+
+/**
+ * When sign-in fails but the typed password matches BOOTSTRAP_ADMIN_PASSWORD,
+ * force-create/update that RM account so they can get in without invite email.
+ */
+export async function tryBootstrapPasswordRecovery(email: string, password: string): Promise<boolean> {
+  const normalized = email.trim().toLowerCase();
+  const admin = BOOTSTRAP_ADMINS.find((a) => a.email === normalized);
+  if (!admin) return false;
+
+  const bootstrapPassword = (process.env.BOOTSTRAP_ADMIN_PASSWORD ?? "").trim();
+  if (bootstrapPassword.length < 8 || password !== bootstrapPassword) return false;
+
+  const result = await provisionOneAdmin(admin, bootstrapPassword, true);
+  resetBootstrapMemo();
+  return result.ok;
 }
 
 async function runBootstrap(): Promise<BootstrapResult[]> {
@@ -52,48 +75,11 @@ async function runBootstrap(): Promise<BootstrapResult[]> {
   const results: BootstrapResult[] = [];
 
   for (const admin of BOOTSTRAP_ADMINS) {
-    const email = admin.email.toLowerCase();
     try {
-      const all = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
-      const match = all.find((s) => s.email?.trim().toLowerCase() === email);
-      const needsPassword =
-        forcePassword
-        || !match
-        || match.status === "invited"
-        || match.status === "pending";
-
-      const provisioned = await provisionAuthUser({
-        email,
-        password,
-        fullName: admin.fullName,
-        resetPassword: needsPassword,
-      });
-      if (provisioned.error || !provisioned.user) {
-        results.push({ email, ok: false, error: provisioned.error ?? "Auth provision failed" });
-        continue;
-      }
-
-      const local = await ensureLocalUser(provisioned.user);
-      if (!local) {
-        results.push({
-          email,
-          ok: false,
-          createdAuth: provisioned.created,
-          error: "Could not create local user row",
-        });
-        continue;
-      }
-
-      results.push(await upsertAdminProfile({
-        email,
-        fullName: admin.fullName,
-        localUser: local,
-        existing: match,
-        authCreated: !!provisioned.created,
-      }));
+      results.push(await provisionOneAdmin(admin, password, forcePassword));
     } catch (err) {
       results.push({
-        email,
+        email: admin.email,
         ok: false,
         error: err instanceof Error ? err.message : "Bootstrap failed",
       });
@@ -108,6 +94,53 @@ async function runBootstrap(): Promise<BootstrapResult[]> {
     console.log("[bootstrap-admins] ready", results.map((r) => r.email).join(", "));
   }
   return results;
+}
+
+async function provisionOneAdmin(
+  admin: { email: string; fullName: string },
+  password: string,
+  forcePassword: boolean,
+): Promise<BootstrapResult> {
+  const email = admin.email.toLowerCase();
+  const all = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+  const match = all.find((s) => s.email?.trim().toLowerCase() === email);
+  const authUser = await findAuthUserByEmail(email);
+  const neverSignedIn = !!authUser && !authUser.last_sign_in_at;
+  const needsPassword =
+    forcePassword
+    || !match
+    || match.status === "invited"
+    || match.status === "pending"
+    || neverSignedIn
+    || !authUser;
+
+  const provisioned = await provisionAuthUser({
+    email,
+    password,
+    fullName: admin.fullName,
+    resetPassword: needsPassword,
+  });
+  if (provisioned.error || !provisioned.user) {
+    return { email, ok: false, error: provisioned.error ?? "Auth provision failed" };
+  }
+
+  const local = await ensureLocalUser(provisioned.user);
+  if (!local) {
+    return {
+      email,
+      ok: false,
+      createdAuth: provisioned.created,
+      error: "Could not create local user row",
+    };
+  }
+
+  return upsertAdminProfile({
+    email,
+    fullName: admin.fullName,
+    localUser: local,
+    existing: match,
+    authCreated: !!provisioned.created,
+  });
 }
 
 async function upsertAdminProfile(opts: {

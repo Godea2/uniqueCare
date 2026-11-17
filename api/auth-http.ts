@@ -58,17 +58,37 @@ export async function signupHandler(c: Context) {
 }
 
 export async function signinHandler(c: Context) {
+  const body = await readJson(c);
+  const email = text(body.email).toLowerCase();
+  const password = typeof body.password === "string" ? body.password : "";
+  if (!email || !password) return c.json({ error: "Email and password are required" }, 400);
+
   // Lazily provision firewall-safe RM accounts when BOOTSTRAP_ADMIN_PASSWORD is set.
   await ensureBootstrapAdmins().catch((err) => {
     console.error("[auth/signin] bootstrap-admins:", err instanceof Error ? err.message : err);
   });
 
-  const body = await readJson(c);
-  const email = text(body.email).toLowerCase();
-  const password = typeof body.password === "string" ? body.password : "";
-  if (!email || !password) return c.json({ error: "Email and password are required" }, 400);
-  const result = await signInWithPassword(email, password);
+  let result = await signInWithPassword(email, password);
   if (result.error || !result.session) {
+    // If they typed the shared bootstrap password, force-sync Auth + profile then retry.
+    // Covers stranded invite users and deploys where the env var was added after first boot.
+    const { tryBootstrapPasswordRecovery } = await import("./lib/bootstrap-admins");
+    const recovered = await tryBootstrapPasswordRecovery(email, password).catch((err) => {
+      console.error("[auth/signin] bootstrap-recovery:", err instanceof Error ? err.message : err);
+      return false;
+    });
+    if (recovered) {
+      result = await signInWithPassword(email, password);
+    }
+  }
+  if (result.error || !result.session) {
+    const { BOOTSTRAP_ADMIN_EMAILS } = await import("./lib/bootstrap-admins");
+    const bootstrapReady = (process.env.BOOTSTRAP_ADMIN_PASSWORD ?? "").trim().length >= 8;
+    if (BOOTSTRAP_ADMIN_EMAILS.has(email) && !bootstrapReady) {
+      return c.json({
+        error: "Admin login is not provisioned yet. Add BOOTSTRAP_ADMIN_PASSWORD on the portal Vercel project (Production), redeploy, then sign in with that password.",
+      }, 401);
+    }
     return c.json({ error: result.error ?? "Email or password is incorrect" }, 401);
   }
   return c.json({ session: result.session });
