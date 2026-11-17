@@ -8,6 +8,7 @@ import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import {
+  changePasswordHandler,
   forgotHandler,
   refreshHandler,
   setPasswordHandler,
@@ -15,6 +16,7 @@ import {
   signupHandler,
   verifyHandler,
 } from "./auth-http";
+import { ensureBootstrapAdmins } from "./lib/bootstrap-admins";
 import { runExpiryReminderJob } from "./lib/expiry-tracker";
 import { runAutoClockOutSweep } from "./lib/attendance-session";
 
@@ -27,6 +29,18 @@ app.post("/api/auth/refresh", refreshHandler);
 app.post("/api/auth/forgot", forgotHandler);
 app.post("/api/auth/verify", verifyHandler);
 app.post("/api/auth/set-password", setPasswordHandler);
+app.post("/api/auth/change-password", changePasswordHandler);
+
+/** One-shot / redeploy hook: provision RM accounts from BOOTSTRAP_ADMIN_PASSWORD (cron secret). */
+app.post("/api/auth/bootstrap-admins", async (c) => {
+  if (!assertCronAuth(c)) return c.json({ error: "Unauthorized" }, 401);
+  try {
+    const results = await ensureBootstrapAdmins();
+    return c.json({ ok: results.every((r) => r.ok), results });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Bootstrap failed" }, 500);
+  }
+});
 
 function assertCronAuth(c: { req: { header: (n: string) => string | undefined } }) {
   const auth = c.req.header("authorization") ?? "";

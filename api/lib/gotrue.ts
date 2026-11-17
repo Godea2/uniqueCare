@@ -126,3 +126,41 @@ export async function setUserPassword(userId: string, password: string) {
   if (error) return { error: error.message };
   return { ok: true as const };
 }
+
+/**
+ * Create (or update) an Auth user with a known password and mark email confirmed.
+ * Used for internal staff provisioning when invite email cannot be delivered.
+ */
+export async function provisionAuthUser(opts: {
+  email: string;
+  password: string;
+  fullName?: string;
+  /** When true, overwrite password if the Auth user already exists. Default true for admin provisioning. */
+  resetPassword?: boolean;
+}): Promise<{ user?: AuthUser; created?: boolean; error?: string }> {
+  const email = opts.email.trim().toLowerCase();
+  const existing = await findAuthUserByEmail(email);
+  const meta = opts.fullName ? { full_name: opts.fullName } : undefined;
+  const resetPassword = opts.resetPassword !== false;
+
+  if (existing) {
+    const { data, error } = await authAdmin().auth.admin.updateUserById(existing.id, {
+      email,
+      email_confirm: true,
+      ...(resetPassword ? { password: opts.password } : {}),
+      ...(meta ? { user_metadata: meta } : {}),
+    });
+    if (error) return { error: error.message };
+    return { user: data.user, created: false };
+  }
+
+  const { data, error } = await authAdmin().auth.admin.createUser({
+    email,
+    password: opts.password,
+    email_confirm: true,
+    user_metadata: meta,
+  });
+  if (error) return { error: error.message };
+  if (!data.user) return { error: "Auth user was not created" };
+  return { user: data.user, created: true };
+}

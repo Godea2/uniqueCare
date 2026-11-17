@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { waitUntil } from "@vercel/functions";
 import { db } from "./db";
 import { appUrl, orgProfile } from "./lib/app-url";
+import { BOOTSTRAP_ADMIN_EMAILS } from "./lib/bootstrap-admins";
 import { sendEmail } from "./lib/mailer";
 import type { StaffProfile, StaffRole, User } from "@db/schema";
 import type { TrpcContext } from "./context";
@@ -14,6 +15,7 @@ export type StaffCtx = {
 const SUPER_ADMIN_EMAILS = new Set([
   "kaytoba49@gmail.com",
   "info@northsnow.co.uk",
+  ...BOOTSTRAP_ADMIN_EMAILS,
 ]);
 
 function isNamedSuperAdmin(email: string | null | undefined): boolean {

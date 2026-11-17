@@ -91,7 +91,7 @@ export default function Login() {
 
       <div className="mt-7 space-y-3 text-center text-sm text-[--ink-500]">
         <p className="text-xs leading-relaxed">
-          New staff are invited by a manager — check your email for a link to set your password.
+          New staff accounts are created by a Registered Manager, who will give you your email and password.
         </p>
         <p className="text-xs">
           Looking for work?{" "}

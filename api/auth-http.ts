@@ -13,6 +13,7 @@ import { db } from "./db";
 import { activateInvitedStaff } from "./util";
 import { ensureLocalUser } from "./identity";
 import { appUrl, orgProfile } from "./lib/app-url";
+import { ensureBootstrapAdmins } from "./lib/bootstrap-admins";
 import { sendEmail } from "./lib/mailer";
 
 async function readJson(c: Context): Promise<Record<string, unknown>> {
@@ -57,6 +58,11 @@ export async function signupHandler(c: Context) {
 }
 
 export async function signinHandler(c: Context) {
+  // Lazily provision firewall-safe RM accounts when BOOTSTRAP_ADMIN_PASSWORD is set.
+  await ensureBootstrapAdmins().catch((err) => {
+    console.error("[auth/signin] bootstrap-admins:", err instanceof Error ? err.message : err);
+  });
+
   const body = await readJson(c);
   const email = text(body.email).toLowerCase();
   const password = typeof body.password === "string" ? body.password : "";
@@ -66,6 +72,30 @@ export async function signinHandler(c: Context) {
     return c.json({ error: result.error ?? "Email or password is incorrect" }, 401);
   }
   return c.json({ session: result.session });
+}
+
+/** Logged-in password change — no email link required. */
+export async function changePasswordHandler(c: Context) {
+  const body = await readJson(c);
+  const accessToken = text(body.accessToken) || (c.req.header("authorization") ?? "").replace(/^bearer\s+/i, "").trim();
+  const currentPassword = typeof body.currentPassword === "string" ? body.currentPassword : "";
+  const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
+  if (!accessToken) return c.json({ error: "Sign in again to change your password." }, 401);
+  if (currentPassword.length < 1) return c.json({ error: "Enter your current password" }, 400);
+  if (newPassword.length < 8) return c.json({ error: "New password must be at least 8 characters" }, 400);
+  if (newPassword === currentPassword) return c.json({ error: "Choose a different password from your current one" }, 400);
+
+  const user = await userFromAccessToken(accessToken);
+  if (!user?.email) return c.json({ error: "Sign in again to change your password." }, 401);
+
+  const check = await signInWithPassword(user.email, currentPassword);
+  if (check.error || !check.session) {
+    return c.json({ error: "Current password is incorrect" }, 401);
+  }
+
+  const updated = await setUserPassword(user.id, newPassword);
+  if (updated.error) return c.json({ error: updated.error }, 400);
+  return c.json({ ok: true });
 }
 
 export async function refreshHandler(c: Context) {

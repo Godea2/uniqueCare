@@ -36,12 +36,17 @@ import {
   getStaff, requireRole, audit, notify, canManageUsers,
   OFFICE_ROLES, CLIENT_DIRECTORY_ROLES, STAFF_DIRECTORY_ROLES,
 } from "../util";
-import { authEmailLink, findAuthUserByEmail } from "../lib/gotrue";
+import { authEmailLink, findAuthUserByEmail, provisionAuthUser } from "../lib/gotrue";
 import { appUrl, orgProfile } from "../lib/app-url";
+import { ensureLocalUser } from "../identity";
 import { randomBytes } from "node:crypto";
 
 function tempInvitePassword(): string {
   return `Aa1!${randomBytes(24).toString("base64url")}`;
+}
+
+function generateStaffPassword(): string {
+  return `Uc${randomBytes(9).toString("base64url")}!9`;
 }
 
 function actorMayInvite(staff: StaffProfiles): void {
@@ -76,8 +81,112 @@ export const coreRouter = createRouter({
   }),
 
   /**
-   * Invite a staff member: create profile with role + optional invite permission,
-   * email a one-time link to set their password.
+   * Create a staff login with email + password (no invite email).
+   * Auth user is email-confirmed immediately; staff_profiles is active and linked.
+   */
+  createStaffAccount: authedQuery
+    .input(z.object({
+      fullName: z.string().trim().min(2).max(120),
+      email: z.string().trim().email().max(200),
+      role: z.enum(STAFF_ROLES),
+      password: z.string().min(8).max(128).optional(),
+      canInviteUsers: z.boolean().default(false),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      actorMayInvite(sc.staff);
+      const actorRole = (sc.staff.homeRole ?? sc.staff.role) as StaffRole;
+      if (actorRole !== "super_admin" && input.role === "super_admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only a Registered Manager can create another Registered Manager." });
+      }
+
+      const email = input.email.toLowerCase();
+      const password = (input.password?.trim() || generateStaffPassword());
+      if (password.length < 8) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Password must be at least 8 characters." });
+      }
+
+      const existing = await db.from("staffProfiles").isNull("deletedAt").many<StaffProfiles>();
+      if (existing.some((s) => s.email?.trim().toLowerCase() === email)) {
+        throw new TRPCError({ code: "CONFLICT", message: "A staff account with this email already exists." });
+      }
+
+      const provisioned = await provisionAuthUser({
+        email,
+        password,
+        fullName: input.fullName,
+        resetPassword: true,
+      });
+      if (provisioned.error || !provisioned.user) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: provisioned.error ?? "Could not create the login." });
+      }
+
+      const local = await ensureLocalUser(provisioned.user);
+      if (!local) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Could not sync the user record." });
+      }
+
+      const grantInvite = input.role === "super_admin" ? true : input.canInviteUsers;
+      const [created] = await db.from("staffProfiles").insert<StaffProfiles>({
+        userId: local.id,
+        fullName: input.fullName,
+        email,
+        role: input.role,
+        jobTitle: input.role === "super_admin" ? "Registered Manager" : null,
+        status: "active",
+        canInviteUsers: grantInvite,
+        contractedHours: "37.5",
+        avatarColor: "#0A2E5C",
+      });
+
+      await audit(sc.staff.fullName, "staff_account_created", "staff_profile", created.id, {
+        email, role: input.role, canInviteUsers: grantInvite, authCreated: !!provisioned.created,
+      });
+      return { id: created.id, ok: true, email, password, temporaryPassword: !input.password };
+    }),
+
+  /** Set / reset another user's password without sending email. */
+  setStaffPassword: authedQuery
+    .input(z.object({
+      id: z.number(),
+      password: z.string().min(8).max(128).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      actorMayInvite(sc.staff);
+      const target = await db.from("staffProfiles").eq("id", input.id).isNull("deletedAt").first<StaffProfiles>();
+      if (!target?.email) throw new TRPCError({ code: "NOT_FOUND", message: "Account not found." });
+      const actorRole = (sc.staff.homeRole ?? sc.staff.role) as StaffRole;
+      const targetRole = (target.homeRole ?? target.role) as StaffRole;
+      if (actorRole !== "super_admin" && targetRole === "super_admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only a Registered Manager can reset another Registered Manager password." });
+      }
+
+      const email = target.email.trim().toLowerCase();
+      const password = input.password?.trim() || generateStaffPassword();
+      const provisioned = await provisionAuthUser({
+        email,
+        password,
+        fullName: target.fullName,
+        resetPassword: true,
+      });
+      if (provisioned.error || !provisioned.user) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: provisioned.error ?? "Could not update the password." });
+      }
+
+      const local = await ensureLocalUser(provisioned.user);
+      await db.from("staffProfiles").eq("id", target.id).update({
+        userId: local?.id ?? target.userId,
+        status: target.status === "left" ? target.status : "active",
+        email,
+      });
+
+      await audit(sc.staff.fullName, "staff_password_set", "staff_profile", target.id, { email });
+      return { ok: true, email, password, temporaryPassword: !input.password };
+    }),
+
+  /**
+   * Legacy email invite (kept for environments where SMTP works). Prefer createStaffAccount.
    */
   inviteStaff: authedQuery
     .input(z.object({
@@ -101,7 +210,7 @@ export const coreRouter = createRouter({
       }
       const authUser = await findAuthUserByEmail(email);
       if (authUser?.email_confirmed_at) {
-        throw new TRPCError({ code: "CONFLICT", message: "This email already has a login. Ask them to sign in, or reset their password." });
+        throw new TRPCError({ code: "CONFLICT", message: "This email already has a login. Ask them to sign in, or set a password from User management." });
       }
 
       const grantInvite = input.role === "super_admin" ? true : input.canInviteUsers;
@@ -151,7 +260,7 @@ export const coreRouter = createRouter({
       if (!sent.delivered) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Account was created but the invite email could not be sent. Use Resend invite.",
+          message: "Invite email could not be sent. Use Create account with a password instead (no email required).",
         });
       }
 

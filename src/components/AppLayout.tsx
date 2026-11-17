@@ -6,7 +6,7 @@ import { trpc } from "@/providers/trpc";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, Users, CalendarDays, ShieldCheck, Headset, Briefcase,
-  Settings, ScrollText, Bell, Search, LogOut, UserCog, ClipboardList,
+  Settings, ScrollText, Bell, Search, LogOut, UserCog, ClipboardList, KeyRound,
   CalendarRange, Stethoscope, FileCheck2, GraduationCap, Network,
   ClipboardCheck, Star, AlertTriangle, FileText, FileOutput, ChevronDown, PhoneCall,
   HelpCircle, Map, Compass, Menu, X, Globe, MessageSquare, Mail, Newspaper,
@@ -23,6 +23,7 @@ import {
   CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
 import { AuthLayoutSkeleton } from "./AuthLayoutSkeleton";
+import { ChangePasswordDialog } from "./ChangePasswordDialog";
 import { LOGIN_PATH } from "@/const";
 import type { StaffRole } from "@db/schema";
 
@@ -163,6 +164,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   });
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [searchQ, setSearchQ] = useState("");
   // Groups start collapsed; the one holding the current page opens until the user toggles it.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -214,17 +216,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <div className="uc-card max-w-md p-8 text-center">
           <img src="/logo.png" alt="Unique Care UK" className="mx-auto mb-6 h-10 w-auto" />
           <h1 className="text-lg font-semibold text-[--brand-900]">
-            {needsPassword ? "Create your password to continue" : "Your account is no longer active"}
+            {needsPassword ? "Ask your manager to activate your login" : "Your account is no longer active"}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {needsPassword
-              ? `Your account (${user.email}) is ready. Choose a password to open UniqueCare Connect.`
+              ? `Your account (${user.email}) still needs a password set by a Registered Manager in User management. No email link is required.`
               : "Please contact the office if you think this is a mistake."}
           </p>
           <div className="mt-6 flex justify-center gap-2">
-            {needsPassword && (
-              <Button onClick={() => navigate("/auth/set-password")}>Create password</Button>
-            )}
             <Button variant="outline" onClick={logout}>Sign out</Button>
           </div>
         </div>
@@ -321,6 +320,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </div>
           )}
           <button
+            type="button"
+            onClick={() => setChangePasswordOpen(true)}
+            aria-label="Change password"
+            className="uc-focus flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[--ink-500] transition-colors hover:bg-white hover:text-[--brand-900]"
+          >
+            <KeyRound className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+          </button>
+          <button
             onClick={logout}
             aria-label="Sign out"
             className="uc-focus flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[--ink-500] transition-colors hover:bg-white hover:text-[--brand-900]"
@@ -337,6 +344,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen w-full bg-[--app-bg]">
+      <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
       <div className="uc-frame flex min-h-screen w-full">
       {/* ── Light product nav ── */}
       <aside data-tour="shell-nav" className="no-print uc-sidebar hidden md:flex w-[17.75rem] shrink-0 flex-col">
