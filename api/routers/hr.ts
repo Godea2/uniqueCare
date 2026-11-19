@@ -45,7 +45,7 @@ import { appUrl, orgProfile, portalUrl } from "../lib/app-url";
 import { jobRequirements, liveApplicationSchema, normaliseRequirements, syncJobForm } from "../lib/job-form";
 import { syncStaffAvailabilityFromApplication } from "../lib/availability-sync";
 import {
-  ALLOW_PAST_INTERVIEW_SLOTS, canTransition, complianceApplication, emailCandidate, emailCandidatesSlotsOpen, emailSlotsOpenIfAny, inviteToInterviewStage,
+  ALLOW_PAST_INTERVIEW_SLOTS, complianceApplication, emailCandidate, emailCandidatesSlotsOpen, emailSlotsOpenIfAny, inviteToInterviewStage,
   isOpenStage, pushStage, screenApplication, screenInBackground, slotAudience, supersedeOlderApplications,
 } from "../lib/recruitment";
 import {
@@ -57,7 +57,7 @@ import {
   isRemovedComplianceKey,
   resolveComplianceRequirement,
 } from "../lib/compliance-docs";
-import { archiveOfferOnHire, buildOfferLetter, ensureOfferPdfStored, offerPdfDownloadUrl } from "../lib/offer-letter";
+import { archiveOfferOnHire, ensureOfferPdfStored, offerPdfDownloadUrl } from "../lib/offer-letter";
 import { recordTrainingOutcome, trainingOutcomeDownloadUrl } from "../lib/training-outcome";
 import {
   OUTGOING_KIND_LABEL, OUTGOING_KINDS, outgoingDocumentUrl, syncOutgoingFromSources,
@@ -73,7 +73,14 @@ import {
 import { waitUntil } from "@vercel/functions";
 import { bumpWebsiteJobsCache } from "../lib/website-revalidate";
 import { requestComplianceForApplication } from "../lib/compliance-request";
-import { issueOfferLetterIfReady, maybeIssueOfferAfterDocVerify } from "../lib/offer-automation";
+import {
+  OFFER_APPROVED,
+  OFFER_DRAFT,
+  maybePrepareOfferAfterDocVerify,
+  prepareOfferDraftIfReady,
+  sendOfferLetterManual,
+} from "../lib/offer-automation";
+import { sendEmploymentContract } from "../lib/employment-contract";
 import crypto from "crypto";
 
 const RECRUITMENT_ROLES: StaffRole[] = ["super_admin", "admin", "team_leader", "interview_panel"];
@@ -1077,21 +1084,106 @@ export const hrRouter2 = createRouter({
       return { ok: true };
     }),
 
-  /** Manual send / resend offer letter (after all required docs are verified). */
+  /** Prepare a draft offer after compliance/refs are verified (no email). */
+  prepareOfferDraft: authedQuery
+    .input(z.object({ applicationId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      const result = await prepareOfferDraftIfReady({ applicationId: input.applicationId });
+      if (!result.ready) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: result.reason ?? "Could not prepare offer draft" });
+      }
+      await audit(sc.staff.fullName, "offer_draft_prepared", "applications", input.applicationId);
+      return { ok: true, offerId: result.offerId };
+    }),
+
+  /** Edit draft offer letter content before approval/send. */
+  updateOfferContent: authedQuery
+    .input(z.object({
+      applicationId: z.number(),
+      content: z.string().trim().min(40).max(20_000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      const offer = await db.from("offerLetters").eq("applicationId", input.applicationId).order("id", "desc").first<OfferLetters>();
+      if (!offer) throw new TRPCError({ code: "NOT_FOUND", message: "No offer letter draft found." });
+      if (offer.sentAt && offer.acceptedAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This offer has already been accepted and cannot be edited." });
+      }
+      const patch: Record<string, unknown> = {
+        content: input.content,
+        // Editing after approval returns it to draft so they must re-approve.
+        templateVersion: offer.sentAt ? offer.templateVersion : OFFER_DRAFT,
+      };
+      if (!offer.sentAt) patch.sentAt = null;
+      try {
+        await db.from("offerLetters").eq("id", offer.id).update({
+          ...patch,
+          pdfFileKey: null,
+          pdfFileName: null,
+        });
+      } catch {
+        await db.from("offerLetters").eq("id", offer.id).update(patch);
+      }
+      await audit(sc.staff.fullName, "offer_content_updated", "offer_letters", offer.id, { applicationId: input.applicationId });
+      return { ok: true };
+    }),
+
+  /** Approve a draft offer so it can be sent. */
+  approveOfferLetter: authedQuery
+    .input(z.object({ applicationId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      const offer = await db.from("offerLetters").eq("applicationId", input.applicationId).order("id", "desc").first<OfferLetters>();
+      if (!offer) throw new TRPCError({ code: "NOT_FOUND", message: "No offer letter draft found. Prepare the draft first." });
+      if (offer.sentAt) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This offer has already been sent." });
+      }
+      if (!offer.content?.trim()) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Offer content is empty — edit it before approving." });
+      }
+      await db.from("offerLetters").eq("id", offer.id).update({ templateVersion: OFFER_APPROVED });
+      await audit(sc.staff.fullName, "offer_approved", "offer_letters", offer.id, { applicationId: input.applicationId });
+      return { ok: true };
+    }),
+
+  /** Manual send / resend offer letter (requires approval for first send). */
   sendOfferLetter: authedQuery
     .input(z.object({ applicationId: z.number(), forceResend: z.boolean().default(false) }))
     .mutation(async ({ ctx, input }) => {
       const sc = await getStaff(ctx);
       requireRole(sc, "super_admin", "admin");
-      const result = await issueOfferLetterIfReady({
+      const result = await sendOfferLetterManual({
         applicationId: input.applicationId,
         baseUrl: appUrl(ctx.req),
+        actor: sc.staff.fullName,
         forceResend: input.forceResend,
       });
       if (!result.sent) {
         throw new TRPCError({ code: "BAD_REQUEST", message: result.reason ?? "Could not send offer letter" });
       }
       await audit(sc.staff.fullName, input.forceResend ? "offer_resent" : "offer_sent_manual", "applications", input.applicationId);
+      return { ok: true };
+    }),
+
+  /** Send the main employment contract (after refs/compliance complete). */
+  sendEmploymentContract: authedQuery
+    .input(z.object({ applicationId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      const result = await sendEmploymentContract({
+        applicationId: input.applicationId,
+        baseUrl: appUrl(ctx.req),
+        actor: sc.staff.fullName,
+      });
+      if (!result.sent) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: result.reason ?? "Could not send employment contract" });
+      }
+      await audit(sc.staff.fullName, "employment_contract_sent", "applications", input.applicationId);
       return { ok: true };
     }),
 
@@ -1123,8 +1215,8 @@ export const hrRouter2 = createRouter({
         status: "verified", verifiedBy: sc.staff.fullName, verifiedAt: new Date(), expiresAt,
       });
       await audit(sc.staff.fullName, "document_verified", "compliance_documents", input.id);
-      // When the last required doc is verified → compliance complete + offer PDF emailed.
-      await maybeIssueOfferAfterDocVerify({ documentId: input.id, baseUrl: appUrl(ctx.req) });
+      // When the last required doc (incl. references) is verified → draft offer for review (no email).
+      await maybePrepareOfferAfterDocVerify({ documentId: input.id });
       return { ok: true };
     }),
 
@@ -1653,6 +1745,38 @@ export const hrRouter2 = createRouter({
       return { ok: true };
     }),
 
+  /** Mark training complete (does not hire). Attendance/pass also auto-calls this path. */
+  markTrainingComplete: authedQuery
+    .input(z.object({ applicationId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const sc = await getStaff(ctx);
+      requireRole(sc, "super_admin", "admin");
+      const app = await db.from("applications").eq("id", input.applicationId).first<Applications>();
+      if (!app) throw new TRPCError({ code: "NOT_FOUND" });
+      if (app.stage === "hired") throw new TRPCError({ code: "BAD_REQUEST", message: "This candidate has already been hired." });
+      if (app.stage === "training_complete") return { ok: true, already: true };
+      const allowedFrom = ["training_booked", "online_training_in_progress", "dbs_verified"];
+      if (!allowedFrom.includes(app.stage)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Training can only be marked complete after the candidate has started training.",
+        });
+      }
+      if (app.stage === "training_booked") {
+        await pushStage(app.id, "online_training_in_progress", sc.staff.fullName);
+      }
+      const cur = await db.from("applications").eq("id", app.id).first<Applications>();
+      if (cur && cur.stage !== "training_complete") {
+        await pushStage(app.id, "training_complete", sc.staff.fullName);
+      }
+      await audit(sc.staff.fullName, "training_marked_complete", "applications", input.applicationId);
+      return { ok: true };
+    }),
+
+  /**
+   * Hire a candidate whose training is complete.
+   * Requires DBS check-in. Creates/reactivates the staff profile and copies docs/training.
+   */
   completeTraining: authedQuery
     .input(z.object({ applicationId: z.number() }))
     .mutation(async ({ ctx, input }) => {
@@ -1661,12 +1785,21 @@ export const hrRouter2 = createRouter({
       const app = await db.from("applications").eq("id", input.applicationId).first<Applications>();
       if (!app) throw new TRPCError({ code: "NOT_FOUND" });
       const dbs = await db.from("dbsVerifications").eq("applicationId", app.id).first<DbsVerifications>();
-      if (!dbs) throw new TRPCError({ code: "BAD_REQUEST", message: "DBS verification at check-in is required before training can be completed." });
+      if (!dbs) throw new TRPCError({ code: "BAD_REQUEST", message: "DBS verification at check-in is required before hiring." });
       if (app.stage === "hired") throw new TRPCError({ code: "BAD_REQUEST", message: "This candidate has already been hired." });
-      if (!["dbs_verified", "training_complete"].includes(app.stage)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Record the DBS check at training check-in first." });
+      if (!["dbs_verified", "training_complete", "online_training_in_progress", "training_booked"].includes(app.stage)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Record the DBS check and complete training first." });
       }
-      if (app.stage === "dbs_verified") await pushStage(app.id, "training_complete", sc.staff.fullName);
+      // Ensure we land on training_complete before hire so the pipeline column is accurate.
+      if (app.stage !== "training_complete") {
+        if (app.stage === "training_booked") await pushStage(app.id, "online_training_in_progress", sc.staff.fullName);
+        const mid = await db.from("applications").eq("id", app.id).first<Applications>();
+        if (mid && mid.stage !== "training_complete" && mid.stage !== "hired") {
+          if (mid.stage === "online_training_in_progress" || mid.stage === "dbs_verified") {
+            await pushStage(app.id, "training_complete", sc.staff.fullName);
+          }
+        }
+      }
       const cand = (await db.from("candidates").eq("id", app.candidateId).first<Candidates>())!;
       const job = await db.from("jobPostings").eq("id", app.jobPostingId).first<JobPostings>();
       const existing = await db.from("staffProfiles").eq("email", cand.email).first<StaffProfiles>();
@@ -1769,9 +1902,11 @@ export const hrRouter2 = createRouter({
         } catch { /* hire still succeeds if storage is briefly unavailable */ }
       }
 
-      // re-fetch: stage may have moved to training_complete above — final transition to hired
       const cur = await db.from("applications").eq("id", app.id).first<Applications>();
-      if (cur?.stage === "training_complete") await pushStage(app.id, "hired", "System (automation)");
+      if (cur?.stage === "training_complete") await pushStage(app.id, "hired", sc.staff.fullName);
+      else if (cur && cur.stage !== "hired") {
+        await pushStage(app.id, "hired", sc.staff.fullName, "Hire after training", true);
+      }
       await notifyRoles(["admin", "super_admin", "care_coordinator"], {
         type: "hr", title: `${cand.firstName} ${cand.lastName} has joined as ${job?.title ?? "a new starter"}`,
         body: "Compliance documents, offer letter PDF and training copied to the staff file.",

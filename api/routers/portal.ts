@@ -174,7 +174,8 @@ export const portalRouter = createRouter({
               : resolveComplianceRequirement({ key: d.requirementKey, label: d.requirementKey.replace(/_/g, " ") });
             return { ...d, requirement };
           }),
-        offer, complianceDone, offerAccepted,
+        // Only expose issued offers to the candidate (drafts stay internal until sent).
+        offer: offer?.sentAt ? offer : null, complianceDone, offerAccepted,
         enrolments: enrolments.map((e) => ({ ...e, course: courses.find((c) => c.id === e.courseId) })),
         sessions: offerAccepted ? await portalSessions(sessions, courses, enrolments) : [],
         stageIndex: APPLICATION_STAGE_ORDER.indexOf(app.stage),
@@ -407,7 +408,7 @@ export const portalRouter = createRouter({
       if (app.stage !== "offer_sent")
         throw new TRPCError({ code: "BAD_REQUEST", message: "There is no open offer for this application." });
       const offer = await db.from("offerLetters").eq("applicationId", app.id).order("id", "desc").first<OfferLetters>();
-      if (!offer) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!offer?.sentAt) throw new TRPCError({ code: "BAD_REQUEST", message: "Your offer letter has not been issued yet." });
       const ip = ctx.req.headers.get("x-forwarded-for") ?? "";
       await db.from("offerLetters").eq("id", offer.id).update({
         acceptedAt: new Date(), signatureName: input.signatureName, signatureIp: ip,

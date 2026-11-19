@@ -118,7 +118,7 @@ export default function ComplianceQueue() {
       </Dialog>
 
       <p className="mt-3 text-[11px] text-muted-foreground">
-        Verifying the final required document for a candidate automatically completes compliance and generates their offer letter.
+        Verifying the final required document for a candidate completes compliance and prepares an offer letter draft for review — it is not emailed until you approve and send it.
       </p>
     </div>
   );

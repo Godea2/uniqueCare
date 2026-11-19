@@ -92,13 +92,20 @@ export async function markAttendance(enrolment: TrainingEnrolments, mark: Attend
       const name = `${cand.firstName} ${cand.lastName}`;
       await notifyRoles(["admin", "super_admin"], mark === "present" ? {
         type: "hr", title: `${name} attended ${course?.title ?? "training"}`,
-        body: dbs ? "Their DBS is checked. You can complete their training on their candidate page." : "Record their DBS check, then complete their training on their candidate page.",
+        body: dbs ? "Their DBS is checked. You can hire them once training is marked complete." : "Record their DBS check, then hire them from their candidate page.",
         link: `/recruitment/pipeline/${app.id}`,
       } : {
         type: "hr", title: `${name} did not attend ${course?.title ?? "training"}`,
         body: "Contact them to book another date.",
         link: `/recruitment/pipeline/${app.id}`,
       });
+    }
+    if (mark === "present") {
+      const { maybeAdvanceAfterTrainingProgress } = await import("./training-progress");
+      await maybeAdvanceAfterTrainingProgress({
+        candidateId: Number(enrolment.personId),
+        actor,
+      }).catch(() => {});
     }
   }
   return status;

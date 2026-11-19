@@ -75,18 +75,40 @@ export default function CandidateDetail() {
     onSuccess: () => { inv(); toast.success("Compliance documents requested"); },
     onError: (e) => toast.error(e.message),
   });
+  const prepareOffer = trpc.hr2.prepareOfferDraft.useMutation({
+    onSuccess: () => { inv(); toast.success("Offer draft ready for review"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const approveOffer = trpc.hr2.approveOfferLetter.useMutation({
+    onSuccess: () => { inv(); toast.success("Offer approved — you can send it now"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateOffer = trpc.hr2.updateOfferContent.useMutation({
+    onSuccess: () => { inv(); toast.success("Offer content saved — approve again before sending"); },
+    onError: (e) => toast.error(e.message),
+  });
   const sendOffer = trpc.hr2.sendOfferLetter.useMutation({
     onSuccess: () => { inv(); toast.success("Offer letter emailed to the candidate"); },
     onError: (e) => toast.error(e.message),
   });
+  const sendContract = trpc.hr2.sendEmploymentContract.useMutation({
+    onSuccess: () => { inv(); toast.success("Main employment contract emailed to the candidate"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const markTrainingComplete = trpc.hr2.markTrainingComplete.useMutation({
+    onSuccess: () => { inv(); toast.success("Marked as training complete"); },
+    onError: (e) => toast.error(e.message),
+  });
   const completeTraining = trpc.hr2.completeTraining.useMutation({
-    onSuccess: () => { inv(); toast.success("Training complete — converted to care worker"); },
+    onSuccess: () => { inv(); toast.success("Hired — converted to care worker"); },
     onError: (e) => toast.error(e.message),
   });
 
   const [rejectOpen, setRejectOpen] = useState(false);
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [proposeOpen, setProposeOpen] = useState(false);
+  const [editingOffer, setEditingOffer] = useState(false);
+  const [offerDraftText, setOfferDraftText] = useState("");
 
   if (q.isLoading) return <Loading rows={6} />;
   if (q.error) return <ErrorState message={q.error.message} onRetry={() => q.refetch()} />;
@@ -142,20 +164,39 @@ export default function CandidateDetail() {
                 <FileCheck2 className="h-3.5 w-3.5 mr-1" /> Request compliance docs
               </Button>
             )}
-            {(stage === "compliance_docs_complete" || (stage === "offer_sent" && d.offer && !d.offer.acceptedAt)) && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={sendOffer.isPending}
-                onClick={() => sendOffer.mutate({ applicationId: app.id, forceResend: stage === "offer_sent" })}
-              >
-                <FileCheck2 className="h-3.5 w-3.5 mr-1" />
-                {stage === "offer_sent" ? "Resend offer letter" : "Send offer letter"}
+            {stage === "compliance_docs_complete" && !d.offer && (
+              <Button size="sm" variant="outline" disabled={prepareOffer.isPending} onClick={() => prepareOffer.mutate({ applicationId: app.id })}>
+                <FileCheck2 className="h-3.5 w-3.5 mr-1" /> Prepare offer draft
               </Button>
             )}
-            {(stage === "dbs_verified" || stage === "training_complete") && (
+            {d.offer && !d.offer.sentAt && d.offer.templateVersion !== "approved" && (
+              <Button size="sm" variant="outline" disabled={approveOffer.isPending} onClick={() => approveOffer.mutate({ applicationId: app.id })}>
+                <BadgeCheck className="h-3.5 w-3.5 mr-1" /> Approve offer
+              </Button>
+            )}
+            {d.offer && !d.offer.sentAt && d.offer.templateVersion === "approved" && (
+              <Button size="sm" disabled={sendOffer.isPending} onClick={() => sendOffer.mutate({ applicationId: app.id })}>
+                <FileCheck2 className="h-3.5 w-3.5 mr-1" /> Send offer letter
+              </Button>
+            )}
+            {stage === "offer_sent" && d.offer && !d.offer.acceptedAt && (
+              <Button size="sm" variant="outline" disabled={sendOffer.isPending} onClick={() => sendOffer.mutate({ applicationId: app.id, forceResend: true })}>
+                <FileCheck2 className="h-3.5 w-3.5 mr-1" /> Resend offer letter
+              </Button>
+            )}
+            {["compliance_docs_complete", "offer_sent", "offer_accepted", "training_booked", "online_training_in_progress", "dbs_verified", "training_complete"].includes(stage) && (
+              <Button size="sm" variant="outline" disabled={sendContract.isPending} onClick={() => sendContract.mutate({ applicationId: app.id })}>
+                <FileText className="h-3.5 w-3.5 mr-1" /> Send employment contract
+              </Button>
+            )}
+            {["training_booked", "online_training_in_progress", "dbs_verified"].includes(stage) && (
+              <Button size="sm" variant="outline" disabled={markTrainingComplete.isPending} onClick={() => markTrainingComplete.mutate({ applicationId: app.id })}>
+                <GraduationCap className="h-3.5 w-3.5 mr-1" /> Mark training complete
+              </Button>
+            )}
+            {stage === "training_complete" && (
               <Button size="sm" disabled={completeTraining.isPending} onClick={() => completeTraining.mutate({ applicationId: app.id })}>
-                <GraduationCap className="h-3.5 w-3.5 mr-1" /> Complete training & hire
+                <GraduationCap className="h-3.5 w-3.5 mr-1" /> Hire care worker
               </Button>
             )}
             {!["hired", "rejected", "withdrawn", "screened_out"].includes(stage) && (
@@ -329,8 +370,8 @@ export default function CandidateDetail() {
             <h2 className="uc-label mb-3">Compliance documents</h2>
             {d.docs.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Not requested yet — use Approve & request docs after interview. The offer letter email is sent
-                automatically once every required document here is verified.
+                Not requested yet — use Approve & request docs after interview. Once every required document
+                (including references) is verified, an offer draft is prepared for review — it is not emailed until you approve and send it.
               </p>
             ) : (
               <DocChecklist docs={d.docs} onDone={inv} />
@@ -358,13 +399,74 @@ export default function CandidateDetail() {
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <h2 className="uc-label">Offer letter</h2>
                     <div className="flex items-center gap-2">
-                      <Chip value={d.offer.acceptedAt ? "signed" : "offer_sent"} label={d.offer.acceptedAt ? `Accepted ${fmtDate(d.offer.acceptedAt)}` : "Awaiting signature"} />
-                      <OfferPdfButton applicationId={Number(app.id)} />
+                      <Chip
+                        value={d.offer.acceptedAt ? "signed" : d.offer.sentAt ? "offer_sent" : d.offer.templateVersion === "approved" ? "approved" : "review"}
+                        label={
+                          d.offer.acceptedAt
+                            ? `Accepted ${fmtDate(d.offer.acceptedAt)}`
+                            : d.offer.sentAt
+                              ? "Awaiting signature"
+                              : d.offer.templateVersion === "approved"
+                                ? "Approved — ready to send"
+                                : "Draft — review & approve"
+                        }
+                      />
+                      {d.offer.sentAt && <OfferPdfButton applicationId={Number(app.id)} />}
                     </div>
                   </div>
-                  <pre className="whitespace-pre-wrap rounded-lg bg-[--brand-50] p-3 text-xs leading-relaxed border" style={{ borderColor: "var(--line)" }}>
-                    {d.offer.content}
-                  </pre>
+                  {editingOffer ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={offerDraftText}
+                        onChange={(e) => setOfferDraftText(e.target.value)}
+                        rows={16}
+                        className="font-mono text-xs"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          disabled={updateOffer.isPending || offerDraftText.trim().length < 40}
+                          onClick={() => updateOffer.mutate(
+                            { applicationId: app.id, content: offerDraftText },
+                            { onSuccess: () => setEditingOffer(false) },
+                          )}
+                        >
+                          Save content
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setEditingOffer(false)}>Cancel</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <pre className="whitespace-pre-wrap rounded-lg bg-[--brand-50] p-3 text-xs leading-relaxed border" style={{ borderColor: "var(--line)" }}>
+                        {d.offer.content}
+                      </pre>
+                      {!d.offer.sentAt && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setOfferDraftText(d.offer?.content ?? "");
+                              setEditingOffer(true);
+                            }}
+                          >
+                            Edit offer content
+                          </Button>
+                          {d.offer.templateVersion !== "approved" && (
+                            <Button size="sm" disabled={approveOffer.isPending} onClick={() => approveOffer.mutate({ applicationId: app.id })}>
+                              <BadgeCheck className="h-3.5 w-3.5 mr-1" /> Approve
+                            </Button>
+                          )}
+                          {d.offer.templateVersion === "approved" && (
+                            <Button size="sm" disabled={sendOffer.isPending} onClick={() => sendOffer.mutate({ applicationId: app.id })}>
+                              <FileCheck2 className="h-3.5 w-3.5 mr-1" /> Send to candidate
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
                   {d.offer.signatureName && (
                     <p className="mt-2 text-xs text-muted-foreground">
                       Signed by {d.offer.signatureName} · {fmtDateTime(d.offer.acceptedAt)} · IP recorded

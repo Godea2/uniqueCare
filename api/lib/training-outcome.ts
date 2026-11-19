@@ -187,6 +187,14 @@ export async function recordTrainingOutcome(opts: {
     });
   }
 
+  if (outcome === "pass") {
+    const { maybeAdvanceAfterTrainingProgress } = await import("./training-progress");
+    await maybeAdvanceAfterTrainingProgress({
+      candidateId: Number(cand.id),
+      actor,
+    }).catch(() => {});
+  }
+
   return { outcome, fileKey: key, fileName, emailed };
 }
 

@@ -6,6 +6,7 @@ import { documentDownloadUrl } from "./cv-store";
 
 export const OUTGOING_KINDS = [
   "offer_letter",
+  "employment_contract",
   "training_certificate",
   "training_outcome",
 ] as const;
@@ -14,6 +15,7 @@ export type OutgoingKind = (typeof OUTGOING_KINDS)[number];
 
 export const OUTGOING_KIND_LABEL: Record<OutgoingKind, string> = {
   offer_letter: "Offer letter",
+  employment_contract: "Employment contract",
   training_certificate: "Training certificate",
   training_outcome: "Training outcome letter",
 };

@@ -35,8 +35,8 @@ const ALLOWED: Record<ApplicationStage, ApplicationStage[]> = {
   compliance_docs_complete: ["offer_sent", "rejected", "withdrawn"],
   offer_sent: ["offer_accepted", "rejected", "withdrawn"],
   offer_accepted: ["training_booked", "rejected", "withdrawn"],
-  training_booked: ["online_training_in_progress", "rejected", "withdrawn"],
-  online_training_in_progress: ["dbs_verified", "rejected", "withdrawn"],
+  training_booked: ["online_training_in_progress", "training_complete", "rejected", "withdrawn"],
+  online_training_in_progress: ["dbs_verified", "training_complete", "rejected", "withdrawn"],
   dbs_verified: ["training_complete", "rejected", "withdrawn"],
   training_complete: ["hired", "rejected", "withdrawn"],
   hired: [],
@@ -107,7 +107,7 @@ async function loadParties(appId: number) {
 
 export type CandidateEmailKind =
   | "interview_invitation" | "interview_slots_open" | "interview_booked" | "compliance_requested" | "documents_received"
-  | "document_rejected" | "offer_sent" | "training_invite" | "training_dates_open" | "training_booked"
+  | "document_rejected" | "offer_sent" | "employment_contract_sent" | "training_invite" | "training_dates_open" | "training_booked"
   | "training_passed" | "training_failed"
   | "unsuccessful" | "hired";
 
@@ -144,7 +144,7 @@ export async function emailCandidate(
     },
     documents_received: {
       subject: `We've received your documents — ${p.job.title}`,
-      body: `${hi}\n\nThank you for uploading all of your documents for ${p.job.title}.\n\nOur team will now check each one, usually within two working days. If anything needs to be sent again we will email you straight away. Once everything is checked, we will send your offer letter.\n\nYou can see the status of each document in your candidate portal:\n${link}\n\n${sign}`,
+      body: `${hi}\n\nThank you for uploading all of your documents for ${p.job.title}.\n\nOur team will now check each one, usually within two working days. If anything needs to be sent again we will email you straight away. Once everything is checked, your offer letter will be prepared and sent by our recruitment team.\n\nYou can see the status of each document in your candidate portal:\n${link}\n\n${sign}`,
     },
     document_rejected: {
       subject: `Please upload a document again — ${p.job.title}`,
@@ -153,6 +153,10 @@ export async function emailCandidate(
     offer_sent: {
       subject: `Your offer for ${p.job.title}`,
       body: `${hi}\n\nWe are delighted to offer you the position of ${p.job.title}.\n\nYour offer letter is attached to this email as a PDF. Please also read and accept it in your candidate portal:\n${link}\n\n${sign}`,
+    },
+    employment_contract_sent: {
+      subject: `Your employment contract — ${p.job.title}`,
+      body: `${hi}\n\nPlease find attached your main employment contract for ${p.job.title} at ${org.name}.\n\nRead it carefully. Your manager will arrange signing for your staff file. You can also see your onboarding progress in your candidate portal:\n${link}\n\n${sign}`,
     },
     training_invite: {
       subject: `Your training for ${p.job.title}`,
